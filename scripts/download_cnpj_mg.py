@@ -10,7 +10,7 @@ RECEITA_DIR = BASE_DIR / "data" / "receita"
 TEMP_ZIP = RECEITA_DIR / "temp.zip"
 
 # URL base oficial/mirror alternativo da Receita Federal
-BASE_URL = "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/"
+BASE_URL = "https://dadosabertos.rfb.gov.br/CNPJ/"
 
 
 def download_file(url: str, dest: Path) -> None:
