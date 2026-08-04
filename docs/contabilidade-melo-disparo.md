@@ -26,10 +26,9 @@ O cache de token e salvo fora do repositorio por padrao. Nunca commitar tokens, 
 
 ## Primeiro teste
 
-1. Rode python scripts/autorizar_microsoft_graph.py.
+1. Rode python -m scripts.autorizar_microsoft_graph.
 2. Conclua o login Microsoft quando o codigo de dispositivo for exibido.
-3. Rode python scripts/enviar_teste_microsoft_graph.py.
+3. Rode python -m scripts.enviar_teste_microsoft_graph.
 4. Confirme a chegada em fredmourao@gmail.com.
 
 A campanha oficial nao deve ser criada nem disparada ate a validacao do teste.
-

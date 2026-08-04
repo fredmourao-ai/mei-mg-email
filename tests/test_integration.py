@@ -125,7 +125,7 @@ def test_prioridade_e_envio_unico(clean_db):
     assert envios[2]["cnpj"] == "22222222000102"  # 2010-01-01 (mais antiga)
 
     # 3. Processar todos os lotes e garantir que as empresas sejam marcadas como "enviado = True"
-    provider = get_email_provider(settings.email_provider)
+    provider = get_email_provider("dummy")
     for _ in range(3):
         with psycopg.connect(settings.database_url) as conn:
             lote = pegar_proximo_lote(conn)
