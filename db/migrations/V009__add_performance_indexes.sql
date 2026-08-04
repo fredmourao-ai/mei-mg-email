@@ -3,4 +3,5 @@ CREATE INDEX IF NOT EXISTS idx_empresas_elegiveis_regime_uf
     ON mei_email.empresas (tipo_regime, uf, data_abertura DESC)
  WHERE opt_out = false
    AND provavel_terceiro = false
-   AND email_valido = true;
+   AND email IS NOT NULL AND email != '';
+
