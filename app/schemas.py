@@ -22,8 +22,15 @@ class CampanhaCreate(BaseModel):
         description="Filtra empresas por regime: MEI, SIMPLES ou OUTROS. Se None, seleciona todas.",
     )
     filtro_uf: str | None = Field(
-        default=None,
-        description="Filtra empresas por estado (ex: MG, SP, RJ). Se None, seleciona empresas de todos os estados.",
+        default="MG",
+        description=(
+            "Filtra empresas por estado. Default 'MG' -- toda campanha nova "
+            "e MG-only a menos que o campo seja explicitamente sobrescrito "
+            "nesta chamada (com outra UF, ex: 'SP', ou com null pra "
+            "remover a restricao e pegar todos os estados). Nunca omita "
+            "esse campo esperando 'todos os estados' por padrao -- omitir "
+            "= MG."
+        ),
     )
     tamanho_lote: int = 100
 

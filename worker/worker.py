@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from urllib.parse import urlencode
 
 import psycopg
 from psycopg.rows import dict_row
@@ -27,7 +28,7 @@ logger = logging.getLogger("mei_mg_email.worker")
 
 
 def montar_corpo(template: str, empresa: dict) -> str:
-    unsubscribe_url = f"{settings.base_url_descadastro}?cnpj={empresa['cnpj']}&email={empresa['email']}"
+    unsubscribe_url = f"{settings.base_url_descadastro}?{urlencode({'cnpj': empresa['cnpj'], 'email': empresa['email']})}"
     # Usa Template do stdlib com $var pra nao colidir com o {{var}} do
     # template salvo no banco -- fazemos a troca manual abaixo pra manter a
     # sintaxe {{var}} amigavel pro usuario que escreve o template.
@@ -40,6 +41,19 @@ def montar_corpo(template: str, empresa: dict) -> str:
     }.items():
         texto = texto.replace("{{" + chave + "}}", valor)
     return texto
+
+
+def obter_envios_hoje(conn: psycopg.Connection) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select count(*)
+              from mei_email.envios
+             where status = 'enviado'
+               and enviado_em >= (now() at time zone 'America/Sao_Paulo')::date
+            """
+        )
+        return cur.fetchone()[0]
 
 
 def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
@@ -67,6 +81,16 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
     falhas = 0
 
     for envio in envios:
+        # Checagem do limite diario de envios (ex: 295 por dia)
+        envios_hoje = obter_envios_hoje(conn)
+        if envios_hoje >= settings.max_envios_por_dia:
+            logger.warning(
+                "Limite diario de %d envios atingido (%d/295). Pausando envios por hoje.",
+                settings.max_envios_por_dia,
+                envios_hoje,
+            )
+            return
+
         # Checagem de opt-out de novo, em cima da hora: pode ter acontecido
         # entre a criacao da campanha e o processamento do lote.
         if envio["opt_out"]:
@@ -134,7 +158,7 @@ def _atualizar_envio(conn, envio_id, status, provider_message_id=None, erro=None
                 update mei_email.empresas
                    set enviado = true,
                        enviado_em = now()
-                 where cnpj = (select cnpj from mei_email.envios where id = %s)
+                 where email = (select email from mei_email.envios where id = %s)
                 """,
                 (envio_id,),
             )

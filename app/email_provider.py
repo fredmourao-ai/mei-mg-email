@@ -281,16 +281,22 @@ class MicrosoftGraphEmailProvider(EmailProvider):
             return self._token
 
         if cache.get("refresh_token"):
-            response = self._post_form(
-                f"{self._authority}/oauth2/v2.0/token",
-                {
-                    "grant_type": "refresh_token",
-                    "client_id": self.client_id,
-                    "scope": self._scope,
-                    "refresh_token": cache["refresh_token"],
-                },
-            )
-            return self._store_token(response, previous=cache)
+            try:
+                response = self._post_form(
+                    f"{self._authority}/oauth2/v2.0/token",
+                    {
+                        "grant_type": "refresh_token",
+                        "client_id": self.client_id,
+                        "scope": self._scope,
+                        "refresh_token": cache["refresh_token"],
+                    },
+                )
+                return self._store_token(response, previous=cache)
+            except RuntimeError as error:
+                # A senha, a sessao ou a politica do tenant pode invalidar o
+                # refresh token. Nesse caso, inicie um novo device login.
+                if "invalid_grant" not in str(error):
+                    raise
 
         return self._device_login()
 

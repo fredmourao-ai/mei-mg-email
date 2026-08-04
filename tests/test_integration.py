@@ -125,7 +125,7 @@ def test_prioridade_e_envio_unico(clean_db):
     assert envios[2]["cnpj"] == "22222222000102"  # 2010-01-01 (mais antiga)
 
     # 3. Processar todos os lotes e garantir que as empresas sejam marcadas como "enviado = True"
-    provider = get_email_provider("dummy")
+    provider = get_email_provider("dryrun")
     for _ in range(3):
         with psycopg.connect(settings.database_url) as conn:
             lote = pegar_proximo_lote(conn)
@@ -155,3 +155,69 @@ def test_prioridade_e_envio_unico(clean_db):
     with pytest.raises(Exception) as exc_info:
         criar_campanha(payload_2)
     assert "Nenhuma empresa elegivel encontrada" in str(exc_info.value)
+
+
+def test_email_duplicado_recebe_apenas_um_envio(clean_db):
+    with psycopg.connect(settings.database_url) as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                insert into mei_email.empresas
+                    (cnpj, razao_social, nome_fantasia, situacao_cadastral,
+                     uf, email, data_abertura, provavel_terceiro)
+                values
+                    (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
+                     'ATIVA', 'MG', 'contato-compartilhado@example.com',
+                     %(data_abertura)s, false)
+                """,
+                [
+                    {
+                        "cnpj": "44444444000104",
+                        "razao_social": "EMPRESA ANTIGA",
+                        "nome_fantasia": "ANTIGA",
+                        "data_abertura": "2020-01-01",
+                    },
+                    {
+                        "cnpj": "55555555000105",
+                        "razao_social": "EMPRESA NOVA",
+                        "nome_fantasia": "NOVA",
+                        "data_abertura": "2026-01-01",
+                    },
+                ],
+            )
+        conn.commit()
+
+    campanha = criar_campanha(
+        CampanhaCreate(
+            nome="Campanha sem duplicidade de e-mail",
+            assunto="Teste",
+            corpo_template="Olá. Descadastro: {{unsubscribe_url}}",
+            tamanho_lote=1,
+            filtro_uf="MG",
+        )
+    )
+
+    assert campanha["total_empresas"] == 1
+    with psycopg.connect(settings.database_url) as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "select cnpj from mei_email.envios where campanha_id = %s",
+                (campanha["id"],),
+            )
+            assert cur.fetchone()["cnpj"] == "55555555000105"
+
+    with psycopg.connect(settings.database_url) as conn:
+        lote = pegar_proximo_lote(conn)
+        processar_lote(conn, lote, get_email_provider("dryrun"))
+
+    with psycopg.connect(settings.database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select count(*)
+                  from mei_email.empresas
+                 where email = 'contato-compartilhado@example.com'
+                   and enviado = true
+                """
+            )
+            assert cur.fetchone()[0] == 2

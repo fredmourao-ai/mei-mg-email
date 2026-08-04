@@ -39,8 +39,21 @@ def criar_campanha(payload: CampanhaCreate):
 
             where_clause = " and ".join(filtros)
             cur.execute(
-                f"select cnpj, email from mei_email.vw_empresas_elegiveis "
-                f"where {where_clause} order by data_abertura desc, cnpj",
+                f"""
+                with candidatas as (
+                    select cnpj, email, data_abertura,
+                           row_number() over (
+                               partition by email
+                               order by data_abertura desc nulls last, cnpj
+                           ) as posicao_do_email
+                      from mei_email.vw_empresas_elegiveis
+                     where {where_clause}
+                )
+                select cnpj, email
+                  from candidatas
+                 where posicao_do_email = 1
+                 order by data_abertura desc nulls last, cnpj
+                """,
                 params,
             )
             empresas = cur.fetchall()

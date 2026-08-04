@@ -25,14 +25,19 @@
   <g transform="translate(36 26)" filter="url(#shadow)">
     <circle cx="84" cy="84" r="78" fill="#ffffff" stroke="#0b1f3a" stroke-width="8"/>
     <circle cx="84" cy="84" r="61" fill="none" stroke="#c7d2df" stroke-width="3"/>
-    <path d="M84 38v92" stroke="#0b1f3a" stroke-width="8" stroke-linecap="round"/>
-    <path d="M58 62c16-14 36-14 52 0M58 106c16 14 36 14 52 0" fill="none" stroke="#0b1f3a" stroke-width="8" stroke-linecap="round"/>
-    <path d="M84 62c-28 16-28 34 0 48c28 16 28 34 0 48" fill="none" stroke="#163c66" stroke-width="6" stroke-linecap="round"/>
-    <path d="M44 82c18 2 28 11 33 28c-19-2-30-11-33-28zM124 82c-18 2-28 11-33 28c19-2 30-11 33-28z" fill="#163c66" opacity="0.92"/>
+    <!-- Caduceu: elmo e asas, bastão e duas serpentes entrelaçadas. -->
+    <path d="M84 48v78" stroke="#0b1f3a" stroke-width="7" stroke-linecap="round"/>
+    <path d="M72 53c3-12 21-12 24 0l-3 7H75z" fill="#163c66"/>
+    <path d="M75 62c-14-15-25-10-31 3c12-1 22 3 30 11M93 62c14-15 25-10 31 3c-12-1-22 3-30 11" fill="none" stroke="#163c66" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M70 70c-17 4-19 17-4 23c20 8 20 22 3 29c-10 4-11 11-4 15" fill="none" stroke="#163c66" stroke-width="6" stroke-linecap="round"/>
+    <path d="M98 70c17 4 19 17 4 23c-20 8-20 22-3 29c10 4 11 11 4 15" fill="none" stroke="#163c66" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="70" cy="70" r="4" fill="#163c66"/>
+    <circle cx="98" cy="70" r="4" fill="#163c66"/>
+    <path d="M72 84h24M72 100h24" stroke="#0b1f3a" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
   </g>
 
   <text x="230" y="104" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="38" font-weight="600" letter-spacing="0.4">Contabilidade</text>
-  <text x="504" y="116" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="62" font-style="italic" font-weight="700">Melo</text>
+  <text x="526" y="116" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="62" font-style="italic" font-weight="700">Melo</text>
   <path d="M226 133h464" stroke="#c7d2df" stroke-width="2" opacity="0.7"/>
   <text x="232" y="154" fill="#dce6f2" font-family="Arial, Helvetica, sans-serif" font-size="15" letter-spacing="4">ORGANIZAÇÃO • CONFIANÇA • RESULTADOS</text>
 </svg>

@@ -1,6 +1,8 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.routes import campanhas, descadastro, empresas
 
@@ -20,6 +22,11 @@ app = FastAPI(
 app.include_router(campanhas.router)
 app.include_router(descadastro.router)
 app.include_router(empresas.router)
+app.mount(
+    "/mei-email-assets",
+    StaticFiles(directory=Path(__file__).resolve().parents[1] / "assets"),
+    name="mei-email-assets",
+)
 
 
 @app.get("/health")
