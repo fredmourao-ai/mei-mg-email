@@ -1,0 +1,34 @@
+# Variáveis de ambiente locais
+.env
+.env.local
+.env.*.local
+
+# Volume do PostgreSQL
+pgdata/
+
+# Dados reais da Receita (potencialmente grandes e sensíveis — nunca versionar)
+data/receita/
+*.csv
+!data/sample/*.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+.flyway-cache/

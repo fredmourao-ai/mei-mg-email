@@ -1,0 +1,47 @@
+name: mei-mg-email
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: mei-mg-email-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mei_mg_email
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db/migrations:/flyway/sql:ro
+    networks:
+      - mei-mg-email
+
+  flyway:
+    image: flyway/flyway:10-alpine
+    container_name: mei-mg-email-flyway
+    depends_on:
+      db:
+        condition: service_started
+    command: -connectRetries=30 migrate
+    environment:
+      FLYWAY_URL: jdbc:postgresql://db:5432/mei_mg_email
+      FLYWAY_USER: postgres
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
+      FLYWAY_SCHEMAS: mei_email
+      FLYWAY_DEFAULT_SCHEMA: mei_email
+    volumes:
+      - ./db/migrations:/flyway/sql:ro
+    networks:
+      - mei-mg-email
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  mei-mg-email:
+    driver: bridge
