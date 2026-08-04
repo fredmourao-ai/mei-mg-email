@@ -10,8 +10,7 @@ RECEITA_DIR = BASE_DIR / "data" / "receita"
 TEMP_ZIP = RECEITA_DIR / "temp.zip"
 
 # URL base oficial/mirror alternativo da Receita Federal
-# O mirror IP 200.152.38.155 costuma ser mais rápido e estável que o domínio da fazenda.
-BASE_URL = "http://200.152.38.155/CNPJ/"
+BASE_URL = "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/"
 
 
 def download_file(url: str, dest: Path) -> None:
