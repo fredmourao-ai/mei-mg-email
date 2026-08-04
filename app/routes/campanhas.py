@@ -26,13 +26,16 @@ def criar_campanha(payload: CampanhaCreate):
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            # A view ja aplica: uf=MG, situacao=ATIVA, opt_out=false,
+            # A view ja aplica: situacao=ATIVA, opt_out=false,
             # provavel_terceiro=false, email is not null.
             filtros = ["1 = 1"]
             params: list[str] = []
             if payload.filtro_tipo_regime:
                 filtros.append("tipo_regime = %s")
                 params.append(payload.filtro_tipo_regime)
+            if payload.filtro_uf:
+                filtros.append("uf = %s")
+                params.append(payload.filtro_uf.upper())
 
             where_clause = " and ".join(filtros)
             cur.execute(
@@ -48,16 +51,16 @@ def criar_campanha(payload: CampanhaCreate):
                     detail=(
                         "Nenhuma empresa elegivel encontrada com esses "
                         "filtros (ja excluindo opt-out, provavel_terceiro "
-                        "e fora de MG/ATIVA). Rode o script de ingestao "
-                        "primeiro, ou revise o tipo_regime."
+                        "e empresas inativas). Rode o script de ingestao "
+                        "primeiro, ou revise os filtros (tipo_regime/uf)."
                     ),
                 )
 
             cur.execute(
                 """
                 insert into mei_email.campanhas
-                    (nome, assunto, corpo_template, filtro_tipo_regime, tamanho_lote, status, total_empresas)
-                values (%s, %s, %s, %s, %s, 'enfileirada', %s)
+                    (nome, assunto, corpo_template, filtro_tipo_regime, filtro_uf, tamanho_lote, status, total_empresas)
+                values (%s, %s, %s, %s, %s, %s, 'enfileirada', %s)
                 returning id, nome, status, total_empresas, total_enviados,
                           total_falhas, criado_em, iniciado_em, concluido_em
                 """,
@@ -66,6 +69,7 @@ def criar_campanha(payload: CampanhaCreate):
                     payload.assunto,
                     payload.corpo_template,
                     payload.filtro_tipo_regime,
+                    payload.filtro_uf.upper() if payload.filtro_uf else None,
                     payload.tamanho_lote,
                     len(empresas),
                 ),

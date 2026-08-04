@@ -21,6 +21,10 @@ class CampanhaCreate(BaseModel):
         default="MEI",
         description="Filtra empresas por regime: MEI, SIMPLES ou OUTROS. Se None, seleciona todas.",
     )
+    filtro_uf: str | None = Field(
+        default=None,
+        description="Filtra empresas por estado (ex: MG, SP, RJ). Se None, seleciona empresas de todos os estados.",
+    )
     tamanho_lote: int = 100
 
 

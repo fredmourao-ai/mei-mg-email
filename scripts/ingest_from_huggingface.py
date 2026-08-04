@@ -88,10 +88,11 @@ def fetch_and_ingest_mg_data() -> None:
                     nat_juridica,
                     porte
                 FROM '{parquet_url}'
-                WHERE uf = 'MG'
-                  AND sit_cadastral = '02'
+                WHERE sit_cadastral = '02'
                   AND email IS NOT NULL
                   AND trim(email) != ''
+                  AND uf IS NOT NULL
+                  AND length(trim(uf)) = 2
             """
             cursor = conn_duck.execute(query)
             
@@ -104,6 +105,9 @@ def fetch_and_ingest_mg_data() -> None:
                 empresas_chunk = []
                 for r in rows:
                     cnpj = str(r[0]).zfill(14)
+                    uf = clean_str(r[4], 2)
+                    if not uf:
+                        continue
                     email = str(r[5]).strip().lower()
                     nat_jur = str(r[9]).strip() if r[9] else ""
                     porte = str(r[10]).strip() if r[10] else ""
@@ -121,7 +125,7 @@ def fetch_and_ingest_mg_data() -> None:
                         "razao_social": clean_str(r[1]),
                         "nome_fantasia": clean_str(r[2]),
                         "situacao_cadastral": "ATIVA",
-                        "uf": "MG",
+                        "uf": uf,
                         "email": email,
                         "ddd_1": clean_str(r[6], 3),
                         "telefone_1": clean_str(r[7], 15),
