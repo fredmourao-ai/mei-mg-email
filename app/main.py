@@ -2,7 +2,7 @@ import logging
 
 from fastapi import FastAPI
 
-from app.routes import campanhas, descadastro
+from app.routes import campanhas, descadastro, empresas
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,6 +19,7 @@ app = FastAPI(
 
 app.include_router(campanhas.router)
 app.include_router(descadastro.router)
+app.include_router(empresas.router)
 
 
 @app.get("/health")

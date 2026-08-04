@@ -129,6 +129,16 @@ def _atualizar_envio(conn, envio_id, status, provider_message_id=None, erro=None
             """,
             (status, provider_message_id, erro, status, envio_id),
         )
+        if status == "enviado":
+            cur.execute(
+                """
+                update mei_email.empresas
+                   set enviado = true,
+                       enviado_em = now()
+                 where cnpj = (select cnpj from mei_email.envios where id = %s)
+                """,
+                (envio_id,),
+            )
     conn.commit()
 
 
