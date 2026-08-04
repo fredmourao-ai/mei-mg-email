@@ -17,6 +17,10 @@ class CampanhaCreate(BaseModel):
             "da campanha se nao incluir (exigencia de anti-spam/LGPD)."
         ),
     )
+    filtro_tipo_regime: str | None = Field(
+        default="MEI",
+        description="Filtra empresas por regime: MEI, SIMPLES ou OUTROS. Se None, seleciona todas.",
+    )
     tamanho_lote: int = 100
 
 
