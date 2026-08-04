@@ -11,14 +11,12 @@ class CampanhaCreate(BaseModel):
     corpo_template: str = Field(
         ...,
         description=(
-            "Suporta {{razao_social}}, {{nome_fantasia}}, {{municipio}}, "
-            "{{cnpj}} e {{unsubscribe_url}}. O template DEVE incluir "
+            "Suporta {{razao_social}}, {{nome_fantasia}}, {{cnpj}} "
+            "e {{unsubscribe_url}}. O template DEVE incluir "
             "{{unsubscribe_url}} em algum lugar -- a API rejeita a criacao "
             "da campanha se nao incluir (exigencia de anti-spam/LGPD)."
         ),
     )
-    filtro_municipio: str | None = None
-    filtro_cnae: str | None = None
     tamanho_lote: int = 100
 
 

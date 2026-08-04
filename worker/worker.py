@@ -35,7 +35,6 @@ def montar_corpo(template: str, empresa: dict) -> str:
     for chave, valor in {
         "razao_social": empresa.get("razao_social") or "",
         "nome_fantasia": empresa.get("nome_fantasia") or "",
-        "municipio": empresa.get("municipio") or "",
         "cnpj": empresa["cnpj"],
         "unsubscribe_url": unsubscribe_url,
     }.items():
@@ -51,7 +50,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             """
             select e.id as envio_id, e.cnpj, e.email,
                    c.assunto, c.corpo_template,
-                   emp.razao_social, emp.nome_fantasia, emp.municipio,
+                   emp.razao_social, emp.nome_fantasia,
                    emp.opt_out
               from mei_email.envios e
               join mei_email.campanhas c on c.id = e.campanha_id

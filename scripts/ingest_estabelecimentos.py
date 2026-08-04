@@ -200,20 +200,15 @@ def gravar_no_banco(empresas: list[dict]) -> None:
                 """
                 insert into mei_email.empresas
                     (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                     cnae, municipio, uf, cep, email, ddd_1, telefone_1,
-                     data_abertura, provavel_terceiro)
+                     uf, email, ddd_1, telefone_1, data_abertura, provavel_terceiro)
                 values
                     (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
-                     %(situacao_cadastral)s, %(cnae)s, %(municipio)s,
-                     %(uf)s, %(cep)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
+                     %(situacao_cadastral)s, %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
                      %(data_abertura)s, %(provavel_terceiro)s)
                 on conflict (cnpj) do update set
                     razao_social = excluded.razao_social,
                     nome_fantasia = excluded.nome_fantasia,
                     situacao_cadastral = excluded.situacao_cadastral,
-                    cnae = excluded.cnae,
-                    municipio = excluded.municipio,
-                    cep = excluded.cep,
                     email = excluded.email,
                     ddd_1 = excluded.ddd_1,
                     telefone_1 = excluded.telefone_1,

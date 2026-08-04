@@ -36,10 +36,7 @@ def test_prioridade_e_envio_unico(clean_db):
             "razao_social": "EMPRESA NOVA",
             "nome_fantasia": "NOVA",
             "situacao_cadastral": "ATIVA",
-            "cnae": "5611203",
-            "municipio": "4123",
             "uf": "MG",
-            "cep": "30130000",
             "email": "nova@example.com",
             "ddd_1": "31",
             "telefone_1": "999990001",
@@ -52,10 +49,7 @@ def test_prioridade_e_envio_unico(clean_db):
             "razao_social": "EMPRESA ANTIGA",
             "nome_fantasia": "ANTIGA",
             "situacao_cadastral": "ATIVA",
-            "cnae": "5611203",
-            "municipio": "4123",
             "uf": "MG",
-            "cep": "30130000",
             "email": "antiga@example.com",
             "ddd_1": "31",
             "telefone_1": "999990002",
@@ -68,10 +62,7 @@ def test_prioridade_e_envio_unico(clean_db):
             "razao_social": "EMPRESA INTERMEDIARIA",
             "nome_fantasia": "INTERMEDIARIA",
             "situacao_cadastral": "ATIVA",
-            "cnae": "5611203",
-            "municipio": "4123",
             "uf": "MG",
-            "cep": "30130000",
             "email": "intermediaria@example.com",
             "ddd_1": "31",
             "telefone_1": "999990003",
@@ -86,12 +77,10 @@ def test_prioridade_e_envio_unico(clean_db):
                 """
                 insert into mei_email.empresas
                     (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                     cnae, municipio, uf, cep, email, ddd_1, telefone_1,
-                     data_abertura, provavel_terceiro)
+                     uf, email, ddd_1, telefone_1, data_abertura, provavel_terceiro)
                 values
                     (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
-                     %(situacao_cadastral)s, %(cnae)s, %(municipio)s,
-                     %(uf)s, %(cep)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
+                     %(situacao_cadastral)s, %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
                      %(data_abertura)s, %(provavel_terceiro)s)
                 """,
                 empresas_teste,

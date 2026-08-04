@@ -27,22 +27,10 @@ def criar_campanha(payload: CampanhaCreate):
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             # A view ja aplica: uf=MG, situacao=ATIVA, opt_out=false,
-            # provavel_terceiro=false, email is not null. Filtros extra da
-            # campanha (municipio/cnae) sao aplicados por cima aqui.
-            filtros = ["1 = 1"]
-            params: list[str] = []
-            if payload.filtro_municipio:
-                filtros.append("municipio = %s")
-                params.append(payload.filtro_municipio)
-            if payload.filtro_cnae:
-                filtros.append("cnae like %s")
-                params.append(f"{payload.filtro_cnae}%")
-
-            where_clause = " and ".join(filtros)
+            # provavel_terceiro=false, email is not null.
             cur.execute(
                 f"select cnpj, email from mei_email.vw_empresas_elegiveis "
-                f"where {where_clause} order by data_abertura desc, cnpj",
-                params,
+                f"order by data_abertura desc, cnpj"
             )
             empresas = cur.fetchall()
 
@@ -50,19 +38,18 @@ def criar_campanha(payload: CampanhaCreate):
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "Nenhuma empresa elegivel encontrada com esses "
-                        "filtros (ja excluindo opt-out, provavel_terceiro "
+                        "Nenhuma empresa elegivel encontrada "
+                        "(ja excluindo opt-out, provavel_terceiro "
                         "e fora de MG/ATIVA). Rode o script de ingestao "
-                        "primeiro, ou revise os filtros."
+                        "primeiro."
                     ),
                 )
 
             cur.execute(
                 """
                 insert into mei_email.campanhas
-                    (nome, assunto, corpo_template, filtro_municipio,
-                     filtro_cnae, tamanho_lote, status, total_empresas)
-                values (%s, %s, %s, %s, %s, %s, 'enfileirada', %s)
+                    (nome, assunto, corpo_template, tamanho_lote, status, total_empresas)
+                values (%s, %s, %s, %s, 'enfileirada', %s)
                 returning id, nome, status, total_empresas, total_enviados,
                           total_falhas, criado_em, iniciado_em, concluido_em
                 """,
@@ -70,8 +57,6 @@ def criar_campanha(payload: CampanhaCreate):
                     payload.nome,
                     payload.assunto,
                     payload.corpo_template,
-                    payload.filtro_municipio,
-                    payload.filtro_cnae,
                     payload.tamanho_lote,
                     len(empresas),
                 ),
