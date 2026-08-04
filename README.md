@@ -1,185 +1,136 @@
 # MEI-MG Email
 
-API + worker para disparo de e-mail em lotes de 100 para MEIs de Minas
-Gerais, a partir dos dados abertos de CNPJ da Receita Federal.
+API + worker para disparo de e-mail em lotes de 100 para MEIs de Minas Gerais, a partir dos dados abertos de CNPJ da Receita Federal.
 
-**Status:** esqueleto inicial. Banco Postgres local via Docker, API mínima,
-worker em modo dry-run (não manda e-mail de verdade ainda). Sem Git
-inicializado ainda (proposital, por enquanto). Dado real da Receita ainda
-não foi importado — só dados fake pra validar a esteira.
+**Status:** Ambiente local configurado com Postgres (Docker), API FastAPI operacional, worker integrado e testado. Controle de priorização por data de abertura e governança de envio único (frequência máxima de 1 e-mail por contato) totalmente implementados e validados por testes de integração. Repositório Git local inicializado e espelhado no GitHub.
 
-## Por que Postgres (e não SQLite)
+---
 
-SQLite seria mais simples de rodar sem Docker, mas este projeto já nasce
-pensando em produção (fila baseada em `SELECT ... FOR UPDATE SKIP LOCKED`,
-que SQLite não suporta bem com múltiplos workers, e volume potencialmente
-grande — todo MEI ativo de MG). Postgres local via Docker Compose, mesmo
-padrão usado no projeto Fala Cidadão, evita esse retrabalho depois.
+## 🏗️ Novas Implementações Realizadas
 
-## Estrutura
+### 1. Governança de Envio Único (Compliance & LGPD)
+* **Objetivo:** Garantir que cada MEI receba no máximo um e-mail promocional/campanha e nunca seja re-enviado.
+* **Solução:**
+  * Adicionadas as colunas `enviado` (boolean, default `false`) e `enviado_em` (timestamptz) na tabela `empresas` (ver [V004__add_enviado_to_empresas.sql](file:///c:/mei-mg-email/db/migrations/V004__add_enviado_to_empresas.sql)).
+  * Atualização automática da view de conformidade `vw_empresas_elegiveis` para selecionar apenas empresas onde `enviado = false`.
+  * Assim que o worker executa o envio do lote com sucesso, a empresa é marcada na base de dados de contatos (`enviado = true`).
+  * Em caso de re-ingestão de dados (atualização a cada 24 horas), o status `enviado` e `opt_out` são mantidos intactos, prevenindo novos envios.
+
+### 2. Fila por Prioridade (Data de Abertura)
+* **Objetivo:** Priorizar os novos MEIs ativos no estado de Minas Gerais para assumirem o topo da fila de envio.
+* **Solução:**
+  * A consulta de seleção de MEIs elegíveis para novas campanhas foi ordenada por `data_abertura DESC` (mais recente primeiro).
+  * O particionamento em lotes de tamanho parametrizável (ex: 100) distribui os contatos de modo que os lotes com número menor (ex: Lote 0) contenham os MEIs mais novos, respeitando limites de cota de disparo diário/mensal.
+
+### 3. Redução Drástica de Armazenamento local (Dados Filtrados)
+* **Objetivo:** Não necessitar baixar e descompactar os 20GB+ da base nacional da Receita Federal na máquina local.
+* **Solução:**
+  * Desenvolvido o script [download_cnpj_mg.py](file:///c:/mei-mg-email/scripts/download_cnpj_mg.py). Ele realiza o download dos arquivos compactados zip diretamente dos servidores da Receita Federal, realiza a descompactação e filtragem *on-the-fly* (linha por linha) mantendo apenas os registros de Minas Gerais (MG), salvando no disco apenas arquivos pequenos e leves (~300MB total).
+
+### 4. Simplificação de Dados (Foco Exclusivo em Contatos)
+* **Objetivo:** Remover informações desnecessárias de endereço físico/geográfico que não são úteis para contato direto.
+* **Solução:**
+  * Aplicada a migração [V005__remove_address_and_cnae_columns.sql](file:///c:/mei-mg-email/db/migrations/V005__remove_address_and_cnae_columns.sql) que removeu as colunas `cep`, `municipio`, `cnae` e `cnae_descricao` da tabela `empresas`, mantendo a base ultra leve e estritamente focada em contato.
+
+### 5. API de Atualização de Base Diária
+* **Objetivo:** Atualizar a base de dados a cada 24 horas com novos MEIs mantendo os status de envios anteriores.
+* **Solução:**
+  * Endpoint `POST /empresas/atualizar-base` adicionado à API. Ele faz a leitura dos arquivos de MG gerados pelo downloader, executa o `UPSERT` mantendo intactos os contatos que já receberam e-mail ou solicitaram opt-out.
+
+---
+
+## 📁 Estrutura do Projeto
 
 ```
 mei-mg-email/
-├── docker-compose.yml       # Postgres 16 + Flyway (migrations automáticas)
+├── docker-compose.yml       # Postgres 16 (Porta 5433) + Flyway (migrations automáticas)
 ├── requirements.txt         # dependências da API/worker
 ├── requirements-dev.txt     # + pytest
 ├── .env.example
 ├── db/
 │   ├── init/                # extensões (executado 1x pelo Postgres)
-│   └── migrations/          # Flyway: V001 empresas, V002 campanhas/lotes/
-│                             # envios/descadastros, V003 trigger de opt-out
-│                             # + view de elegibilidade
+│   └── migrations/          # Migrações Flyway (V001 a V005)
 ├── data/
-│   ├── README.md            # onde baixar o dado real, layout dos arquivos
-│   └── sample/               # CSVs fake no layout real da Receita, p/ teste
+│   ├── README.md            # layout dos arquivos e Mirror da Receita
+│   └── sample/              # CSVs fake no layout real da Receita p/ testes
 ├── scripts/
-│   └── ingest_estabelecimentos.py   # ingestão CSV -> banco
+│   ├── download_cnpj_mg.py  # download sob demanda e filtro de MG on-the-fly
+│   └── ingest_estabelecimentos.py   # ingestão de CSVs filtrados -> banco
 ├── app/                      # API (FastAPI)
 │   ├── main.py
 │   ├── config.py
 │   ├── db.py
-│   ├── email_provider.py    # interface EmailProvider + DryRunEmailProvider
+│   ├── email_provider.py    # Interface EmailProvider (DryRun e Gmail SMTP)
 │   ├── schemas.py
 │   └── routes/
-│       ├── campanhas.py     # POST/GET /campanhas, GET /campanhas/{id}/lotes
-│       └── descadastro.py   # POST /descadastro
+│       ├── campanhas.py     # POST/GET /campanhas (criação e lotes)
+│       ├── descadastro.py   # POST /descadastro
+│       └── empresas.py      # POST /empresas/atualizar-base
 ├── worker/
-│   └── worker.py            # consome a fila de lotes, dispara (dry-run)
+│   └── worker.py            # consome a fila de lotes do Postgres, dispara e atualiza status
 └── tests/
-    └── test_ingest.py       # testa os filtros de ingestão contra data/sample
+    ├── test_ingest.py       # testa os filtros de ingestão
+    └── test_integration.py  # testa a prioridade por data de abertura e envio único
 ```
 
-## Arquitetura do disparo
+---
 
-```
-POST /campanhas
-      │
-      ▼
-seleciona empresas elegíveis (view vw_empresas_elegiveis:
-UF=MG, situação ATIVA, opt_out=false, provavel_terceiro=false, tem e-mail)
-      │
-      ▼
-cria campanha + divide em lotes de 100 (tabela `lotes`, status pendente)
-      │
-      ▼
-worker (processo separado, `python -m worker.worker`) faz polling:
-  SELECT ... FROM lotes WHERE status='pendente' FOR UPDATE SKIP LOCKED
-      │
-      ▼
-processa cada envio do lote, um por vez, respeitando
-RATE_LIMIT_ENVIOS_POR_MINUTO, via EmailProvider.send(...)
-      │
-      ▼
-atualiza envios (enviado/falhou/opt_out) e contadores da campanha
-```
+## ⚙️ Setup Local e Execução
 
-A fila é a própria tabela `lotes` do Postgres (`FOR UPDATE SKIP LOCKED`),
-não Redis/RabbitMQ — suficiente pro volume esperado e permite rodar mais de
-um worker em paralelo sem duas instâncias pegarem o mesmo lote. Migrar pra
-uma fila dedicada depois é troca localizada (só `pegar_proximo_lote` no
-worker), não redesenho.
-
-## Setup local
-
+### 1. Subir Banco de Dados e Migrações (Docker Compose)
+Com o Docker Desktop aberto na máquina local, execute:
 ```powershell
-cd C:\mei-mg-email
-copy .env.example .env
-# editar .env: trocar POSTGRES_PASSWORD
-
 docker compose up -d
-docker compose logs flyway   # confirmar que as migrations rodaram
+```
+Confirme se as migrações aplicaram com sucesso:
+```powershell
+docker compose logs flyway
+```
 
+### 2. Criar e Ativar Ambiente Virtual Python
+```powershell
 python -m venv .venv
-.\.venv\Scripts\pip install -r requirements-dev.txt
+.\.venv\Scripts\activate
+pip install -r requirements-dev.txt
+```
 
-# testar a ingestão com dados fake (sem gravar no banco ainda):
-.\.venv\Scripts\python scripts\ingest_estabelecimentos.py --sample --dry-run
+### 3. Baixar e Filtrar os Dados Reais de MG
+```powershell
+python scripts/download_cnpj_mg.py
+```
 
-# gravar os dados fake de verdade no banco:
-.\.venv\Scripts\python scripts\ingest_estabelecimentos.py --sample
+### 4. Rodar Ingestão dos Dados de MG no Banco
+```powershell
+python scripts/ingest_estabelecimentos.py \
+    --estabelecimentos data/receita/ESTABELECIMENTOS_mg.csv \
+    --empresas data/receita/EMPRESAS_mg.csv \
+    --simples data/receita/SIMPLES_mg.csv
+```
 
-# rodar os testes:
-.\.venv\Scripts\python -m pytest tests\ -v
+### 5. Executar os Testes Automatizados (pytest)
+```powershell
+pytest
+```
 
-# subir a API:
+### 6. Iniciar a API e o Worker de Disparo
+Subir a API FastAPI (Porta 8000):
+```powershell
 .\.venv\Scripts\uvicorn app.main:app --reload --port 8000
-
-# em outro terminal, subir o worker (dry-run: só loga, não envia nada):
+```
+Subir o Worker (em outro terminal):
+```powershell
 .\.venv\Scripts\python -m worker.worker
 ```
 
-Nota: o Postgres deste projeto expõe a porta **5433** (não 5432), de
-propósito, pra não colidir se o Postgres do Fala Cidadão também estiver
-rodando na mesma máquina.
+---
 
-### Testar o fluxo completo (dry-run)
+## 🛡️ Provedor de E-mail: Gmail SMTP
+O projeto já conta com o `GmailEmailProvider` integrado (ver [email_provider.py](file:///c:/mei-mg-email/app/email_provider.py)). 
 
-```powershell
-curl -X POST http://localhost:8000/campanhas -H "Content-Type: application/json" -d "{
-  \"nome\": \"teste dry-run\",
-  \"assunto\": \"Novidade para o seu negócio\",
-  \"corpo_template\": \"Olá {{razao_social}}! ... Para não receber mais: {{unsubscribe_url}}\",
-  \"tamanho_lote\": 100
-}"
+Para enviar e-mails de verdade com o Gmail SMTP, configure no seu arquivo `.env`:
+```ini
+EMAIL_PROVIDER=gmail
+GMAIL_ADDRESS=seu_email@gmail.com
+GMAIL_APP_PASSWORD=sua_app_password_gerada_no_google
 ```
-
-Com o worker rodando, os logs vão mostrar `DRY-RUN: enviaria e-mail
-para=...` pra cada empresa elegível — nada é enviado de verdade.
-
-## Regras de negócio já implementadas
-
-- **Filtro de elegibilidade centralizado** na view
-  `mei_email.vw_empresas_elegiveis` (UF=MG, situação ATIVA, sem opt-out, sem
-  marca de provável terceiro, com e-mail) — a API sempre consulta essa view,
-  nunca a tabela `empresas` direto, pra não esquecer nenhum filtro de
-  compliance em algum endpoint novo no futuro.
-- **"Provável terceiro"**: e-mail que aparece em mais de 3 CNPJs diferentes
-  na importação (heurística de contador/escritório compartilhado) é
-  marcado, não apagado — fica auditável, só é excluído do envio direto.
-- **Opt-out**: `POST /descadastro` registra o pedido; um trigger no banco
-  (`V003`) propaga automaticamente pra `empresas.opt_out = true`. O worker
-  confirma o opt-out de novo na hora de processar o envio (pode ter
-  acontecido entre a criação da campanha e o processamento do lote).
-- **Link de descadastro obrigatório**: a API rejeita (`422`) a criação de
-  campanha se `corpo_template` não contiver `{{unsubscribe_url}}`.
-- **Provedor de e-mail abstraído**: `EmailProvider` (interface) +
-  `DryRunEmailProvider` (única implementação, só loga). Trocar por
-  SendGrid/SES/SMTP depois é implementar uma classe nova em
-  `app/email_provider.py` e apontar `EMAIL_PROVIDER` no `.env`.
-- **Reimportação não apaga opt-out**: rodar a ingestão de novo (dado
-  atualizado da Receita) faz `UPSERT` por CNPJ, mas nunca sobrescreve
-  `opt_out` — uma vez descadastrado, fica descadastrado mesmo que o dado
-  de origem mude.
-
-## O que falta
-
-- **Escolher e implementar o provedor de e-mail real** (SendGrid, SES,
-  SMTP...) — hoje só existe o dry-run.
-- **Importar o dado real da Receita** — ver `data/README.md` pra onde
-  baixar. O parser já espera o layout posicional real, só falta o arquivo.
-- **Autenticação na API** — hoje qualquer um na rede local pode criar
-  campanha. Sem problema pra desenvolvimento, mas precisa de auth antes de
-  expor pra fora do localhost.
-- **Página de descadastro em HTML** — hoje `/descadastro` é só uma rota de
-  API (JSON). O link no e-mail precisa apontar pra uma página de verdade
-  (pode ser um formGET simples servido pela própria API depois).
-- **Anonimização/retenção** — o Fala Cidadão tem uma regra de anonimizar
-  após 90 dias; vale considerar algo parecido aqui também, já que isso é
-  dado de contato de pessoa física em bastante caso (MEI = CPF).
-- **Rate limit e circuit breaker por domínio de e-mail** — hoje o rate
-  limit é global (`RATE_LIMIT_ENVIOS_POR_MINUTO`); provedores de e-mail
-  real costumam exigir throttling por domínio destinatário (gmail.com,
-  outlook.com...) pra não cair em blocklist.
-- **Git** — ainda não inicializado, por pedido explícito. Repositório fica
-  pra depois.
-
-## Sobre a Lei Geral de Proteção de Dados (LGPD) e anti-spam
-
-Isso é envio de e-mail em massa a partir de dado público (CNPJ é dado
-público, mas e-mail de contato dentro dele é dado pessoal quando MEI = CPF
-da própria pessoa). Antes de ligar um provedor de e-mail real e disparar
-pra valer, vale revisar com alguém que entenda de LGPD/CDC se a base legal
-usada (legítimo interesse, provavelmente) está documentada e se o
-tratamento está de acordo — isso não é uma opinião jurídica, só um lembrete
-de que a infraestrutura técnica (opt-out, descarte de terceiros, auditoria)
-ajuda mas não substitui essa revisão.
+*(Lembrando que o Gmail exige o uso de uma **App Password** gerada em https://myaccount.google.com/apppasswords e o 2FA ativo na conta).*
