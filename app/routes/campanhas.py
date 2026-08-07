@@ -9,6 +9,7 @@ from app.db import get_pool
 from app.schemas import CampanhaCreate, CampanhaOut
 
 router = APIRouter(prefix="/campanhas", tags=["campanhas"])
+CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID = 99502026
 
 
 @router.post("", response_model=CampanhaOut, status_code=201)
@@ -25,6 +26,10 @@ def criar_campanha(payload: CampanhaCreate):
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
+            # Serializa a montagem de filas para que duas campanhas simultaneas
+            # nao selecionem o mesmo e-mail antes de uma delas gravar em envios.
+            cur.execute("select pg_advisory_xact_lock(%s)", (CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID,))
+
             filtros = ["1 = 1"]
             params: list[object] = []
             if payload.filtro_tipo_regime:
@@ -45,7 +50,7 @@ def criar_campanha(payload: CampanhaCreate):
                 with candidatas as (
                     select cnpj, email, data_abertura,
                            row_number() over (
-                               partition by email
+                               partition by lower(btrim(email::text))
                                order by data_abertura desc nulls last, cnpj
                            ) as posicao_do_email
                       from mei_email.vw_empresas_elegiveis
@@ -66,7 +71,7 @@ def criar_campanha(payload: CampanhaCreate):
                     status_code=422,
                     detail=(
                         "Nenhuma empresa elegivel encontrada com esses filtros "
-                        "(ja excluindo opt-out, provavel_terceiro e empresas inativas)."
+                        "(ativa, autorizada, sem opt-out/terceiro e nunca enfileirada/contatada)."
                     ),
                 )
 
