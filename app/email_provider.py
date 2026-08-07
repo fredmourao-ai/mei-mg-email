@@ -1,26 +1,21 @@
-"""
-Abstracao de provedor de e-mail.
+"""Email provider abstraction.
 
-O padrao continua sendo DryRunEmailProvider para evitar disparos reais por
-engano. O unico provedor de envio real suportado e Microsoft Graph.
-SMTP (Gmail e Microsoft/Outlook) foi removido deliberadamente para impedir
-fallback acidental para remetentes incorretos.
-
-Personalizacao (mail-merge): o corpo do e-mail e montado por
-worker.worker.montar_corpo() antes de chegar em EmailProvider.send().
+Real delivery is Microsoft Graph only. SMTP is intentionally unsupported.
+Production authentication is app-only with an X.509 certificate stored in the
+Windows CurrentUser certificate store; no browser/device-code login is needed.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import subprocess
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from email.utils import parseaddr
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger("mei_mg_email.email_provider")
@@ -37,13 +32,10 @@ class SendResult:
 class EmailProvider(ABC):
     @abstractmethod
     def send(self, to: str, subject: str, body: str) -> SendResult:
-        """Envia um e-mail e retorna o resultado."""
         raise NotImplementedError
 
 
 class DryRunEmailProvider(EmailProvider):
-    """Nao envia nada de verdade. Loga o que enviaria."""
-
     def send(self, to: str, subject: str, body: str) -> SendResult:
         fake_id = f"dryrun-{int(time.time() * 1000)}"
         logger.info(
@@ -62,158 +54,107 @@ def _body_is_html(body: str) -> bool:
 
 
 class MicrosoftGraphEmailProvider(EmailProvider):
-    """Envia por Microsoft Graph usando OAuth2 delegado, sem SMTP."""
-
-    _scope = "offline_access User.Read Mail.Send"
+    """Microsoft Graph provider using unattended certificate app-only OAuth2."""
 
     def __init__(self) -> None:
         self.tenant_id = os.getenv("MICROSOFT_GRAPH_TENANT_ID", "").strip()
         self.client_id = os.getenv("MICROSOFT_GRAPH_CLIENT_ID", "").strip()
         self.address = os.getenv("MICROSOFT_GRAPH_USER", "").strip()
+        self.auth_mode = os.getenv("MICROSOFT_GRAPH_AUTH_MODE", "app_only_cert").strip().lower()
+        self.certificate_thumbprint = os.getenv("MICROSOFT_GRAPH_CERT_THUMBPRINT", "").replace(" ", "").strip().upper()
 
         raw_from = os.getenv("MAIL_FROM", self.address).strip() or self.address
         parsed_name, parsed_address = parseaddr(raw_from)
-        self.from_name = (
-            parsed_name.strip()
-            or os.getenv("MAIL_FROM_NAME", "").strip()
-            or "Contabilidade Melo"
-        )
+        self.from_name = parsed_name.strip() or os.getenv("MAIL_FROM_NAME", "").strip() or "Contabilidade Melo"
         self.from_address = parsed_address.strip() or self.address
 
-        cache_default_root = Path(os.getenv("LOCALAPPDATA") or Path.home() / ".cache")
-        configured_cache = os.getenv("MICROSOFT_GRAPH_TOKEN_CACHE", "").strip()
-        self.cache_path = Path(configured_cache) if configured_cache else (
-            cache_default_root / "mei-mg-email" / "microsoft-graph-token.json"
-        )
+        base_dir = Path(__file__).resolve().parent.parent
+        configured_broker = os.getenv("MICROSOFT_GRAPH_TOKEN_BROKER", "").strip()
+        self.token_broker = Path(configured_broker) if configured_broker else base_dir / "scripts" / "get_graph_app_token.ps1"
 
         if not self.tenant_id or not self.client_id or not self.address:
             raise RuntimeError(
-                "EMAIL_PROVIDER=microsoft_graph exige "
-                "MICROSOFT_GRAPH_TENANT_ID/MICROSOFT_GRAPH_CLIENT_ID/"
-                "MICROSOFT_GRAPH_USER."
+                "EMAIL_PROVIDER=microsoft_graph exige MICROSOFT_GRAPH_TENANT_ID, "
+                "MICROSOFT_GRAPH_CLIENT_ID e MICROSOFT_GRAPH_USER."
             )
-
+        if self.auth_mode != "app_only_cert":
+            raise RuntimeError(
+                "Autenticacao Graph interativa/delegada esta desabilitada para producao. "
+                "Use MICROSOFT_GRAPH_AUTH_MODE=app_only_cert."
+            )
+        if not self.certificate_thumbprint:
+            raise RuntimeError("MICROSOFT_GRAPH_CERT_THUMBPRINT nao configurado.")
+        if not self.token_broker.is_file():
+            raise RuntimeError(f"token broker Graph ausente: {self.token_broker}")
         if self.from_address.lower() != self.address.lower():
             raise RuntimeError(
                 "MAIL_FROM precisa usar o mesmo endereco de MICROSOFT_GRAPH_USER; "
-                "o nome exibido pode ser configurado, mas spoof de endereco e bloqueado."
+                "spoof de endereco e bloqueado."
             )
 
         self._token: str | None = None
+        self._token_expires_at = 0
         logger.warning(
-            "MicrosoftGraphEmailProvider ativo com remetente=%s <%s>",
+            "MicrosoftGraphEmailProvider app-only ativo com remetente=%s <%s> cert=%s...",
             self.from_name,
             self.from_address,
+            self.certificate_thumbprint[:8],
         )
-
-    @property
-    def _authority(self) -> str:
-        return f"https://login.microsoftonline.com/{self.tenant_id}"
-
-    def _post_form(self, url: str, values: dict[str, str]) -> dict:
-        req = Request(
-            url,
-            data=urlencode(values).encode("utf-8"),
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            method="POST",
-        )
-        try:
-            with urlopen(req, timeout=30) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except HTTPError as error:
-            try:
-                detail = json.loads(error.read().decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
-                detail = {}
-            code = detail.get("error", f"http_{error.code}")
-            description = detail.get("error_description", "falha OAuth Microsoft")
-            raise RuntimeError(f"OAuth Microsoft: {code}: {description}") from error
-        except URLError as error:
-            raise RuntimeError(f"OAuth Microsoft indisponivel: {error.reason}") from error
-
-    def _load_cache(self) -> dict:
-        try:
-            return json.loads(self.cache_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, ValueError):
-            return {}
-
-    def _save_cache(self, token_data: dict) -> None:
-        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_path = self.cache_path.with_suffix(self.cache_path.suffix + ".tmp")
-        temporary_path.write_text(
-            json.dumps(token_data, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        os.replace(temporary_path, self.cache_path)
-
-    def _store_token(self, response: dict, previous: dict | None = None) -> str:
-        token_data = dict(previous or {})
-        token_data["access_token"] = response["access_token"]
-        token_data["expires_at"] = int(time.time()) + int(response.get("expires_in", 3600))
-        if response.get("refresh_token"):
-            token_data["refresh_token"] = response["refresh_token"]
-        self._save_cache(token_data)
-        self._token = token_data["access_token"]
-        return self._token
-
-    def _device_login(self) -> str:
-        device = self._post_form(
-            f"{self._authority}/oauth2/v2.0/devicecode",
-            {"client_id": self.client_id, "scope": self._scope},
-        )
-        message = device.get("message")
-        if message:
-            print(message, flush=True)
-
-        deadline = time.time() + int(device.get("expires_in", 900))
-        interval = max(int(device.get("interval", 5)), 2)
-        while time.time() < deadline:
-            time.sleep(interval)
-            try:
-                response = self._post_form(
-                    f"{self._authority}/oauth2/v2.0/token",
-                    {
-                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                        "client_id": self.client_id,
-                        "device_code": device["device_code"],
-                    },
-                )
-            except RuntimeError as error:
-                if "authorization_pending" in str(error):
-                    continue
-                raise
-            return self._store_token(response)
-        raise RuntimeError("OAuth Microsoft expirou antes da autorizacao do dispositivo.")
 
     def _get_access_token(self) -> str:
-        if self._token:
+        if self._token and self._token_expires_at > int(time.time()) + 120:
             return self._token
 
-        cache = self._load_cache()
-        if cache.get("access_token") and int(cache.get("expires_at", 0)) > int(time.time()) + 60:
-            self._token = cache["access_token"]
-            return self._token
+        powershell = os.getenv("POWERSHELL_EXE", "powershell.exe").strip() or "powershell.exe"
+        command = [
+            powershell,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(self.token_broker),
+            "-TenantId",
+            self.tenant_id,
+            "-ClientId",
+            self.client_id,
+            "-Thumbprint",
+            self.certificate_thumbprint,
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=45,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(f"falha ao executar token broker Graph: {exc}") from exc
 
-        if cache.get("refresh_token"):
-            try:
-                response = self._post_form(
-                    f"{self._authority}/oauth2/v2.0/token",
-                    {
-                        "grant_type": "refresh_token",
-                        "client_id": self.client_id,
-                        "scope": self._scope,
-                        "refresh_token": cache["refresh_token"],
-                    },
-                )
-                return self._store_token(response, previous=cache)
-            except RuntimeError as error:
-                if "invalid_grant" not in str(error):
-                    raise
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "erro desconhecido").strip()
+            if len(detail) > 800:
+                detail = detail[-800:]
+            raise RuntimeError(f"token broker Graph falhou: {detail}")
 
-        return self._device_login()
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not lines:
+            raise RuntimeError("token broker Graph nao retornou JSON")
+        try:
+            payload = json.loads(lines[-1])
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("token broker Graph retornou resposta invalida") from exc
+
+        token = str(payload.get("access_token") or "")
+        expires_in = int(payload.get("expires_in") or 0)
+        if not token or expires_in <= 0:
+            raise RuntimeError("token broker Graph nao retornou access_token valido")
+        self._token = token
+        self._token_expires_at = int(time.time()) + expires_in
+        return token
 
     def authenticate(self) -> None:
-        """Completa o login OAuth e salva somente o cache local do token."""
         self._get_access_token()
 
     @staticmethod
@@ -283,9 +224,5 @@ def get_email_provider(name: str) -> EmailProvider:
     if normalized in {"microsoft_graph", "microsoft-oauth", "graph"}:
         return MicrosoftGraphEmailProvider()
     if normalized in {"gmail", "smtp", "microsoft", "outlook", "office365"}:
-        raise ValueError(
-            "SMTP esta desabilitado neste projeto. Use EMAIL_PROVIDER=microsoft_graph."
-        )
-    raise ValueError(
-        f"Provedor de e-mail '{name}' nao reconhecido. Use somente 'dryrun' ou 'microsoft_graph'."
-    )
+        raise ValueError("SMTP esta desabilitado neste projeto. Use EMAIL_PROVIDER=microsoft_graph.")
+    raise ValueError(f"Provedor de e-mail '{name}' nao reconhecido. Use somente 'dryrun' ou 'microsoft_graph'.")
