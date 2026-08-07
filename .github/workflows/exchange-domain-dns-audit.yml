@@ -1,0 +1,31 @@
+name: Exchange Domain DNS Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/auditar_dns_microsoft.py"
+      - ".github/workflows/exchange-domain-dns-audit.yml"
+      - ".env.example"
+
+permissions:
+  contents: read
+
+jobs:
+  audit-dns:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Audit dev.shopvivaliz.com.br through Cloudflare DoH
+        env:
+          MICROSOFT_SENDER_DOMAIN: dev.shopvivaliz.com.br
+        run: python scripts/auditar_dns_microsoft.py
