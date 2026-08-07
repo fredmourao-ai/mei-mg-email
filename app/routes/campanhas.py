@@ -18,18 +18,15 @@ def criar_campanha(payload: CampanhaCreate):
             status_code=422,
             detail=(
                 "corpo_template precisa incluir {{unsubscribe_url}} -- "
-                "toda campanha tem que ter link de descadastro (LGPD / "
-                "anti-spam), mesmo enquanto o envio real ainda nao existe."
+                "toda campanha tem que ter link de descadastro."
             ),
         )
 
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            # A view ja aplica: situacao=ATIVA, opt_out=false,
-            # provavel_terceiro=false, email is not null.
             filtros = ["1 = 1"]
-            params: list[str] = []
+            params: list[object] = []
             if payload.filtro_tipo_regime:
                 filtros.append("tipo_regime = %s")
                 params.append(payload.filtro_tipo_regime)
@@ -38,6 +35,11 @@ def criar_campanha(payload: CampanhaCreate):
                 params.append(payload.filtro_uf.upper())
 
             where_clause = " and ".join(filtros)
+            limit_clause = ""
+            if payload.limite_empresas is not None:
+                limit_clause = " limit %s"
+                params.append(payload.limite_empresas)
+
             cur.execute(
                 f"""
                 with candidatas as (
@@ -53,6 +55,7 @@ def criar_campanha(payload: CampanhaCreate):
                   from candidatas
                  where posicao_do_email = 1
                  order by data_abertura desc nulls last, cnpj
+                 {limit_clause}
                 """,
                 params,
             )
@@ -62,10 +65,8 @@ def criar_campanha(payload: CampanhaCreate):
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "Nenhuma empresa elegivel encontrada com esses "
-                        "filtros (ja excluindo opt-out, provavel_terceiro "
-                        "e empresas inativas). Rode o script de ingestao "
-                        "primeiro, ou revise os filtros (tipo_regime/uf)."
+                        "Nenhuma empresa elegivel encontrada com esses filtros "
+                        "(ja excluindo opt-out, provavel_terceiro e empresas inativas)."
                     ),
                 )
 
@@ -93,9 +94,7 @@ def criar_campanha(payload: CampanhaCreate):
             total_lotes = math.ceil(len(empresas) / tamanho_lote)
 
             for numero in range(total_lotes):
-                fatia = empresas[
-                    numero * tamanho_lote : (numero + 1) * tamanho_lote
-                ]
+                fatia = empresas[numero * tamanho_lote : (numero + 1) * tamanho_lote]
                 cur.execute(
                     """
                     insert into mei_email.lotes
@@ -113,10 +112,7 @@ def criar_campanha(payload: CampanhaCreate):
                         (campanha_id, lote_id, cnpj, email, status)
                     values (%s, %s, %s, %s, 'pendente')
                     """,
-                    [
-                        (campanha["id"], lote_id, e["cnpj"], e["email"])
-                        for e in fatia
-                    ],
+                    [(campanha["id"], lote_id, e["cnpj"], e["email"]) for e in fatia],
                 )
 
         conn.commit()
