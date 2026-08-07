@@ -2,8 +2,9 @@
 Abstracao de provedor de e-mail.
 
 O padrao continua sendo DryRunEmailProvider para evitar disparos reais por
-engano. Para envio real, configure EMAIL_PROVIDER=microsoft_graph ou
-EMAIL_PROVIDER=microsoft e defina as credenciais correspondentes no .env.
+engano. O unico provedor de envio real suportado e Microsoft Graph.
+SMTP (Gmail e Microsoft/Outlook) foi removido deliberadamente para impedir
+fallback acidental para remetentes incorretos.
 
 Personalizacao (mail-merge): o corpo do e-mail e montado por
 worker.worker.montar_corpo() antes de chegar em EmailProvider.send().
@@ -13,12 +14,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import smtplib
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -62,117 +60,15 @@ def _body_is_html(body: str) -> bool:
     return body_lower.startswith("<!doctype html") or body_lower.startswith("<html") or "<body" in body_lower
 
 
-def _html_to_plain_text(html: str) -> str:
-    text = html
-    replacements = {
-        "<br>": "\n",
-        "<br/>": "\n",
-        "<br />": "\n",
-        "</p>": "\n\n",
-        "</div>": "\n",
-        "</li>": "\n",
-    }
-    for old, new in replacements.items():
-        text = text.replace(old, new).replace(old.upper(), new)
-    import re
-
-    text = re.sub(r"<[^>]+>", "", text)
-    text = text.replace("&nbsp;", " ").replace("&amp;", "&")
-    text = text.replace("&lt;", "<").replace("&gt;", ">")
-    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
-
-
-def _build_message(from_address: str, to: str, subject: str, body: str):
-    if _body_is_html(body):
-        msg = MIMEMultipart("alternative")
-        msg.attach(MIMEText(_html_to_plain_text(body), "plain", "utf-8"))
-        msg.attach(MIMEText(body, "html", "utf-8"))
-    else:
-        msg = MIMEText(body, "plain", "utf-8")
-
-    msg["Subject"] = subject
-    msg["From"] = from_address
-    msg["To"] = to
-    return msg
-
-
-class GmailEmailProvider(EmailProvider):
-    """Envia via Gmail SMTP usando App Password."""
-
-    def __init__(self) -> None:
-        self.address = os.getenv("GMAIL_ADDRESS", "").strip()
-        self.app_password = os.getenv("GMAIL_APP_PASSWORD", "").strip()
-        if not self.address or not self.app_password:
-            raise RuntimeError(
-                "EMAIL_PROVIDER=gmail mas GMAIL_ADDRESS/GMAIL_APP_PASSWORD nao estao configurados."
-            )
-        logger.warning("GmailEmailProvider ativo com remetente=%s", self.address)
-
-    def send(self, to: str, subject: str, body: str) -> SendResult:
-        msg = _build_message(self.address, to, subject, body)
-
-        try:
-            with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as smtp:
-                smtp.starttls()
-                smtp.login(self.address, self.app_password)
-                smtp.sendmail(self.address, [to], msg.as_string())
-            return SendResult(success=True, message_id=None)
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error("Falha de autenticacao no Gmail SMTP: %s", e)
-            return SendResult(success=False, error=f"falha de autenticacao SMTP: {e}")
-        except (smtplib.SMTPException, OSError) as e:
-            return SendResult(success=False, error=str(e))
-
-
-class MicrosoftSmtpEmailProvider(EmailProvider):
-    """Envia via Microsoft/Outlook SMTP com STARTTLS."""
-
-    def __init__(self) -> None:
-        self.address = os.getenv("MICROSOFT_SMTP_USER", "").strip()
-        self.password = os.getenv("MICROSOFT_SMTP_PASS", "").strip()
-        self.host = os.getenv("MICROSOFT_SMTP_HOST", "smtp.office365.com").strip()
-        self.port = int(os.getenv("MICROSOFT_SMTP_PORT", "587"))
-        self.from_address = os.getenv("MAIL_FROM", self.address).strip() or self.address
-
-        if not self.address or not self.password:
-            raise RuntimeError(
-                "EMAIL_PROVIDER=microsoft mas MICROSOFT_SMTP_USER/MICROSOFT_SMTP_PASS nao estao configurados."
-            )
-        logger.warning(
-            "MicrosoftSmtpEmailProvider ativo com remetente=%s host=%s:%s",
-            self.from_address,
-            self.host,
-            self.port,
-        )
-
-    def send(self, to: str, subject: str, body: str) -> SendResult:
-        msg = _build_message(self.from_address, to, subject, body)
-
-        try:
-            with smtplib.SMTP(self.host, self.port, timeout=20) as smtp:
-                smtp.starttls()
-                smtp.login(self.address, self.password)
-                smtp.sendmail(self.address, [to], msg.as_string())
-            return SendResult(success=True, message_id=None)
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error("Falha de autenticacao no Microsoft SMTP: %s", e)
-            return SendResult(success=False, error=f"falha de autenticacao SMTP Microsoft: {e}")
-        except (smtplib.SMTPException, OSError) as e:
-            return SendResult(success=False, error=str(e))
-
-
 class MicrosoftGraphEmailProvider(EmailProvider):
-    """Envia por Microsoft Graph usando OAuth2 delegado, sem segredo local."""
+    """Envia por Microsoft Graph usando OAuth2 delegado, sem SMTP."""
 
     _scope = "offline_access User.Read Mail.Send"
 
     def __init__(self) -> None:
         self.tenant_id = os.getenv("MICROSOFT_GRAPH_TENANT_ID", "").strip()
         self.client_id = os.getenv("MICROSOFT_GRAPH_CLIENT_ID", "").strip()
-        self.address = os.getenv(
-            "MICROSOFT_GRAPH_USER",
-            os.getenv("MICROSOFT_SMTP_USER", ""),
-        ).strip()
+        self.address = os.getenv("MICROSOFT_GRAPH_USER", "").strip()
         self.from_address = os.getenv("MAIL_FROM", self.address).strip() or self.address
         cache_default_root = Path(os.getenv("LOCALAPPDATA") or Path.home() / ".cache")
         configured_cache = os.getenv("MICROSOFT_GRAPH_TOKEN_CACHE", "").strip()
@@ -356,14 +252,15 @@ class MicrosoftGraphEmailProvider(EmailProvider):
 
 
 def get_email_provider(name: str) -> EmailProvider:
-    if name == "dryrun":
+    normalized = (name or "").strip().lower()
+    if normalized == "dryrun":
         return DryRunEmailProvider()
-    if name == "gmail":
-        return GmailEmailProvider()
-    if name in {"microsoft_graph", "microsoft-oauth", "graph"}:
+    if normalized in {"microsoft_graph", "microsoft-oauth", "graph"}:
         return MicrosoftGraphEmailProvider()
-    if name in {"microsoft", "outlook", "office365"}:
-        return MicrosoftSmtpEmailProvider()
+    if normalized in {"gmail", "smtp", "microsoft", "outlook", "office365"}:
+        raise ValueError(
+            "SMTP esta desabilitado neste projeto. Use EMAIL_PROVIDER=microsoft_graph."
+        )
     raise ValueError(
-        f"Provedor de e-mail '{name}' nao reconhecido. Use 'dryrun', 'gmail', 'microsoft_graph' ou 'microsoft'."
+        f"Provedor de e-mail '{name}' nao reconhecido. Use somente 'dryrun' ou 'microsoft_graph'."
     )
