@@ -8,6 +8,8 @@ on:
       - "app/**"
       - "worker/**"
       - "scripts/**"
+      - "templates/**"
+      - "db/migrations/**"
       - "tests/test_worker_safety.py"
       - "requirements*.txt"
       - ".github/workflows/email-safety-ci.yml"
@@ -23,6 +25,7 @@ jobs:
       EMAIL_PROVIDER: dryrun
       BASE_URL_DESCADASTRO: https://dev.shopvivaliz.com.br/descadastro
       MAX_ENVIOS_POR_DIA: "10000"
+      META_ENVIOS_POR_DIA: "9950"
       RATE_LIMIT_ENVIOS_POR_MINUTO: "20"
     steps:
       - name: Checkout
