@@ -1,0 +1,43 @@
+name: Email Safety CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "worker/**"
+      - "scripts/**"
+      - "tests/test_worker_safety.py"
+      - "requirements*.txt"
+      - ".github/workflows/email-safety-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EMAIL_PROVIDER: dryrun
+      BASE_URL_DESCADASTRO: https://dev.shopvivaliz.com.br/descadastro
+      MAX_ENVIOS_POR_DIA: "10000"
+      RATE_LIMIT_ENVIOS_POR_MINUTO: "20"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Compile application and operational scripts
+        run: python -m compileall -q app worker scripts
+
+      - name: Run worker safety unit tests
+        run: pytest -q tests/test_worker_safety.py
