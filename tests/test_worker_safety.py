@@ -1,7 +1,12 @@
+from pathlib import Path
 from urllib.error import HTTPError
 
+from app.config import settings
 from app.email_provider import MicrosoftGraphEmailProvider
+from scripts.disparar_10000_mei_mg import EXPECTED_DAILY_TARGET, carregar_template_html
 from worker.worker import _erro_transitorio, montar_corpo
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_transient_exchange_errors_are_retryable():
@@ -68,3 +73,32 @@ def test_unsubscribe_url_is_injected(monkeypatch):
     assert "https://dev.shopvivaliz.com.br/descadastro?" in corpo
     assert "cliente%2Bteste%40example.com" in corpo
     assert "12345678000190" in corpo
+
+
+def test_daily_target_keeps_margin_below_hard_cap():
+    assert EXPECTED_DAILY_TARGET == 9950
+    assert settings.meta_envios_por_dia == 9950
+    assert settings.max_envios_por_dia == 10000
+    assert settings.meta_envios_por_dia < settings.max_envios_por_dia
+
+
+def test_official_template_is_html_with_footer_logo_and_unsubscribe():
+    template = carregar_template_html()
+    lower = template.casefold()
+    assert "<html" in lower
+    assert "{{nome_fantasia}}" in template
+    assert "{{unsubscribe_url}}" in template
+    assert "logo-contabilidade-melo-transparente.png" in lower
+    assert "</html>" in lower
+
+
+def test_fail_closed_migration_requires_authorization_and_global_dedupe():
+    migration = (ROOT / "db" / "migrations" / "V010__eligibility_consent_and_global_dedupe.sql").read_text(
+        encoding="utf-8"
+    )
+    normalized = " ".join(migration.casefold().split())
+    assert "marketing_autorizado = true" in normalized
+    assert "not exists" in normalized
+    assert "from envios" in normalized
+    assert "lower(btrim(x.email::text))" in normalized
+    assert "situacao_cadastral = 'ativa'" in normalized
