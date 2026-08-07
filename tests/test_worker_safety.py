@@ -3,9 +3,9 @@ from worker.worker import _erro_transitorio, montar_corpo
 
 def test_transient_exchange_errors_are_retryable():
     for error in [
-        "Microsoft Graph: TooManyRequests",
+        "Microsoft Graph: too many requests (429)",
         "HTTP 429 too many requests",
-        "ServiceUnavailable",
+        "service unavailable",
         "HTTP_503",
         "connection reset by peer",
         "request timed out",
