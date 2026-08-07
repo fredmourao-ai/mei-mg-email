@@ -131,7 +131,8 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             select e.id as envio_id, e.cnpj, e.email, e.tentativas,
                    c.assunto, c.corpo_template,
                    emp.razao_social, emp.nome_fantasia,
-                   emp.opt_out
+                   emp.opt_out, emp.situacao_cadastral,
+                   emp.marketing_autorizado
               from mei_email.envios e
               join mei_email.campanhas c on c.id = e.campanha_id
               join mei_email.empresas emp on emp.cnpj = e.cnpj
@@ -169,6 +170,24 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
                 envio["envio_id"],
                 "opt_out",
                 erro="opt-out registrado apos enfileiramento",
+            )
+            continue
+
+        if envio["situacao_cadastral"] != "ATIVA":
+            _atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "bloqueado",
+                erro="empresa deixou de estar ATIVA apos enfileiramento",
+            )
+            continue
+
+        if not envio["marketing_autorizado"]:
+            _atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "bloqueado",
+                erro="comunicacao comercial nao autorizada no cadastro",
             )
             continue
 
@@ -249,7 +268,7 @@ def _atualizar_envio(conn, envio_id, status, provider_message_id=None, erro=None
                 update mei_email.empresas
                    set enviado = true,
                        enviado_em = now()
-                 where email = (select email from mei_email.envios where id = %s)
+                 where lower(btrim(email::text)) = lower(btrim((select email::text from mei_email.envios where id = %s)))
                 """,
                 (envio_id,),
             )
@@ -304,6 +323,10 @@ def pegar_proximo_lote(conn: psycopg.Connection, campanha_id: str | None = None)
 def run() -> None:
     if settings.max_envios_por_dia > 10000:
         raise RuntimeError("MAX_ENVIOS_POR_DIA nao pode ultrapassar 10000 para Exchange Online.")
+    if settings.meta_envios_por_dia <= 0:
+        raise RuntimeError("META_ENVIOS_POR_DIA precisa ser maior que zero.")
+    if settings.meta_envios_por_dia > settings.max_envios_por_dia:
+        raise RuntimeError("META_ENVIOS_POR_DIA nao pode ultrapassar MAX_ENVIOS_POR_DIA.")
     if settings.rate_limit_envios_por_minuto > 30:
         raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO nao pode ultrapassar 30 no Exchange Online.")
     if settings.rate_limit_envios_por_minuto <= 0:
@@ -311,9 +334,10 @@ def run() -> None:
 
     provider = get_email_provider(settings.email_provider)
     logger.info(
-        "Worker iniciado. provedor=%s rate_limit=%d/min limite_24h=%d poll=%ds",
+        "Worker iniciado. provedor=%s rate_limit=%d/min meta_24h=%d teto_24h=%d poll=%ds",
         settings.email_provider,
         settings.rate_limit_envios_por_minuto,
+        settings.meta_envios_por_dia,
         settings.max_envios_por_dia,
         settings.worker_poll_interval_segundos,
     )
