@@ -2,27 +2,28 @@
 """Valida DNS publico do dominio de envio Microsoft 365 via Cloudflare 1.1.1.1.
 
 Nao altera DNS e nao exige credenciais Cloudflare. A consulta usa o endpoint
-DoH publico da Cloudflare e valida SPF, MX, DKIM e DMARC para o subdominio de
-envio. O status de Accepted Domain/DKIM Enabled dentro do tenant Microsoft
-continua sendo uma verificacao separada no Exchange Admin Center.
+DoH publico da Cloudflare, confirma que a zona continua delegada a nameservers
+Cloudflare e valida SPF, MX, DKIM e DMARC do subdominio de envio. Accepted
+Domain, DKIM Enabled e TERRL dentro do tenant Microsoft continuam sendo
+verificacoes administrativas separadas no Exchange Admin Center.
 """
 from __future__ import annotations
 
 import json
 import os
-import sys
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query"
 EXPECTED_DOMAIN = os.getenv("MICROSOFT_SENDER_DOMAIN", "dev.shopvivaliz.com.br").strip().lower().rstrip(".")
+CLOUDFLARE_ZONE = os.getenv("CLOUDFLARE_ZONE", "shopvivaliz.com.br").strip().lower().rstrip(".")
 
 
 def doh(name: str, record_type: str) -> dict:
     query = urlencode({"name": name, "type": record_type, "do": "true"})
     req = Request(
         f"{DOH_ENDPOINT}?{query}",
-        headers={"Accept": "application/dns-json", "User-Agent": "mei-mg-email-domain-audit/1.0"},
+        headers={"Accept": "application/dns-json", "User-Agent": "mei-mg-email-domain-audit/1.1"},
     )
     with urlopen(req, timeout=20) as response:
         if response.status != 200:
@@ -41,6 +42,7 @@ def answers(payload: dict, record_type: int) -> list[str]:
 def main() -> int:
     domain = EXPECTED_DOMAIN
     checks = {
+        "zone_ns": doh(CLOUDFLARE_ZONE, "NS"),
         "txt": doh(domain, "TXT"),
         "mx": doh(domain, "MX"),
         "dmarc": doh(f"_dmarc.{domain}", "TXT"),
@@ -49,6 +51,7 @@ def main() -> int:
         "autodiscover": doh(f"autodiscover.{domain}", "CNAME"),
     }
 
+    zone_ns = answers(checks["zone_ns"], 2)
     txt = answers(checks["txt"], 16)
     mx = answers(checks["mx"], 15)
     dmarc = answers(checks["dmarc"], 16)
@@ -58,6 +61,11 @@ def main() -> int:
 
     errors: list[str] = []
     warnings: list[str] = []
+
+    if len(zone_ns) < 2:
+        errors.append(f"cloudflare_zone_nameserver_count={len(zone_ns)}")
+    elif not all(value.lower().rstrip(".").endswith(".ns.cloudflare.com") for value in zone_ns):
+        errors.append("zone_not_fully_delegated_to_cloudflare_nameservers")
 
     spf = [value for value in txt if value.lower().startswith("v=spf1")]
     if len(spf) != 1:
@@ -101,6 +109,8 @@ def main() -> int:
 
     print("MICROSOFT_DOMAIN_DNS_AUDIT")
     print(f"domain={domain}")
+    print(f"cloudflare_zone={CLOUDFLARE_ZONE}")
+    print(f"cloudflare_nameservers={zone_ns}")
     print(f"spf={spf}")
     print(f"mx={mx}")
     print(f"dkim_selector1={dkim1}")
