@@ -28,9 +28,8 @@ def clean_db():
 
 
 def test_prioridade_e_envio_unico(clean_db):
-    # 1. Inserir empresas com diferentes datas de abertura e verificar ordenação
+    # Fixtures de teste sao explicitamente autorizadas para validar o fluxo de campanha.
     empresas_teste = [
-        # Mais nova
         {
             "cnpj": "11111111000101",
             "razao_social": "EMPRESA NOVA",
@@ -43,7 +42,6 @@ def test_prioridade_e_envio_unico(clean_db):
             "data_abertura": "2026-01-01",
             "provavel_terceiro": False,
         },
-        # Mais antiga
         {
             "cnpj": "22222222000102",
             "razao_social": "EMPRESA ANTIGA",
@@ -56,7 +54,6 @@ def test_prioridade_e_envio_unico(clean_db):
             "data_abertura": "2010-01-01",
             "provavel_terceiro": False,
         },
-        # Intermediária
         {
             "cnpj": "33333333000103",
             "razao_social": "EMPRESA INTERMEDIARIA",
@@ -77,18 +74,18 @@ def test_prioridade_e_envio_unico(clean_db):
                 """
                 insert into mei_email.empresas
                     (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                     uf, email, ddd_1, telefone_1, data_abertura, provavel_terceiro)
+                     uf, email, ddd_1, telefone_1, data_abertura, provavel_terceiro,
+                     marketing_autorizado, marketing_autorizado_em, marketing_autorizado_origem)
                 values
                     (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
                      %(situacao_cadastral)s, %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
-                     %(data_abertura)s, %(provavel_terceiro)s)
+                     %(data_abertura)s, %(provavel_terceiro)s,
+                     true, now(), 'fixture_teste')
                 """,
                 empresas_teste,
             )
         conn.commit()
 
-    # 2. Criar campanha com tamanho_lote=1 para forçar um lote por empresa.
-    # Isso permite validar se o lote de menor número contem a empresa mais recente.
     payload = CampanhaCreate(
         nome="Campanha Teste Prioridade",
         assunto="Teste assunto",
@@ -99,7 +96,6 @@ def test_prioridade_e_envio_unico(clean_db):
 
     assert campanha["total_empresas"] == 3
 
-    # Validar a ordem dos envios associados a cada lote (lote 0 -> mais nova, lote 1 -> média, lote 2 -> antiga)
     with psycopg.connect(settings.database_url) as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -116,15 +112,12 @@ def test_prioridade_e_envio_unico(clean_db):
             envios = cur.fetchall()
 
     assert envios[0]["numero"] == 0
-    assert envios[0]["cnpj"] == "11111111000101"  # 2026-01-01 (mais nova)
-
+    assert envios[0]["cnpj"] == "11111111000101"
     assert envios[1]["numero"] == 1
-    assert envios[1]["cnpj"] == "33333333000103"  # 2020-01-01 (intermediária)
-
+    assert envios[1]["cnpj"] == "33333333000103"
     assert envios[2]["numero"] == 2
-    assert envios[2]["cnpj"] == "22222222000102"  # 2010-01-01 (mais antiga)
+    assert envios[2]["cnpj"] == "22222222000102"
 
-    # 3. Processar todos os lotes e garantir que as empresas sejam marcadas como "enviado = True"
     provider = get_email_provider("dryrun")
     for _ in range(3):
         with psycopg.connect(settings.database_url) as conn:
@@ -132,7 +125,6 @@ def test_prioridade_e_envio_unico(clean_db):
             assert lote is not None
             processar_lote(conn, lote, provider)
 
-    # Validar no banco se foram marcados como enviado no cadastro
     with psycopg.connect(settings.database_url) as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute("select cnpj, enviado, enviado_em from mei_email.empresas")
@@ -143,15 +135,12 @@ def test_prioridade_e_envio_unico(clean_db):
     assert empresas_db["22222222000102"]["enviado"] is True
     assert empresas_db["33333333000103"]["enviado"] is True
 
-    # 4. Tentar criar outra campanha e validar que as empresas já enviadas NÃO são selecionadas novamente
     payload_2 = CampanhaCreate(
         nome="Campanha Teste Novo Envio",
         assunto="Teste assunto 2",
         corpo_template="Olá {{razao_social}}. Descadastro: {{unsubscribe_url}}",
         tamanho_lote=100,
     )
-    
-    # Deve dar erro 422 pois nenhuma empresa elegível resta
     with pytest.raises(Exception) as exc_info:
         criar_campanha(payload_2)
     assert "Nenhuma empresa elegivel encontrada" in str(exc_info.value)
@@ -164,11 +153,12 @@ def test_email_duplicado_recebe_apenas_um_envio(clean_db):
                 """
                 insert into mei_email.empresas
                     (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                     uf, email, data_abertura, provavel_terceiro)
+                     uf, email, data_abertura, provavel_terceiro,
+                     marketing_autorizado, marketing_autorizado_em, marketing_autorizado_origem)
                 values
                     (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
                      'ATIVA', 'MG', 'contato-compartilhado@example.com',
-                     %(data_abertura)s, false)
+                     %(data_abertura)s, false, true, now(), 'fixture_teste')
                 """,
                 [
                     {
