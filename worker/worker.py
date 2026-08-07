@@ -1,10 +1,10 @@
 """
 Worker que consome a fila de lotes e dispara os e-mails respeitando limites.
 
-Para Exchange Online, o controle diario usa uma janela movel de 24 horas,
-assim como o limite de taxa de destinatarios do servico. Uma trava advisory no
-Postgres garante apenas um worker ativo por vez, evitando que multiplos
-processos somem suas taxas e ultrapassem o limite por minuto.
+Para Exchange Online, o controle usa janela movel de 24 horas e uma trava
+advisory no Postgres garante somente um worker de envio ativo. Pausas por cota
+e falhas transitorias devolvem o lote para a fila sem perder os envios ja
+confirmados, e lotes abandonados por crash podem ser recuperados no startup.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from app.email_provider import get_email_provider
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mei_mg_email.worker")
 WORKER_ADVISORY_LOCK_ID = 100002026
+MAX_TENTATIVAS_TRANSITORIAS = 5
 
 
 def montar_corpo(template: str, empresa: dict) -> str:
@@ -49,13 +50,83 @@ def obter_envios_ultimas_24h(conn: psycopg.Connection) -> int:
         return cur.fetchone()[0]
 
 
+def _erro_transitorio(error: str | None) -> bool:
+    texto = (error or "").casefold()
+    marcadores = (
+        "429",
+        "too many requests",
+        "throttl",
+        "serverbusy",
+        "service unavailable",
+        "temporar",
+        "timeout",
+        "timed out",
+        "http_500",
+        "http_502",
+        "http_503",
+        "http_504",
+        "connection reset",
+        "connection aborted",
+    )
+    return any(marcador in texto for marcador in marcadores)
+
+
+def _registrar_contadores_campanha(conn, campanha_id, enviados: int, falhas: int) -> None:
+    if not enviados and not falhas:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update mei_email.campanhas
+               set total_enviados = total_enviados + %s,
+                   total_falhas = total_falhas + %s
+             where id = %s
+            """,
+            (enviados, falhas, campanha_id),
+        )
+    conn.commit()
+
+
+def _recolocar_lote_pendente(conn, lote_id, motivo: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update mei_email.lotes
+               set status = 'pendente',
+                   iniciado_em = null,
+                   concluido_em = null,
+                   erro = %s
+             where id = %s
+            """,
+            (motivo[:1000], lote_id),
+        )
+    conn.commit()
+
+
+def recuperar_lotes_travados(conn: psycopg.Connection) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update mei_email.lotes
+               set status = 'pendente',
+                   iniciado_em = null,
+                   erro = 'recuperado automaticamente apos worker interrompido'
+             where status = 'processando'
+               and iniciado_em < now() - interval '15 minutes'
+            """
+        )
+        recuperados = cur.rowcount
+    conn.commit()
+    return recuperados
+
+
 def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
     intervalo_entre_envios = 60.0 / max(settings.rate_limit_envios_por_minuto, 1)
 
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
-            select e.id as envio_id, e.cnpj, e.email,
+            select e.id as envio_id, e.cnpj, e.email, e.tentativas,
                    c.assunto, c.corpo_template,
                    emp.razao_social, emp.nome_fantasia,
                    emp.opt_out
@@ -76,10 +147,17 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
     for envio in envios:
         envios_24h = obter_envios_ultimas_24h(conn)
         if envios_24h >= settings.max_envios_por_dia:
+            _registrar_contadores_campanha(conn, lote["campanha_id"], enviados, falhas)
+            _recolocar_lote_pendente(
+                conn,
+                lote["id"],
+                f"cota movel de 24h atingida: {envios_24h}/{settings.max_envios_por_dia}",
+            )
             logger.warning(
-                "Limite movel de 24h atingido: %d/%d. Pausando novos envios.",
+                "Limite movel de 24h atingido: %d/%d. Lote %s devolvido para a fila.",
                 envios_24h,
                 settings.max_envios_por_dia,
+                lote["id"],
             )
             return
 
@@ -103,6 +181,23 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
                 provider_message_id=resultado.message_id,
             )
             enviados += 1
+        elif _erro_transitorio(resultado.error) and envio["tentativas"] + 1 < MAX_TENTATIVAS_TRANSITORIAS:
+            _atualizar_envio(conn, envio["envio_id"], "pendente", erro=resultado.error)
+            _registrar_contadores_campanha(conn, lote["campanha_id"], enviados, falhas)
+            _recolocar_lote_pendente(
+                conn,
+                lote["id"],
+                f"falha transitoria; envio sera tentado novamente: {resultado.error or 'sem detalhe'}",
+            )
+            espera = min(60.0, max(10.0, intervalo_entre_envios * 5))
+            logger.warning(
+                "Falha transitoria no envio %s; lote %s reprogramado. Aguarda %.1fs.",
+                envio["envio_id"],
+                lote["id"],
+                espera,
+            )
+            time.sleep(espera)
+            return
         else:
             _atualizar_envio(conn, envio["envio_id"], "falhou", erro=resultado.error)
             falhas += 1
@@ -113,21 +208,13 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
         cur.execute(
             """
             update mei_email.lotes
-               set status = 'concluido', concluido_em = now()
+               set status = 'concluido', concluido_em = now(), erro = null
              where id = %s
             """,
             (lote["id"],),
         )
-        cur.execute(
-            """
-            update mei_email.campanhas
-               set total_enviados = total_enviados + %s,
-                   total_falhas = total_falhas + %s
-             where id = %s
-            """,
-            (enviados, falhas, lote["campanha_id"]),
-        )
     conn.commit()
+    _registrar_contadores_campanha(conn, lote["campanha_id"], enviados, falhas)
 
     logger.info(
         "Lote %s (campanha %s) concluido: %d enviados, %d falhas",
@@ -200,7 +287,8 @@ def pegar_proximo_lote(conn: psycopg.Connection, campanha_id: str | None = None)
             update mei_email.lotes
                set status = 'processando',
                    iniciado_em = now(),
-                   tentativas = tentativas + 1
+                   tentativas = tentativas + 1,
+                   erro = null
              where id = %s
             """,
             (lote["id"],),
@@ -214,6 +302,8 @@ def run() -> None:
         raise RuntimeError("MAX_ENVIOS_POR_DIA nao pode ultrapassar 10000 para Exchange Online.")
     if settings.rate_limit_envios_por_minuto > 30:
         raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO nao pode ultrapassar 30 no Exchange Online.")
+    if settings.rate_limit_envios_por_minuto <= 0:
+        raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO precisa ser maior que zero.")
 
     provider = get_email_provider(settings.email_provider)
     logger.info(
@@ -231,6 +321,10 @@ def run() -> None:
                 raise RuntimeError(
                     "Ja existe outro worker de disparo ativo. Mantendo instancia unica para respeitar o rate limit global."
                 )
+
+        recuperados = recuperar_lotes_travados(conn)
+        if recuperados:
+            logger.warning("Recuperados %d lotes que estavam presos em processando.", recuperados)
 
         while True:
             try:
