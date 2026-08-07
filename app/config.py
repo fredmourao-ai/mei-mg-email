@@ -19,10 +19,13 @@ class Settings:
     rate_limit_envios_por_minuto: int = int(
         os.getenv("RATE_LIMIT_ENVIOS_POR_MINUTO", "20")
     )
-    # Exchange Online recipient rate limit is 10,000 recipients in a rolling
-    # 24-hour window. This is a hard ceiling, not a guarantee of deliverability.
+    # Hard local ceiling for a rolling 24-hour window. This remains separate
+    # from the operational target so there is always explicit safety margin.
     max_envios_por_dia: int = int(
         os.getenv("MAX_ENVIOS_POR_DIA", "10000")
+    )
+    meta_envios_por_dia: int = int(
+        os.getenv("META_ENVIOS_POR_DIA", "9950")
     )
     worker_poll_interval_segundos: int = int(
         os.getenv("WORKER_POLL_INTERVAL_SEGUNDOS", "5")
