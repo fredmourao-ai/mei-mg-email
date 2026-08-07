@@ -5,6 +5,7 @@ import math
 from fastapi import APIRouter, HTTPException
 from psycopg.rows import dict_row
 
+from app.config import settings
 from app.db import get_pool
 from app.schemas import CampanhaCreate, CampanhaOut
 
@@ -27,8 +28,31 @@ def criar_campanha(payload: CampanhaCreate):
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             # Serializa a montagem de filas para que duas campanhas simultaneas
-            # nao selecionem o mesmo e-mail antes de uma delas gravar em envios.
+            # nao selecionem o mesmo e-mail nem comprometam a mesma cota diaria.
             cur.execute("select pg_advisory_xact_lock(%s)", (CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID,))
+
+            cur.execute(
+                """
+                select
+                  count(*) filter (
+                    where status = 'enviado'
+                      and enviado_em >= now() - interval '24 hours'
+                  ) as enviados_24h,
+                  count(*) filter (where status in ('pendente', 'enviando')) as comprometidos
+                from mei_email.envios
+                """
+            )
+            capacidade = cur.fetchone()
+            ja_comprometido = int(capacidade["enviados_24h"] or 0) + int(capacidade["comprometidos"] or 0)
+            limite_operacional = min(settings.meta_envios_por_dia, settings.max_envios_por_dia)
+            restante = max(limite_operacional - ja_comprometido, 0)
+            if restante <= 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Meta movel de 24h ja comprometida: {ja_comprometido}/{limite_operacional}."
+                    ),
+                )
 
             filtros = ["1 = 1"]
             params: list[object] = []
@@ -40,10 +64,9 @@ def criar_campanha(payload: CampanhaCreate):
                 params.append(payload.filtro_uf.upper())
 
             where_clause = " and ".join(filtros)
-            limit_clause = ""
-            if payload.limite_empresas is not None:
-                limit_clause = " limit %s"
-                params.append(payload.limite_empresas)
+            requested_limit = payload.limite_empresas if payload.limite_empresas is not None else restante
+            effective_limit = min(requested_limit, restante)
+            params.append(effective_limit)
 
             cur.execute(
                 f"""
@@ -60,7 +83,7 @@ def criar_campanha(payload: CampanhaCreate):
                   from candidatas
                  where posicao_do_email = 1
                  order by data_abertura desc nulls last, cnpj
-                 {limit_clause}
+                 limit %s
                 """,
                 params,
             )
