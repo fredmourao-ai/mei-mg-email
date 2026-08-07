@@ -163,18 +163,32 @@ def _atualizar_envio(conn, envio_id, status, provider_message_id=None, erro=None
     conn.commit()
 
 
-def pegar_proximo_lote(conn: psycopg.Connection) -> dict | None:
+def pegar_proximo_lote(conn: psycopg.Connection, campanha_id: str | None = None) -> dict | None:
     with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            """
-            select id, campanha_id, numero
-              from mei_email.lotes
-             where status = 'pendente'
-             order by criado_em
-             for update skip locked
-             limit 1
-            """
-        )
+        if campanha_id:
+            cur.execute(
+                """
+                select id, campanha_id, numero
+                  from mei_email.lotes
+                 where status = 'pendente'
+                   and campanha_id = %s
+                 order by criado_em, numero
+                 for update skip locked
+                 limit 1
+                """,
+                (campanha_id,),
+            )
+        else:
+            cur.execute(
+                """
+                select id, campanha_id, numero
+                  from mei_email.lotes
+                 where status = 'pendente'
+                 order by criado_em, numero
+                 for update skip locked
+                 limit 1
+                """
+            )
         lote = cur.fetchone()
         if lote is None:
             return None
