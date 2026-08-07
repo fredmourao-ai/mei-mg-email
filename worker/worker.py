@@ -1,14 +1,9 @@
 """
-Worker que consome a fila de lotes e dispara os e-mails, respeitando rate
-limit. Roda como processo separado da API (`python -m worker.worker`).
+Worker que consome a fila de lotes e dispara os e-mails respeitando limites.
 
-Fila = tabela `lotes`. Um lote so e pego por `SELECT ... FOR UPDATE SKIP
-LOCKED`, entao da pra rodar mais de uma instancia do worker em paralelo sem
-duas pegarem o mesmo lote (util quando o volume crescer, sem precisar trocar
-de arquitetura).
-
-Nao envia nada de verdade ainda: usa o EmailProvider configurado em
-EMAIL_PROVIDER (dryrun por enquanto -- ver app/email_provider.py).
+Para Exchange Online, o controle diario usa uma janela movel de 24 horas,
+assim como o limite de taxa de destinatarios do servico. O worker continua
+fail-closed para opt-out e usa o EmailProvider configurado em EMAIL_PROVIDER.
 """
 from __future__ import annotations
 
@@ -18,7 +13,6 @@ from urllib.parse import urlencode
 
 import psycopg
 from psycopg.rows import dict_row
-from string import Template
 
 from app.config import settings
 from app.email_provider import get_email_provider
@@ -29,9 +23,6 @@ logger = logging.getLogger("mei_mg_email.worker")
 
 def montar_corpo(template: str, empresa: dict) -> str:
     unsubscribe_url = f"{settings.base_url_descadastro}?{urlencode({'cnpj': empresa['cnpj'], 'email': empresa['email']})}"
-    # Usa Template do stdlib com $var pra nao colidir com o {{var}} do
-    # template salvo no banco -- fazemos a troca manual abaixo pra manter a
-    # sintaxe {{var}} amigavel pro usuario que escreve o template.
     texto = template
     for chave, valor in {
         "razao_social": empresa.get("razao_social") or "",
@@ -43,14 +34,14 @@ def montar_corpo(template: str, empresa: dict) -> str:
     return texto
 
 
-def obter_envios_hoje(conn: psycopg.Connection) -> int:
+def obter_envios_ultimas_24h(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute(
             """
             select count(*)
               from mei_email.envios
              where status = 'enviado'
-               and enviado_em >= (now() at time zone 'America/Sao_Paulo')::date
+               and enviado_em >= now() - interval '24 hours'
             """
         )
         return cur.fetchone()[0]
@@ -81,20 +72,22 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
     falhas = 0
 
     for envio in envios:
-        # Checagem do limite diario de envios (ex: 295 por dia)
-        envios_hoje = obter_envios_hoje(conn)
-        if envios_hoje >= settings.max_envios_por_dia:
+        envios_24h = obter_envios_ultimas_24h(conn)
+        if envios_24h >= settings.max_envios_por_dia:
             logger.warning(
-                "Limite diario de %d envios atingido (%d/295). Pausando envios por hoje.",
+                "Limite movel de 24h atingido: %d/%d. Pausando novos envios.",
+                envios_24h,
                 settings.max_envios_por_dia,
-                envios_hoje,
             )
             return
 
-        # Checagem de opt-out de novo, em cima da hora: pode ter acontecido
-        # entre a criacao da campanha e o processamento do lote.
         if envio["opt_out"]:
-            _atualizar_envio(conn, envio["envio_id"], "opt_out", erro="opt-out registrado apos enfileiramento")
+            _atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "opt_out",
+                erro="opt-out registrado apos enfileiramento",
+            )
             continue
 
         corpo = montar_corpo(envio["corpo_template"], envio)
@@ -102,7 +95,9 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
 
         if resultado.success:
             _atualizar_envio(
-                conn, envio["envio_id"], "enviado",
+                conn,
+                envio["envio_id"],
+                "enviado",
                 provider_message_id=resultado.message_id,
             )
             enviados += 1
@@ -134,7 +129,10 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
 
     logger.info(
         "Lote %s (campanha %s) concluido: %d enviados, %d falhas",
-        lote["numero"], lote["campanha_id"], enviados, falhas,
+        lote["numero"],
+        lote["campanha_id"],
+        enviados,
+        falhas,
     )
 
 
@@ -196,11 +194,17 @@ def pegar_proximo_lote(conn: psycopg.Connection) -> dict | None:
 
 
 def run() -> None:
+    if settings.max_envios_por_dia > 10000:
+        raise RuntimeError("MAX_ENVIOS_POR_DIA nao pode ultrapassar 10000 para Exchange Online.")
+    if settings.rate_limit_envios_por_minuto > 30:
+        raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO nao pode ultrapassar 30 no Exchange Online.")
+
     provider = get_email_provider(settings.email_provider)
     logger.info(
-        "Worker iniciado. provedor=%s rate_limit=%d/min poll=%ds",
+        "Worker iniciado. provedor=%s rate_limit=%d/min limite_24h=%d poll=%ds",
         settings.email_provider,
         settings.rate_limit_envios_por_minuto,
+        settings.max_envios_por_dia,
         settings.worker_poll_interval_segundos,
     )
 
@@ -211,7 +215,6 @@ def run() -> None:
                 if lote is None:
                     time.sleep(settings.worker_poll_interval_segundos)
                     continue
-
                 processar_lote(conn, lote, provider)
             except Exception:
                 logger.exception("Erro processando lote -- worker continua rodando")
