@@ -32,6 +32,7 @@ class SendResult:
     success: bool
     message_id: str | None = None
     error: str | None = None
+    retry_after_seconds: int | None = None
 
 
 class EmailProvider(ABC):
@@ -293,8 +294,6 @@ class MicrosoftGraphEmailProvider(EmailProvider):
                 )
                 return self._store_token(response, previous=cache)
             except RuntimeError as error:
-                # A senha, a sessao ou a politica do tenant pode invalidar o
-                # refresh token. Nesse caso, inicie um novo device login.
                 if "invalid_grant" not in str(error):
                     raise
 
@@ -303,6 +302,17 @@ class MicrosoftGraphEmailProvider(EmailProvider):
     def authenticate(self) -> None:
         """Completa o login OAuth e salva somente o cache local do token."""
         self._get_access_token()
+
+    @staticmethod
+    def _parse_retry_after(error: HTTPError) -> int | None:
+        value = error.headers.get("Retry-After") if error.headers else None
+        if not value:
+            return None
+        try:
+            seconds = int(value)
+        except (TypeError, ValueError):
+            return None
+        return max(seconds, 0)
 
     def send(self, to: str, subject: str, body: str) -> SendResult:
         content_type = "HTML" if _body_is_html(body) else "Text"
@@ -330,12 +340,17 @@ class MicrosoftGraphEmailProvider(EmailProvider):
                     return SendResult(success=False, error=f"Microsoft Graph HTTP {response.status}")
             return SendResult(success=True, message_id=None)
         except HTTPError as error:
+            retry_after = self._parse_retry_after(error)
             try:
                 detail = json.loads(error.read().decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
                 detail = {}
             graph_error = detail.get("error", {}).get("code", f"http_{error.code}")
-            return SendResult(success=False, error=f"Microsoft Graph: {graph_error}")
+            return SendResult(
+                success=False,
+                error=f"Microsoft Graph: {graph_error}; http_{error.code}",
+                retry_after_seconds=retry_after,
+            )
         except (RuntimeError, URLError, OSError) as error:
             return SendResult(success=False, error=str(error))
 
@@ -352,5 +367,3 @@ def get_email_provider(name: str) -> EmailProvider:
     raise ValueError(
         f"Provedor de e-mail '{name}' nao reconhecido. Use 'dryrun', 'gmail', 'microsoft_graph' ou 'microsoft'."
     )
-
-
