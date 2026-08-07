@@ -17,6 +17,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from email.utils import parseaddr
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -69,7 +70,16 @@ class MicrosoftGraphEmailProvider(EmailProvider):
         self.tenant_id = os.getenv("MICROSOFT_GRAPH_TENANT_ID", "").strip()
         self.client_id = os.getenv("MICROSOFT_GRAPH_CLIENT_ID", "").strip()
         self.address = os.getenv("MICROSOFT_GRAPH_USER", "").strip()
-        self.from_address = os.getenv("MAIL_FROM", self.address).strip() or self.address
+
+        raw_from = os.getenv("MAIL_FROM", self.address).strip() or self.address
+        parsed_name, parsed_address = parseaddr(raw_from)
+        self.from_name = (
+            parsed_name.strip()
+            or os.getenv("MAIL_FROM_NAME", "").strip()
+            or "Contabilidade Melo"
+        )
+        self.from_address = parsed_address.strip() or self.address
+
         cache_default_root = Path(os.getenv("LOCALAPPDATA") or Path.home() / ".cache")
         configured_cache = os.getenv("MICROSOFT_GRAPH_TOKEN_CACHE", "").strip()
         self.cache_path = Path(configured_cache) if configured_cache else (
@@ -83,9 +93,16 @@ class MicrosoftGraphEmailProvider(EmailProvider):
                 "MICROSOFT_GRAPH_USER."
             )
 
+        if self.from_address.lower() != self.address.lower():
+            raise RuntimeError(
+                "MAIL_FROM precisa usar o mesmo endereco de MICROSOFT_GRAPH_USER; "
+                "o nome exibido pode ser configurado, mas spoof de endereco e bloqueado."
+            )
+
         self._token: str | None = None
         logger.warning(
-            "MicrosoftGraphEmailProvider ativo com remetente=%s",
+            "MicrosoftGraphEmailProvider ativo com remetente=%s <%s>",
+            self.from_name,
             self.from_address,
         )
 
@@ -212,10 +229,18 @@ class MicrosoftGraphEmailProvider(EmailProvider):
 
     def send(self, to: str, subject: str, body: str) -> SendResult:
         content_type = "HTML" if _body_is_html(body) else "Text"
+        sender_identity = {
+            "emailAddress": {
+                "address": self.address,
+                "name": self.from_name,
+            }
+        }
         payload = {
             "message": {
                 "subject": subject,
                 "body": {"contentType": content_type, "content": body},
+                "from": sender_identity,
+                "sender": sender_identity,
                 "toRecipients": [{"emailAddress": {"address": to}}],
             },
             "saveToSentItems": True,
@@ -227,7 +252,7 @@ class MicrosoftGraphEmailProvider(EmailProvider):
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers={
                     "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
+                    "Content-Type": "application/json; charset=utf-8",
                 },
                 method="POST",
             )
