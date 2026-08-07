@@ -2,8 +2,9 @@
 Worker que consome a fila de lotes e dispara os e-mails respeitando limites.
 
 Para Exchange Online, o controle diario usa uma janela movel de 24 horas,
-assim como o limite de taxa de destinatarios do servico. O worker continua
-fail-closed para opt-out e usa o EmailProvider configurado em EMAIL_PROVIDER.
+assim como o limite de taxa de destinatarios do servico. Uma trava advisory no
+Postgres garante apenas um worker ativo por vez, evitando que multiplos
+processos somem suas taxas e ultrapassem o limite por minuto.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from app.email_provider import get_email_provider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mei_mg_email.worker")
+WORKER_ADVISORY_LOCK_ID = 100002026
 
 
 def montar_corpo(template: str, empresa: dict) -> str:
@@ -223,6 +225,13 @@ def run() -> None:
     )
 
     with psycopg.connect(settings.database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute("select pg_try_advisory_lock(%s)", (WORKER_ADVISORY_LOCK_ID,))
+            if not cur.fetchone()[0]:
+                raise RuntimeError(
+                    "Ja existe outro worker de disparo ativo. Mantendo instancia unica para respeitar o rate limit global."
+                )
+
         while True:
             try:
                 lote = pegar_proximo_lote(conn)
