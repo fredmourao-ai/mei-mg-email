@@ -50,6 +50,10 @@ def obter_envios_ultimas_24h(conn: psycopg.Connection) -> int:
         return cur.fetchone()[0]
 
 
+def limite_operacional_24h() -> int:
+    return min(settings.meta_envios_por_dia, settings.max_envios_por_dia)
+
+
 def _erro_transitorio(error: str | None) -> bool:
     texto = (error or "").casefold()
     marcadores = (
@@ -124,6 +128,7 @@ def recuperar_lotes_travados(conn: psycopg.Connection) -> int:
 
 def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
     intervalo_entre_envios = 60.0 / max(settings.rate_limit_envios_por_minuto, 1)
+    limite_24h = limite_operacional_24h()
 
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
@@ -149,17 +154,17 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
 
     for envio in envios:
         envios_24h = obter_envios_ultimas_24h(conn)
-        if envios_24h >= settings.max_envios_por_dia:
+        if envios_24h >= limite_24h:
             _registrar_contadores_campanha(conn, lote["campanha_id"], enviados, falhas)
             _recolocar_lote_pendente(
                 conn,
                 lote["id"],
-                f"cota movel de 24h atingida: {envios_24h}/{settings.max_envios_por_dia}",
+                f"meta movel de 24h atingida: {envios_24h}/{limite_24h}",
             )
             logger.warning(
-                "Limite movel de 24h atingido: %d/%d. Lote %s devolvido para a fila.",
+                "Meta movel de 24h atingida: %d/%d. Lote %s devolvido para a fila.",
                 envios_24h,
-                settings.max_envios_por_dia,
+                limite_24h,
                 lote["id"],
             )
             return
