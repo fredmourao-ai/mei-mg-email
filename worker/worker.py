@@ -54,9 +54,11 @@ def _erro_transitorio(error: str | None) -> bool:
     texto = (error or "").casefold()
     marcadores = (
         "429",
+        "toomanyrequests",
         "too many requests",
         "throttl",
         "serverbusy",
+        "serviceunavailable",
         "service unavailable",
         "temporar",
         "timeout",
@@ -189,9 +191,11 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
                 lote["id"],
                 f"falha transitoria; envio sera tentado novamente: {resultado.error or 'sem detalhe'}",
             )
-            espera = min(60.0, max(10.0, intervalo_entre_envios * 5))
+            backoff_local = max(10.0, intervalo_entre_envios * 5)
+            retry_after = getattr(resultado, "retry_after_seconds", None)
+            espera = max(backoff_local, float(retry_after or 0))
             logger.warning(
-                "Falha transitoria no envio %s; lote %s reprogramado. Aguarda %.1fs.",
+                "Falha transitoria no envio %s; lote %s reprogramado. Aguarda %.1fs antes de nova tentativa.",
                 envio["envio_id"],
                 lote["id"],
                 espera,
