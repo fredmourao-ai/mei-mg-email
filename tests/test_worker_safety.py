@@ -1,8 +1,13 @@
+from urllib.error import HTTPError
+
+from app.email_provider import MicrosoftGraphEmailProvider
 from worker.worker import _erro_transitorio, montar_corpo
 
 
 def test_transient_exchange_errors_are_retryable():
     for error in [
+        "Microsoft Graph: TooManyRequests; http_429",
+        "Microsoft Graph: ServiceUnavailable; http_503",
         "Microsoft Graph: too many requests (429)",
         "HTTP 429 too many requests",
         "service unavailable",
@@ -11,6 +16,28 @@ def test_transient_exchange_errors_are_retryable():
         "request timed out",
     ]:
         assert _erro_transitorio(error), error
+
+
+def test_retry_after_header_is_preserved():
+    error = HTTPError(
+        url="https://graph.microsoft.com/v1.0/users/test/sendMail",
+        code=429,
+        msg="Too Many Requests",
+        hdrs={"Retry-After": "120"},
+        fp=None,
+    )
+    assert MicrosoftGraphEmailProvider._parse_retry_after(error) == 120
+
+
+def test_invalid_retry_after_is_ignored():
+    error = HTTPError(
+        url="https://graph.microsoft.com/v1.0/users/test/sendMail",
+        code=503,
+        msg="Service Unavailable",
+        hdrs={"Retry-After": "not-a-number"},
+        fp=None,
+    )
+    assert MicrosoftGraphEmailProvider._parse_retry_after(error) is None
 
 
 def test_permanent_errors_are_not_retried_forever():
