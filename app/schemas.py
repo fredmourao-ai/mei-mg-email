@@ -24,15 +24,20 @@ class CampanhaCreate(BaseModel):
     filtro_uf: str | None = Field(
         default="MG",
         description=(
-            "Filtra empresas por estado. Default 'MG' -- toda campanha nova "
-            "e MG-only a menos que o campo seja explicitamente sobrescrito "
-            "nesta chamada (com outra UF, ex: 'SP', ou com null pra "
-            "remover a restricao e pegar todos os estados). Nunca omita "
-            "esse campo esperando 'todos os estados' por padrao -- omitir "
-            "= MG."
+            "Filtra empresas por estado. Default 'MG'. Use outra UF ou null "
+            "explicitamente quando quiser alterar esse escopo."
         ),
     )
-    tamanho_lote: int = 100
+    tamanho_lote: int = Field(default=100, ge=1, le=1000)
+    limite_empresas: int | None = Field(
+        default=None,
+        ge=1,
+        le=10000,
+        description=(
+            "Limite maximo de contatos enfileirados nesta campanha. Para Exchange Online, "
+            "nao use mais de 10000 destinatarios em uma janela movel de 24 horas."
+        ),
+    )
 
 
 class CampanhaOut(BaseModel):
