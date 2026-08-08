@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Auditoria fail-closed para a meta operacional de 9.950 destinatarios/24h.
 
-Executar no mesmo ambiente do worker, com o .env, token cache Graph e banco de
-producao. O script NAO envia e-mail. Valida DNS, token OAuth nao interativo,
-remetente, TERRL informado pelo administrador, template HTML e estado da fila.
+Executar no mesmo ambiente do worker, com o .env e banco de producao. O script
+NAO envia e-mail. Valida DNS, autenticacao Microsoft Graph app-only, remetente,
+TERRL informado/confirmado pelo administrador, template HTML e seguranca da fila.
 """
 from __future__ import annotations
 
@@ -23,14 +23,14 @@ if str(BASE_DIR) not in sys.path:
 from app.config import settings
 
 EXPECTED_DOMAIN = os.getenv("MICROSOFT_SENDER_DOMAIN", "dev.shopvivaliz.com.br").strip().lower().rstrip(".")
+EXPECTED_SENDER = "naoresponda@dev.shopvivaliz.com.br"
 TEMPLATE_PATH = BASE_DIR / "templates" / "mei-contabilidade-melo.html"
+GRAPH_PROVIDERS = {"microsoft_graph", "microsoft-oauth", "graph"}
 
 
 def sender_address() -> str:
-    if settings.email_provider in {"microsoft_graph", "microsoft-oauth", "graph"}:
+    if settings.email_provider in GRAPH_PROVIDERS:
         return os.getenv("MICROSOFT_GRAPH_USER", "").strip()
-    if settings.email_provider in {"microsoft", "outlook", "office365"}:
-        return os.getenv("MICROSOFT_SMTP_USER", "").strip()
     return ""
 
 
@@ -41,7 +41,7 @@ def run_script(name: str) -> tuple[bool, str]:
         env=dict(os.environ),
         text=True,
         capture_output=True,
-        timeout=60,
+        timeout=90,
     )
     return result.returncode == 0, (result.stdout + "\n" + result.stderr).strip()
 
@@ -50,10 +50,8 @@ def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
 
-    if settings.email_provider not in {
-        "microsoft_graph", "microsoft-oauth", "graph", "microsoft", "outlook", "office365"
-    }:
-        errors.append(f"provider_nao_exchange={settings.email_provider}")
+    if settings.email_provider not in GRAPH_PROVIDERS:
+        errors.append(f"provider_nao_microsoft_graph={settings.email_provider}")
 
     if settings.max_envios_por_dia != 10000:
         errors.append(f"MAX_ENVIOS_POR_DIA_deve_ser_10000={settings.max_envios_por_dia}")
@@ -72,6 +70,8 @@ def main() -> int:
         sender_domain = ""
     else:
         sender_domain = sender.rsplit("@", 1)[1].lower().rstrip(".")
+        if sender.casefold() != EXPECTED_SENDER.casefold():
+            errors.append(f"sender_diverge={sender}!={EXPECTED_SENDER}")
         if sender_domain.endswith(".onmicrosoft.com") or sender_domain == "onmicrosoft.com":
             errors.append("dominio_onmicrosoft_nao_permitido_para_esta_operacao")
         if sender_domain != EXPECTED_DOMAIN:
@@ -80,7 +80,7 @@ def main() -> int:
     mail_from = os.getenv("MAIL_FROM", "").strip()
     _, mail_from_address = parseaddr(mail_from)
     if not mail_from_address:
-        warnings.append("MAIL_FROM_nao_configurado")
+        errors.append("MAIL_FROM_nao_configurado")
     elif sender and mail_from_address.casefold() != sender.casefold():
         errors.append(f"MAIL_FROM_diverge_do_usuario_microsoft={mail_from_address}!={sender}")
 
@@ -114,10 +114,10 @@ def main() -> int:
         errors.append("dns_microsoft_custom_domain_not_ready")
 
     graph_output = "not_applicable"
-    if settings.email_provider in {"microsoft_graph", "microsoft-oauth", "graph"}:
+    if settings.email_provider in GRAPH_PROVIDERS:
         graph_ok, graph_output = run_script("auditar_graph_token.py")
         if not graph_ok:
-            errors.append("graph_token_cache_not_ready")
+            errors.append("graph_app_only_not_ready")
 
     try:
         with psycopg.connect(settings.database_url) as conn:
@@ -125,15 +125,19 @@ def main() -> int:
                 cur.execute(
                     """
                     select
-                      count(*) filter (where status = 'enviado' and enviado_em >= now() - interval '24 hours') as enviados_24h,
-                      count(*) filter (where status in ('pendente', 'enviando')) as pendentes,
-                      count(*) filter (where status = 'falhou' and criado_em >= now() - interval '24 hours') as falhas_24h,
-                      count(*) filter (where status = 'bloqueado') as bloqueados,
-                      count(*) filter (where status = 'opt_out') as opt_out
+                      count(*) filter (
+                        where status::text in ('submitted','enviado')
+                          and enviado_em >= now() - interval '24 hours'
+                      ) as consumidos_24h,
+                      count(*) filter (where status::text in ('pendente','enviando')) as pendentes,
+                      count(*) filter (where status::text = 'falhou' and criado_em >= now() - interval '24 hours') as falhas_24h,
+                      count(*) filter (where status::text = 'sender_blocked' and criado_em >= now() - interval '24 hours') as sender_blocked_24h,
+                      count(*) filter (where status::text = 'bloqueado') as bloqueados,
+                      count(*) filter (where status::text = 'opt_out') as opt_out
                     from mei_email.envios
                     """
                 )
-                enviados_24h, pendentes, falhas_24h, bloqueados, opt_out = cur.fetchone()
+                consumidos_24h, pendentes, falhas_24h, sender_blocked_24h, bloqueados, opt_out = cur.fetchone()
 
                 cur.execute("select count(*) from mei_email.vw_empresas_elegiveis")
                 elegiveis = cur.fetchone()[0]
@@ -143,8 +147,13 @@ def main() -> int:
                     select count(*)
                       from mei_email.envios e
                       join mei_email.empresas emp on emp.cnpj = e.cnpj
-                     where e.status in ('pendente', 'enviando')
-                       and (emp.situacao_cadastral <> 'ATIVA' or emp.opt_out or not emp.marketing_autorizado)
+                     where e.status::text in ('pendente','enviando')
+                       and (
+                         emp.situacao_cadastral <> 'ATIVA'
+                         or emp.opt_out
+                         or emp.provavel_terceiro
+                         or not emp.marketing_autorizado
+                       )
                     """
                 )
                 fila_invalida = cur.fetchone()[0]
@@ -155,12 +164,29 @@ def main() -> int:
                       from (
                         select lower(btrim(email::text)) as email_normalizado
                           from mei_email.envios
+                         where status::text in ('pendente','enviando')
                          group by lower(btrim(email::text))
                         having count(*) > 1
                       ) repetidos
                     """
                 )
-                emails_repetidos_na_fila_historico = cur.fetchone()[0]
+                duplicados_na_fila_atual = cur.fetchone()[0]
+
+                cur.execute(
+                    """
+                    select count(*)
+                      from mei_email.envios p
+                     where p.status::text in ('pendente','enviando')
+                       and exists (
+                         select 1
+                           from mei_email.envios s
+                          where s.id <> p.id
+                            and s.status::text in ('submitted','enviado')
+                            and lower(btrim(s.email::text)) = lower(btrim(p.email::text))
+                       )
+                    """
+                )
+                pendentes_ja_submetidos = cur.fetchone()[0]
 
                 cur.execute(
                     """
@@ -171,28 +197,47 @@ def main() -> int:
                     """
                 )
                 lotes_travados = cur.fetchone()[0]
+
+                cur.execute(
+                    """
+                    select count(*)
+                      from pg_stat_activity
+                     where datname = current_database()
+                       and state = 'idle in transaction'
+                       and query ilike '%from mei_email.lotes%'
+                       and query ilike '%for update skip locked%'
+                    """
+                )
+                workers_idle_transaction = cur.fetchone()[0]
     except Exception as exc:
         print("EXCHANGE_9950_AUDIT")
         print("NOT_READY")
         print(f"database_audit_failed={type(exc).__name__}:{exc}")
         return 1
 
-    comprometido = enviados_24h + pendentes
-    if enviados_24h > settings.meta_envios_por_dia:
-        errors.append(f"envios_24h_acima_meta={enviados_24h}")
+    comprometido = consumidos_24h + pendentes
+    if consumidos_24h > settings.meta_envios_por_dia:
+        errors.append(f"consumidos_24h_acima_meta={consumidos_24h}")
     if comprometido > settings.meta_envios_por_dia:
         errors.append(f"fila_compromete_acima_meta={comprometido}")
-    if emails_repetidos_na_fila_historico:
-        errors.append(f"emails_repetidos_em_envios={emails_repetidos_na_fila_historico}")
+    if duplicados_na_fila_atual:
+        errors.append(f"emails_duplicados_na_fila_atual={duplicados_na_fila_atual}")
+    if pendentes_ja_submetidos:
+        errors.append(f"pendentes_ja_submitted_ou_enviados={pendentes_ja_submetidos}")
     if fila_invalida:
         errors.append(f"fila_contem_destinatarios_nao_elegiveis={fila_invalida}")
     if lotes_travados:
         errors.append(f"lotes_processando_travados={lotes_travados}")
+    if workers_idle_transaction:
+        errors.append(f"worker_idle_in_transaction={workers_idle_transaction}")
+    if sender_blocked_24h:
+        errors.append(f"sender_blocked_24h={sender_blocked_24h}")
 
-    total_tentados_24h = enviados_24h + falhas_24h
-    failure_rate = (falhas_24h / total_tentados_24h) if total_tentados_24h else 0.0
-    if falhas_24h:
-        warnings.append(f"falhas_24h={falhas_24h};taxa={failure_rate:.2%}")
+    total_falhas_24h = falhas_24h + sender_blocked_24h
+    total_tentados_24h = consumidos_24h + total_falhas_24h
+    failure_rate = (total_falhas_24h / total_tentados_24h) if total_tentados_24h else 0.0
+    if total_falhas_24h:
+        warnings.append(f"falhas_24h={total_falhas_24h};taxa={failure_rate:.2%}")
         if total_tentados_24h >= 100 and failure_rate >= 0.10:
             errors.append(f"taxa_falha_24h_alta={failure_rate:.2%}")
 
@@ -208,13 +253,14 @@ def main() -> int:
     print(f"rate_limit_por_minuto={settings.rate_limit_envios_por_minuto}")
     print(f"meta_envios_24h={settings.meta_envios_por_dia}")
     print(f"teto_local_24h={settings.max_envios_por_dia}")
-    print(f"enviados_ultimas_24h={enviados_24h}")
+    print(f"submitted_ou_enviados_ultimas_24h={consumidos_24h}")
     print(f"pendentes={pendentes}")
     print(f"comprometido={comprometido}")
     print(f"elegiveis_autorizados={elegiveis}")
     print(f"bloqueados_total={bloqueados}")
     print(f"opt_out_total={opt_out}")
-    print(f"emails_repetidos_em_envios={emails_repetidos_na_fila_historico}")
+    print(f"duplicados_na_fila_atual={duplicados_na_fila_atual}")
+    print(f"pendentes_ja_submitted_ou_enviados={pendentes_ja_submetidos}")
     print("DNS_AUDIT_BEGIN")
     print(dns_output)
     print("DNS_AUDIT_END")
