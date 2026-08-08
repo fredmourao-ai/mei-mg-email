@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Validate unattended Microsoft Graph app-only authentication.
 
-No token value is printed. The certificate broker must return a Graph token with
-Mail.Send application role and the expected app identity.
+No token value is printed. Successful token issuance plus Mail.Send application
+role validation proves the configured X.509 application credential is usable.
 """
 from __future__ import annotations
 
@@ -51,11 +51,9 @@ def main() -> int:
 
         print("GRAPH_APP_ONLY_TOKEN_READY")
         print(f"sender={provider.address}")
-        print(f"client_id={provider.client_id}")
-        print(f"tenant_id={provider.tenant_id}")
-        print(f"certificate_thumbprint={provider.certificate_thumbprint}")
         print("auth_mode=app_only_cert")
         print("role_Mail.Send=true")
+        print("certificate_credential=validated_by_token_issuance")
         print("token_value=REDACTED")
         return 0
     except Exception as exc:
