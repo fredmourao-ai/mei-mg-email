@@ -42,7 +42,7 @@ $$;
 
 drop trigger if exists envios_marcar_empresa_submetida on envios;
 create trigger envios_marcar_empresa_submetida
-  after insert or update of status on envios
+  after insert or update on envios
   for each row execute function mei_email.trg_marcar_empresa_submetida();
 
 -- Elegibilidade continua fail-closed por autorizacao, mas uma linha antiga
