@@ -11,13 +11,9 @@ comment on column empresas.mei_verificado is
 comment on column empresas.mei_verificado_origem is
   'Fonte auditavel da verificacao, por exemplo receita_simples_opcao_mei.';
 
--- As classificacoes antigas derivadas apenas de natureza juridica/porte nao
--- sao prova de opcao MEI. Mantemos o dado como candidato para reconciliacao.
-update empresas
-   set tipo_regime = 'MEI_CANDIDATO'
- where tipo_regime = 'MEI'
-   and mei_verificado = false;
-
+-- Nao reescrevemos o historico em massa. Registros antigos rotulados MEI por
+-- heuristica permanecem com o rotulo legado, mas ficam inelegiveis enquanto
+-- mei_verificado=false. Novas cargas do espelho usam MEI_CANDIDATO.
 create index if not exists idx_empresas_mei_verificado
   on empresas (mei_verificado)
   where mei_verificado = true;
