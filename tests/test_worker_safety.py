@@ -134,3 +134,29 @@ def test_source_metadata_datetime_parser_accepts_huggingface_iso_timestamp():
     assert dt is not None
     assert dt.tzinfo == timezone.utc
     assert dt.year == 2026
+
+
+def test_mei_campaign_requires_official_verification():
+    migration = (ROOT / "db" / "migrations" / "V016__verified_mei_eligibility.sql").read_text(
+        encoding="utf-8"
+    )
+    normalized = " ".join(migration.casefold().split())
+    assert "mei_verificado boolean not null default false" in normalized
+    assert "tipo_regime = 'mei_candidato'" in normalized
+    assert "tipo_regime not in ('mei', 'mei_candidato')" in normalized
+    assert "mei_verificado = true" in normalized
+    assert "marketing_autorizado = true" in normalized
+
+
+def test_mirror_never_claims_verified_mei():
+    script = (ROOT / "scripts" / "ingest_from_huggingface.py").read_text(encoding="utf-8").casefold()
+    assert 'tipo_regime = "mei_candidato"' in script
+    assert "mei_verificado=true" not in script
+    assert "when mei_email.empresas.mei_verificado" in script
+
+
+def test_official_simples_ingest_is_the_mei_verification_path():
+    script = (ROOT / "scripts" / "ingest_estabelecimentos.py").read_text(encoding="utf-8").casefold()
+    assert "opcao_pelo_mei" in script
+    assert "receita_simples_opcao_mei" in script
+    assert '"mei_verificado": mei_confirmado' in script
