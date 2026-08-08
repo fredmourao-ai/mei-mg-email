@@ -136,16 +136,16 @@ def test_source_metadata_datetime_parser_accepts_huggingface_iso_timestamp():
     assert dt.year == 2026
 
 
-def test_mei_campaign_requires_official_verification():
+def test_mei_campaign_requires_official_verification_without_mass_rewrite():
     migration = (ROOT / "db" / "migrations" / "V016__verified_mei_eligibility.sql").read_text(
         encoding="utf-8"
     )
     normalized = " ".join(migration.casefold().split())
     assert "mei_verificado boolean not null default false" in normalized
-    assert "tipo_regime = 'mei_candidato'" in normalized
     assert "tipo_regime not in ('mei', 'mei_candidato')" in normalized
     assert "mei_verificado = true" in normalized
     assert "marketing_autorizado = true" in normalized
+    assert "update empresas set tipo_regime" not in normalized
 
 
 def test_mirror_never_claims_verified_mei():
