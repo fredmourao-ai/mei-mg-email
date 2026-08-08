@@ -48,26 +48,26 @@ def capacidade_para_nova_fila() -> tuple[int, int, int]:
                 """
                 select count(*)
                   from mei_email.envios
-                 where status = 'enviado'
+                 where status::text in ('submitted', 'enviado')
                    and enviado_em >= now() - interval '24 hours'
                 """
             )
-            enviados_24h = cur.fetchone()[0]
+            consumidos_24h = cur.fetchone()[0]
 
             cur.execute(
                 """
                 select count(*)
                   from mei_email.envios
-                 where status in ('pendente', 'enviando')
+                 where status::text in ('pendente', 'enviando')
                 """
             )
             pendentes = cur.fetchone()[0]
 
-    comprometido = enviados_24h + pendentes
+    comprometido = consumidos_24h + pendentes
     pela_meta = max(settings.meta_envios_por_dia - comprometido, 0)
     pelo_teto = max(settings.max_envios_por_dia - comprometido, 0)
     disponivel = min(pela_meta, pelo_teto)
-    return disponivel, enviados_24h, pendentes
+    return disponivel, consumidos_24h, pendentes
 
 
 def enfileirar_meta_diaria_mei_mg() -> int:
@@ -83,9 +83,9 @@ def enfileirar_meta_diaria_mei_mg() -> int:
         raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO excede o limite local permitido.")
 
     template_html = carregar_template_html()
-    disponivel, enviados_24h, pendentes = capacidade_para_nova_fila()
+    disponivel, consumidos_24h, pendentes = capacidade_para_nova_fila()
     print(
-        f"Enviados nas ultimas 24h: {enviados_24h}/{settings.max_envios_por_dia}",
+        f"Submitted/enviados nas ultimas 24h: {consumidos_24h}/{settings.max_envios_por_dia}",
         flush=True,
     )
     print(f"Meta operacional: {settings.meta_envios_por_dia}", flush=True)
