@@ -1,9 +1,11 @@
+from datetime import timezone
 from pathlib import Path
 from urllib.error import HTTPError
 
 from app.config import settings
 from app.email_provider import MicrosoftGraphEmailProvider
 from scripts.disparar_10000_mei_mg import EXPECTED_DAILY_TARGET, carregar_template_html
+from scripts.sincronizar_base_diaria import _parse_datetime
 from worker.worker import _erro_transitorio, montar_corpo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,3 +105,32 @@ def test_fail_closed_migration_requires_authorization_and_global_dedupe():
     assert "from envios" in normalized
     assert "lower(btrim(x.email::text))" in normalized
     assert "situacao_cadastral = 'ativa'" in normalized
+
+
+def test_cnpj_alphanumeric_migration_and_submitted_guard_are_present():
+    migration = (ROOT / "db" / "migrations" / "V014__cnpj_alphanumeric_and_submission_guard.sql").read_text(
+        encoding="utf-8"
+    )
+    normalized = " ".join(migration.casefold().split())
+    assert "^[0-9a-z]{12}[0-9]{2}$" in normalized
+    assert "trg_marcar_empresa_submetida" in normalized
+    assert "('submitted', 'enviado')" in normalized
+    assert "x.cnpj = e.cnpj" in normalized
+    assert "lower(btrim(x.email::text))" in normalized
+    assert "marketing_autorizado = true" in normalized
+
+
+def test_daily_base_sync_is_independent_from_bulk_send():
+    script = (ROOT / "scripts" / "sincronizar_base_diaria.py").read_text(encoding="utf-8").casefold()
+    assert "base_sync_runs" in script
+    assert "ingest_from_huggingface.py" in script
+    assert "source_stale" in script
+    assert "disparar_10000" not in script
+    assert "systemctl start mei-mg-email-worker" not in script
+
+
+def test_source_metadata_datetime_parser_accepts_huggingface_iso_timestamp():
+    dt = _parse_datetime("2026-08-08T12:00:00.000Z")
+    assert dt is not None
+    assert dt.tzinfo == timezone.utc
+    assert dt.year == 2026
