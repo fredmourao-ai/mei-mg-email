@@ -151,7 +151,8 @@ def test_mei_campaign_requires_official_verification():
 def test_mirror_never_claims_verified_mei():
     script = (ROOT / "scripts" / "ingest_from_huggingface.py").read_text(encoding="utf-8").casefold()
     assert 'tipo_regime = "mei_candidato"' in script
-    assert "mei_verificado=true" not in script
+    assert '"mei_verificado": true' not in script
+    assert "mei_verificado = true" not in script
     assert "when mei_email.empresas.mei_verificado" in script
 
 
