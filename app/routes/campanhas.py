@@ -35,15 +35,15 @@ def criar_campanha(payload: CampanhaCreate):
                 """
                 select
                   count(*) filter (
-                    where status = 'enviado'
+                    where status::text in ('submitted', 'enviado')
                       and enviado_em >= now() - interval '24 hours'
-                  ) as enviados_24h,
-                  count(*) filter (where status in ('pendente', 'enviando')) as comprometidos
+                  ) as consumidos_24h,
+                  count(*) filter (where status::text in ('pendente', 'enviando')) as comprometidos
                 from mei_email.envios
                 """
             )
             capacidade = cur.fetchone()
-            ja_comprometido = int(capacidade["enviados_24h"] or 0) + int(capacidade["comprometidos"] or 0)
+            ja_comprometido = int(capacidade["consumidos_24h"] or 0) + int(capacidade["comprometidos"] or 0)
             limite_operacional = min(settings.meta_envios_por_dia, settings.max_envios_por_dia)
             restante = max(limite_operacional - ja_comprometido, 0)
             if restante <= 0:
