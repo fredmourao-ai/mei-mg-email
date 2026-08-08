@@ -38,7 +38,7 @@ select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.em
    and e.enviado = false
    and e.marketing_autorizado = true
    and (
-        e.tipo_regime <> 'MEI'
+        e.tipo_regime not in ('MEI', 'MEI_CANDIDATO')
         or e.mei_verificado = true
    )
    and not exists (
@@ -55,4 +55,4 @@ select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.em
    );
 
 comment on view vw_empresas_elegiveis is
-  'Fonte fail-closed: ativa, autorizada, sem supressoes/duplicidade e, para MEI, com enquadramento oficialmente verificado.';
+  'Fonte fail-closed: ativa, autorizada, sem supressoes/duplicidade e, para MEI ou candidato a MEI, com enquadramento oficialmente verificado.';
