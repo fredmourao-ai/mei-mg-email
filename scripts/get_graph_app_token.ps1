@@ -51,7 +51,7 @@ try {
     $headerPart = ConvertTextTo-Base64Url (($header | ConvertTo-Json -Compress))
     $payloadPart = ConvertTextTo-Base64Url (($payload | ConvertTo-Json -Compress))
     $unsigned = "$headerPart.$payloadPart"
-    $rsa = $cert.GetRSAPrivateKey()
+    $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
     if (-not $rsa) { throw 'RSA private key unavailable' }
     try {
         $signature = $rsa.SignData(
