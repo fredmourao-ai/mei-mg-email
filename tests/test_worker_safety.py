@@ -93,7 +93,7 @@ def test_official_template_is_html_with_footer_logo_and_unsubscribe():
 
 
 def test_fail_closed_migration_requires_authorization_and_global_dedupe():
-    migration = (ROOT / "db" / "migrations" / "V010__eligibility_consent_and_global_dedupe.sql").read_text(
+    migration = (ROOT / "db" / "migrations" / "V013__eligibility_consent_and_global_dedupe.sql").read_text(
         encoding="utf-8"
     )
     normalized = " ".join(migration.casefold().split())
