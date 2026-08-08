@@ -1,8 +1,8 @@
 """Email provider abstraction.
 
 Real delivery is Microsoft Graph only. SMTP is intentionally unsupported.
-Production authentication is app-only with an X.509 certificate stored in the
-Windows CurrentUser certificate store; no browser/device-code login is needed.
+Production authentication is app-only with an X.509 certificate; no
+browser/device-code login is required for production sends.
 """
 from __future__ import annotations
 
@@ -27,6 +27,8 @@ class SendResult:
     message_id: str | None = None
     error: str | None = None
     retry_after_seconds: int | None = None
+    status: str | None = None
+    status_code: int | None = None
 
 
 class EmailProvider(ABC):
@@ -45,12 +47,17 @@ class DryRunEmailProvider(EmailProvider):
             len(body),
             fake_id,
         )
-        return SendResult(success=True, message_id=fake_id)
+        return SendResult(success=True, message_id=fake_id, status="dryrun", status_code=0)
 
 
 def _body_is_html(body: str) -> bool:
     body_lower = body.strip().lower()
     return body_lower.startswith("<!doctype html") or body_lower.startswith("<html") or "<body" in body_lower
+
+
+def _is_sender_blocked(code: str, message: str) -> bool:
+    text = f"{code} {message}".casefold()
+    return "5.1.8" in text and ("42004" in text or "sender" in text or "outbound" in text)
 
 
 class MicrosoftGraphEmailProvider(EmailProvider):
@@ -86,7 +93,7 @@ class MicrosoftGraphEmailProvider(EmailProvider):
             raise RuntimeError("MICROSOFT_GRAPH_CERT_THUMBPRINT nao configurado.")
         if not self.token_broker.is_file():
             raise RuntimeError(f"token broker Graph ausente: {self.token_broker}")
-        if self.from_address.lower() != self.address.lower():
+        if self.from_address.casefold() != self.address.casefold():
             raise RuntimeError(
                 "MAIL_FROM precisa usar o mesmo endereco de MICROSOFT_GRAPH_USER; "
                 "spoof de endereco e bloqueado."
@@ -198,23 +205,49 @@ class MicrosoftGraphEmailProvider(EmailProvider):
                 method="POST",
             )
             with urlopen(req, timeout=30) as response:
-                if response.status not in {200, 202}:
-                    return SendResult(success=False, error=f"Microsoft Graph HTTP {response.status}")
-            return SendResult(success=True, message_id=None)
+                status_code = int(response.status)
+                request_id = response.headers.get("request-id") or response.headers.get("client-request-id")
+                if status_code not in {200, 202}:
+                    return SendResult(
+                        success=False,
+                        message_id=request_id,
+                        error=f"Microsoft Graph HTTP {status_code}",
+                        status="error",
+                        status_code=status_code,
+                    )
+                # sendMail 202 means accepted/submitted to Exchange processing only.
+                # It is not positive proof of recipient delivery.
+                return SendResult(
+                    success=True,
+                    message_id=request_id,
+                    status="submitted",
+                    status_code=status_code,
+                )
         except HTTPError as error:
             retry_after = self._parse_retry_after(error)
             try:
                 detail = json.loads(error.read().decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
                 detail = {}
-            graph_error = detail.get("error", {}).get("code", f"http_{error.code}")
+            graph = detail.get("error", {}) if isinstance(detail, dict) else {}
+            graph_error = str(graph.get("code") or f"http_{error.code}")
+            graph_message = str(graph.get("message") or "")
+            mapped_status = "sender_blocked" if _is_sender_blocked(graph_error, graph_message) else "error"
+            compact_message = graph_message.replace("\n", " ").strip()
+            if len(compact_message) > 500:
+                compact_message = compact_message[:500]
+            error_text = f"Microsoft Graph: {graph_error}; http_{error.code}"
+            if compact_message:
+                error_text += f"; {compact_message}"
             return SendResult(
                 success=False,
-                error=f"Microsoft Graph: {graph_error}; http_{error.code}",
+                error=error_text,
                 retry_after_seconds=retry_after,
+                status=mapped_status,
+                status_code=int(error.code),
             )
         except (RuntimeError, URLError, OSError) as error:
-            return SendResult(success=False, error=str(error))
+            return SendResult(success=False, error=str(error), status="error")
 
 
 def get_email_provider(name: str) -> EmailProvider:
