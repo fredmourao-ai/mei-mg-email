@@ -1,10 +1,16 @@
-from datetime import timezone
+from datetime import date, timezone
 from pathlib import Path
 from urllib.error import HTTPError
 
 from app.config import settings
 from app.email_provider import MicrosoftGraphEmailProvider
 from scripts.disparar_10000_mei_mg import EXPECTED_DAILY_TARGET, carregar_template_html
+from scripts.ingest_casa_dos_dados_daily import (
+    build_search_payload,
+    extract_email,
+    normalize_cnpj,
+    normalize_company,
+)
 from scripts.sincronizar_base_diaria import _parse_datetime
 from worker.worker import _erro_transitorio, montar_corpo
 
@@ -123,7 +129,9 @@ def test_cnpj_alphanumeric_migration_and_submitted_guard_are_present():
 def test_daily_base_sync_is_independent_from_bulk_send():
     script = (ROOT / "scripts" / "sincronizar_base_diaria.py").read_text(encoding="utf-8").casefold()
     assert "base_sync_runs" in script
+    assert "ingest_casa_dos_dados_daily.py" in script
     assert "ingest_from_huggingface.py" in script
+    assert "source_unconfigured" in script
     assert "source_stale" in script
     assert "disparar_10000" not in script
     assert "systemctl start mei-mg-email-worker" not in script
@@ -161,3 +169,55 @@ def test_official_simples_ingest_is_the_mei_verification_path():
     assert "opcao_pelo_mei" in script
     assert "receita_simples_opcao_mei" in script
     assert '"mei_verificado": mei_confirmado' in script
+
+
+def test_casa_dos_dados_daily_payload_is_mg_mei_active_email_and_overlapping():
+    payload = build_search_payload(date(2026, 8, 8), lookback_days=3, page=2, limit=100)
+    assert payload["situacao_cadastral"] == ["ATIVA"]
+    assert payload["uf"] == ["mg"]
+    assert payload["mei"] == {"optante": True}
+    assert payload["data_abertura"] == {"inicio": "2026-08-06", "fim": "2026-08-08"}
+    assert payload["mais_filtros"]["com_email"] is True
+    assert payload["mais_filtros"]["excluir_email_contab"] is True
+    assert payload["pagina"] == 2
+    assert payload["limite"] == 100
+
+
+def test_casa_dos_dados_accepts_alphanumeric_cnpj_and_never_marks_verified_mei():
+    assert normalize_cnpj("12.ABC.345/6789-01") == "12ABC345678901"
+    company = normalize_company(
+        {
+            "cnpj": "12.ABC.345/6789-01",
+            "razao_social": "MEI Teste",
+            "nome_fantasia": "Teste",
+            "situacao_cadastral": {"situacao_cadastral": "ATIVA"},
+            "endereco": {"uf": "mg"},
+            "data_abertura": "2026-08-08",
+            "contato": {"email": "mei@example.com"},
+        }
+    )
+    assert company is not None
+    assert company["cnpj"] == "12ABC345678901"
+    assert company["uf"] == "MG"
+    assert company["email"] == "mei@example.com"
+    assert company["tipo_regime"] == "MEI_CANDIDATO"
+    assert "mei_verificado" not in company
+
+
+def test_casa_dos_dados_email_extractor_ignores_accounting_email_field():
+    item = {
+        "email_contabilidade": "contador@example.com",
+        "contatos": {"email": "empresa@example.com"},
+    }
+    assert extract_email(item) == "empresa@example.com"
+
+
+def test_casa_dos_dados_ingest_preserves_campaign_safety_fields():
+    script = (ROOT / "scripts" / "ingest_casa_dos_dados_daily.py").read_text(encoding="utf-8").casefold()
+    assert "marketing_autorizado" in script
+    assert "mei_verificado" in script
+    assert "opt_out" in script
+    assert "enviado" in script
+    assert "disparar_10000" not in script
+    assert "systemctl start mei-mg-email-worker" not in script
+    assert "'mei_candidato'" in script or '"mei_candidato"' in script
