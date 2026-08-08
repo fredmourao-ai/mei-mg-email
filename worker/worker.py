@@ -2,9 +2,8 @@
 Worker que consome a fila de lotes e dispara os e-mails respeitando limites.
 
 Para Exchange Online, o controle usa janela movel de 24 horas e uma trava
-advisory no Postgres garante somente um worker de envio ativo. Pausas por cota
-e falhas transitorias devolvem o lote para a fila sem perder os envios ja
-confirmados, e lotes abandonados por crash podem ser recuperados no startup.
+advisory no Postgres garante somente um worker de envio ativo. HTTP 202 do
+Microsoft Graph e registrado como `submitted`, nunca como entrega comprovada.
 """
 from __future__ import annotations
 
@@ -43,7 +42,7 @@ def obter_envios_ultimas_24h(conn: psycopg.Connection) -> int:
             """
             select count(*)
               from mei_email.envios
-             where status = 'enviado'
+             where status::text in ('submitted', 'enviado')
                and enviado_em >= now() - interval '24 hours'
             """
         )
@@ -77,18 +76,17 @@ def _erro_transitorio(error: str | None) -> bool:
     return any(marcador in texto for marcador in marcadores)
 
 
-def _registrar_contadores_campanha(conn, campanha_id, enviados: int, falhas: int) -> None:
-    if not enviados and not falhas:
+def _registrar_falhas_campanha(conn, campanha_id, falhas: int) -> None:
+    if not falhas:
         return
     with conn.cursor() as cur:
         cur.execute(
             """
             update mei_email.campanhas
-               set total_enviados = total_enviados + %s,
-                   total_falhas = total_falhas + %s
+               set total_falhas = total_falhas + %s
              where id = %s
             """,
-            (enviados, falhas, campanha_id),
+            (falhas, campanha_id),
         )
     conn.commit()
 
@@ -126,6 +124,22 @@ def recuperar_lotes_travados(conn: psycopg.Connection) -> int:
     return recuperados
 
 
+def _ja_submetido_ou_entregue(conn: psycopg.Connection, envio_id, email: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select 1
+              from mei_email.envios
+             where id <> %s
+               and status::text in ('submitted', 'enviado')
+               and lower(btrim(email::text)) = lower(btrim(%s))
+             limit 1
+            """,
+            (envio_id, email),
+        )
+        return cur.fetchone() is not None
+
+
 def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
     intervalo_entre_envios = 60.0 / max(settings.rate_limit_envios_por_minuto, 1)
     limite_24h = limite_operacional_24h()
@@ -149,13 +163,13 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
         )
         envios = cur.fetchall()
 
-    enviados = 0
+    submetidos = 0
     falhas = 0
 
     for envio in envios:
         envios_24h = obter_envios_ultimas_24h(conn)
         if envios_24h >= limite_24h:
-            _registrar_contadores_campanha(conn, lote["campanha_id"], enviados, falhas)
+            _registrar_falhas_campanha(conn, lote["campanha_id"], falhas)
             _recolocar_lote_pendente(
                 conn,
                 lote["id"],
@@ -170,46 +184,41 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             return
 
         if envio["opt_out"]:
-            _atualizar_envio(
-                conn,
-                envio["envio_id"],
-                "opt_out",
-                erro="opt-out registrado apos enfileiramento",
-            )
+            _atualizar_envio(conn, envio["envio_id"], "opt_out", erro="opt-out registrado apos enfileiramento")
             continue
 
         if envio["situacao_cadastral"] != "ATIVA":
-            _atualizar_envio(
-                conn,
-                envio["envio_id"],
-                "bloqueado",
-                erro="empresa deixou de estar ATIVA apos enfileiramento",
-            )
+            _atualizar_envio(conn, envio["envio_id"], "bloqueado", erro="empresa deixou de estar ATIVA apos enfileiramento")
             continue
 
         if not envio["marketing_autorizado"]:
-            _atualizar_envio(
-                conn,
-                envio["envio_id"],
-                "bloqueado",
-                erro="comunicacao comercial nao autorizada no cadastro",
-            )
+            _atualizar_envio(conn, envio["envio_id"], "bloqueado", erro="comunicacao comercial nao autorizada no cadastro")
+            continue
+
+        if _ja_submetido_ou_entregue(conn, envio["envio_id"], envio["email"]):
+            _atualizar_envio(conn, envio["envio_id"], "descartado", erro="supressao global: destinatario ja submitted/enviado anteriormente")
             continue
 
         corpo = montar_corpo(envio["corpo_template"], envio)
         resultado = provider.send(to=envio["email"], subject=envio["assunto"], body=corpo)
 
         if resultado.success:
+            provider_status = getattr(resultado, "status", None)
+            if provider_status != "submitted":
+                raise RuntimeError(f"status Graph inesperado apos sendMail: {provider_status!r}")
             _atualizar_envio(
                 conn,
                 envio["envio_id"],
-                "enviado",
+                "submitted",
                 provider_message_id=resultado.message_id,
             )
-            enviados += 1
+            submetidos += 1
+        elif getattr(resultado, "status", None) == "sender_blocked":
+            _atualizar_envio(conn, envio["envio_id"], "sender_blocked", erro=resultado.error)
+            falhas += 1
         elif _erro_transitorio(resultado.error) and envio["tentativas"] + 1 < MAX_TENTATIVAS_TRANSITORIAS:
             _atualizar_envio(conn, envio["envio_id"], "pendente", erro=resultado.error)
-            _registrar_contadores_campanha(conn, lote["campanha_id"], enviados, falhas)
+            _registrar_falhas_campanha(conn, lote["campanha_id"], falhas)
             _recolocar_lote_pendente(
                 conn,
                 lote["id"],
@@ -242,13 +251,13 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             (lote["id"],),
         )
     conn.commit()
-    _registrar_contadores_campanha(conn, lote["campanha_id"], enviados, falhas)
+    _registrar_falhas_campanha(conn, lote["campanha_id"], falhas)
 
     logger.info(
-        "Lote %s (campanha %s) concluido: %d enviados, %d falhas",
+        "Lote %s (campanha %s) concluido: %d submitted, %d falhas",
         lote["numero"],
         lote["campanha_id"],
-        enviados,
+        submetidos,
         falhas,
     )
 
@@ -262,7 +271,7 @@ def _atualizar_envio(conn, envio_id, status, provider_message_id=None, erro=None
                    tentativas = tentativas + 1,
                    provider_message_id = coalesce(%s, provider_message_id),
                    erro = %s,
-                   enviado_em = case when %s = 'enviado' then now() else enviado_em end
+                   enviado_em = case when %s in ('submitted', 'enviado') then now() else enviado_em end
              where id = %s
             """,
             (status, provider_message_id, erro, status, envio_id),
