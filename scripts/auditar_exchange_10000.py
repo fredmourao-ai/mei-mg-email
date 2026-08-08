@@ -3,16 +3,19 @@
 
 Executar no mesmo ambiente do worker, com o .env e banco de producao. O script
 NAO envia e-mail. Valida DNS, autenticacao Microsoft Graph app-only, remetente,
-TERRL informado/confirmado pelo administrador, template HTML e seguranca da fila.
+TERRL derivado das assinaturas Microsoft, template HTML e seguranca da fila.
 """
 from __future__ import annotations
 
+import json
+import math
 import os
 import subprocess
 import sys
 from email.utils import parseaddr
 from pathlib import Path
 from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 import psycopg
 
@@ -21,6 +24,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from app.config import settings
+from app.email_provider import MicrosoftGraphEmailProvider
 
 EXPECTED_DOMAIN = os.getenv("MICROSOFT_SENDER_DOMAIN", "dev.shopvivaliz.com.br").strip().lower().rstrip(".")
 EXPECTED_SENDER = "naoresponda@dev.shopvivaliz.com.br"
@@ -44,6 +48,63 @@ def run_script(name: str) -> tuple[bool, str]:
         timeout=90,
     )
     return result.returncode == 0, (result.stdout + "\n" + result.stderr).strip()
+
+
+def _is_email_service_plan(name: str, status: str) -> bool:
+    low = name.casefold()
+    return (
+        ("exchange" in low or low.startswith("eop_") or "exchangearchive" in low)
+        and status.casefold() not in {"disabled", "deleted"}
+    )
+
+
+def derive_terrl_from_microsoft_subscriptions() -> tuple[int, int, int, str]:
+    """Derive TERRL using Microsoft's published formula and Graph subscription facts.
+
+    Trial email licenses are excluded from the paid-license formula. If the tenant
+    has no non-trial email license but has trial email licenses, the trial cap is
+    5,000. Returns threshold, non-trial count, trial count and source marker.
+    """
+    provider = MicrosoftGraphEmailProvider()
+    token = provider._get_access_token()
+    req = Request(
+        "https://graph.microsoft.com/v1.0/directory/subscriptions",
+        headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+    )
+    with urlopen(req, timeout=30) as response:
+        subscriptions = json.loads(response.read().decode("utf-8")).get("value", [])
+
+    nontrial = 0
+    trial = 0
+    for sub in subscriptions:
+        has_email = any(
+            _is_email_service_plan(
+                str(plan.get("servicePlanName") or ""),
+                str(plan.get("provisioningStatus") or ""),
+            )
+            for plan in (sub.get("serviceStatus") or [])
+        )
+        if not has_email:
+            continue
+        total = int(sub.get("totalLicenses") or 0)
+        status = str(sub.get("status") or "").casefold()
+        if status not in {"enabled", "warning"}:
+            continue
+        if bool(sub.get("isTrial")):
+            trial += total
+        else:
+            nontrial += total
+
+    if nontrial > 0:
+        threshold = math.floor(500 * (nontrial**0.7) + 9500)
+        source = "microsoft_graph_company_subscriptions_nontrial_formula"
+    elif trial > 0:
+        threshold = 5000
+        source = "microsoft_trial_tenant_cap"
+    else:
+        threshold = 0
+        source = "no_exchange_or_eop_subscription_found"
+    return threshold, nontrial, trial, source
 
 
 def main() -> int:
@@ -97,15 +158,26 @@ def main() -> int:
     except OSError as exc:
         errors.append(f"template_html_indisponivel={exc}")
 
-    terrl_raw = os.getenv("MICROSOFT_TERRL_THRESHOLD", "").strip()
+    terrl = 0
+    terrl_nontrial_licenses = 0
+    terrl_trial_licenses = 0
+    terrl_source = "unavailable"
     try:
-        terrl = int(terrl_raw)
-    except ValueError:
-        terrl = 0
+        terrl, terrl_nontrial_licenses, terrl_trial_licenses, terrl_source = derive_terrl_from_microsoft_subscriptions()
+    except Exception as exc:
+        errors.append(f"terrl_subscription_derivation_failed={type(exc).__name__}:{exc}")
+
+    configured_terrl_raw = os.getenv("MICROSOFT_TERRL_THRESHOLD", "").strip()
+    if configured_terrl_raw:
+        try:
+            configured_terrl = int(configured_terrl_raw)
+            if terrl and configured_terrl != terrl:
+                warnings.append(f"MICROSOFT_TERRL_THRESHOLD_env_diverge_formula={configured_terrl}/{terrl}")
+        except ValueError:
+            warnings.append(f"MICROSOFT_TERRL_THRESHOLD_env_invalido={configured_terrl_raw}")
+
     if terrl < settings.meta_envios_por_dia:
-        errors.append(
-            "MICROSOFT_TERRL_THRESHOLD_insuficiente_ou_nao_confirmado=" + (terrl_raw or "nao_configurado")
-        )
+        errors.append(f"TERRL_insuficiente_para_meta={terrl}/{settings.meta_envios_por_dia}")
     elif terrl - settings.meta_envios_por_dia < 50:
         warnings.append(f"margem_TERRL_menor_que_50={terrl - settings.meta_envios_por_dia}")
 
@@ -249,7 +321,10 @@ def main() -> int:
     print(f"provider={settings.email_provider}")
     print(f"sender={sender}")
     print(f"sender_domain={sender_domain}")
-    print(f"terrl_threshold_confirmado={terrl}")
+    print(f"terrl_threshold_derivado={terrl}")
+    print(f"terrl_source={terrl_source}")
+    print(f"terrl_nontrial_email_licenses={terrl_nontrial_licenses}")
+    print(f"terrl_trial_email_licenses_excluded={terrl_trial_licenses}")
     print(f"rate_limit_por_minuto={settings.rate_limit_envios_por_minuto}")
     print(f"meta_envios_24h={settings.meta_envios_por_dia}")
     print(f"teto_local_24h={settings.max_envios_por_dia}")
@@ -277,6 +352,7 @@ def main() -> int:
         return 1
 
     print("READY_FOR_AUTHORIZED_RECIPIENTS_WITHIN_CONFIGURED_LIMITS")
+    print("NOTE=TERRL quota is derived from Microsoft company subscription data and the published formula; direct tenant ObservedValue still requires the Exchange Online TERRL report/cmdlet.")
     print("NOTE=Readiness tecnico nao autoriza envio para contatos sem permissao nem elimina bloqueios dinamicos do provedor.")
     return 0
 
