@@ -13,11 +13,10 @@ class Settings:
     api_port: int = int(os.getenv("API_PORT", "8000"))
 
     email_provider: str = os.getenv("EMAIL_PROVIDER", "dryrun")
-    # Exchange Online service limit is 30 messages/minute. Keep a margin by
-    # default so temporary throttling and other mailbox activity do not cause
-    # avoidable failures.
+    # Operational limit required for this sender. The worker still enforces
+    # provider backoff/retry handling and the rolling 24-hour ceiling.
     rate_limit_envios_por_minuto: int = int(
-        os.getenv("RATE_LIMIT_ENVIOS_POR_MINUTO", "20")
+        os.getenv("RATE_LIMIT_ENVIOS_POR_MINUTO", "30")
     )
     # Hard local ceiling for a rolling 24-hour window. This remains separate
     # from the operational target so there is always explicit safety margin.
