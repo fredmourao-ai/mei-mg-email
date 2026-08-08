@@ -1,32 +1,9 @@
 """
-Ingestao dos dados abertos de CNPJ da Receita Federal (dados.gov.br) ->
-tabela mei_email.empresas, filtrado para MEIs ativos de MG.
+Ingestao dos dados abertos oficiais de CNPJ/Simples -> mei_email.empresas.
 
-Os arquivos oficiais sao .csv (na pratica ; separado, sem header, encoding
-latin-1/ISO-8859-1), um por tipo de dado, layout fixo por posicao de coluna
-(documentado no "Layout dos Dados Abertos do CNPJ" do proprio dados.gov.br).
-Usa-se pelo menos 3 arquivos, unidos pelo CNPJ_BASICO (8 primeiros digitos):
-
-  - ESTABELECIMENTOS*.csv  (obrigatorio) -- endereco, UF, situacao,
-                             telefone, e-mail. Um estabelecimento por linha.
-  - EMPRESAS*.csv          (opcional)    -- razao social, porte.
-  - SIMPLES*.csv           (opcional)    -- flag OPCAO_PELO_MEI (S/N).
-                             Sem esse arquivo, o filtro de MEI e pulado (so
-                             filtra UF=MG + situacao ATIVA) e um aviso e
-                             impresso -- os dados que chegarem incluem
-                             empresas de outros portes, nao so MEI.
-
-O arquivo real ainda nao foi fornecido. Os arquivos em data/sample/*.csv sao
-FAKE, pequenos, no mesmo layout posicional, so pra validar a esteira
-(ingestao -> banco -> API -> worker dry-run) antes do dado de verdade
-chegar. Rode com --sample pra usar eles.
-
-Uso:
-  python scripts/ingest_estabelecimentos.py --sample
-  python scripts/ingest_estabelecimentos.py \
-      --estabelecimentos data/receita/ESTABELECIMENTOS0.csv \
-      --empresas data/receita/EMPRESAS0.csv \
-      --simples data/receita/SIMPLES.csv
+Quando o arquivo SIMPLES e informado, OPCAO_PELO_MEI='S' e a fonte que pode
+marcar mei_verificado=true. Sem esse arquivo, registros podem ser armazenados
+para atualizacao cadastral, mas jamais sao tratados como MEI verificado.
 """
 from __future__ import annotations
 
@@ -37,11 +14,6 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-# psycopg e app.config so sao importados dentro de gravar_no_banco(), de
-# proposito: assim as funcoes de parse/filtro (usadas nos testes em
-# tests/test_ingest.py) continuam importaveis mesmo sem driver de banco
-# instalado nem .env configurado -- so precisa deles quem for gravar de
-# verdade.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -54,35 +26,31 @@ SITUACAO_CADASTRAL = {
     "08": "BAIXADA",
 }
 
-# Limite da heuristica "provavel terceiro" (contador/escritorio
-# compartilhando um unico e-mail entre varios CNPJs de clientes). Ver
-# decisao no README / pedido original: "mais de 3 CNPJs diferentes".
 LIMITE_CNPJS_POR_EMAIL_TERCEIRO = 3
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def ler_empresas(caminho: Path | None) -> dict[str, str]:
-    """cnpj_basico -> razao_social. Vazio se o arquivo nao foi passado."""
     if caminho is None:
         return {}
     razao_por_basico: dict[str, str] = {}
     with open(caminho, encoding="latin-1", newline="") as f:
         for linha in csv.reader(f, delimiter=";"):
             cnpj_basico, razao_social = linha[0], linha[1]
-            razao_por_basico[cnpj_basico] = razao_social.strip().strip('"')
+            razao_por_basico[cnpj_basico.strip().strip('"').upper().zfill(8)] = razao_social.strip().strip('"')
     return razao_por_basico
 
 
 def ler_simples(caminho: Path | None) -> dict[str, bool]:
-    """cnpj_basico -> opcao_pelo_mei (bool). Vazio se o arquivo nao foi passado."""
+    """cnpj_basico -> opcao_pelo_mei. A coluna e a fonte oficial de verificacao."""
     if caminho is None:
         return {}
     mei_por_basico: dict[str, bool] = {}
     with open(caminho, encoding="latin-1", newline="") as f:
         for linha in csv.reader(f, delimiter=";"):
             cnpj_basico, opcao_mei = linha[0], linha[4]
-            mei_por_basico[cnpj_basico] = opcao_mei.strip().strip('"').upper() == "S"
+            basico = cnpj_basico.strip().strip('"').upper().zfill(8)
+            mei_por_basico[basico] = opcao_mei.strip().strip('"').upper() == "S"
     return mei_por_basico
 
 
@@ -104,12 +72,12 @@ def ingerir_estabelecimentos(
             total_linhas += 1
             campo = [c.strip().strip('"') for c in linha]
 
-            cnpj_basico = campo[0].zfill(8)
-            cnpj_ordem = campo[1].zfill(4)
-            cnpj_dv = campo[2].zfill(2)
+            cnpj_basico = campo[0].upper().zfill(8)
+            cnpj_ordem = campo[1].upper().zfill(4)
+            cnpj_dv = campo[2].upper().zfill(2)
             cnpj = f"{cnpj_basico}{cnpj_ordem}{cnpj_dv}"
 
-            uf = campo[19]
+            uf = campo[19].upper()
             if uf != "MG":
                 descartadas_uf += 1
                 continue
@@ -120,7 +88,8 @@ def ingerir_estabelecimentos(
                 descartadas_situacao += 1
                 continue
 
-            if filtrar_mei and not mei_por_basico.get(cnpj_basico, False):
+            mei_confirmado = bool(mei_por_basico.get(cnpj_basico, False)) if filtrar_mei else False
+            if filtrar_mei and not mei_confirmado:
                 descartadas_mei += 1
                 continue
 
@@ -135,14 +104,14 @@ def ingerir_estabelecimentos(
                     "razao_social": razao_por_basico.get(cnpj_basico),
                     "nome_fantasia": campo[4] or None,
                     "situacao_cadastral": situacao,
-                    "cnae": campo[11] or None,
-                    "municipio": campo[20] or None,
                     "uf": uf,
-                    "cep": campo[18] or None,
                     "email": email,
                     "ddd_1": campo[21] or None,
                     "telefone_1": campo[22] or None,
                     "data_abertura": _parse_data(campo[10]),
+                    "tipo_regime": "MEI" if mei_confirmado else "NAO_VERIFICADO",
+                    "mei_verificado": mei_confirmado,
+                    "mei_verificado_origem": "receita_simples_opcao_mei" if mei_confirmado else None,
                 }
             )
 
@@ -151,11 +120,10 @@ def ingerir_estabelecimentos(
     print(f"[ingest] descartadas (situacao != ATIVA): {descartadas_situacao}")
     if filtrar_mei:
         print(f"[ingest] descartadas (nao optante MEI): {descartadas_mei}")
+        print("[ingest] MEI verificado pela coluna OPCAO_PELO_MEI do arquivo SIMPLES.")
     else:
         print(
-            "[ingest] AVISO: arquivo SIMPLES nao informado -- filtro de MEI "
-            "NAO aplicado. Os dados incluem qualquer porte de empresa ativa "
-            "em MG com e-mail, nao so MEI."
+            "[ingest] AVISO: arquivo SIMPLES nao informado -- nenhum registro sera marcado como MEI verificado."
         )
     print(f"[ingest] descartadas (sem e-mail valido): {descartadas_email}")
     print(f"[ingest] elegiveis apos filtros basicos: {len(empresas)}")
@@ -163,35 +131,26 @@ def ingerir_estabelecimentos(
 
 
 def _parse_data(valor: str) -> str | None:
-    # Layout da Receita: AAAAMMDD, "00000000" quando vazio.
     if not valor or valor == "00000000":
         return None
     return f"{valor[0:4]}-{valor[4:6]}-{valor[6:8]}"
 
 
 def marcar_provaveis_terceiros(empresas: list[dict]) -> None:
-    """Regra de limpeza: e-mail que aparece em mais de N CNPJs diferentes
-    e provavelmente de um contador/escritorio, nao do MEI direto. Marca
-    (nao remove) -- fica auditavel e a view vw_empresas_elegiveis que
-    exclui do disparo."""
     contagem = Counter(e["email"] for e in empresas)
     marcados = 0
     for e in empresas:
-        if contagem[e["email"]] > LIMITE_CNPJS_POR_EMAIL_TERCEIRO:
-            e["provavel_terceiro"] = True
+        e["provavel_terceiro"] = contagem[e["email"]] > LIMITE_CNPJS_POR_EMAIL_TERCEIRO
+        if e["provavel_terceiro"]:
             marcados += 1
-        else:
-            e["provavel_terceiro"] = False
     print(
-        f"[ingest] e-mails repetidos em mais de "
-        f"{LIMITE_CNPJS_POR_EMAIL_TERCEIRO} CNPJs (marcados provavel_terceiro): "
-        f"{marcados}"
+        f"[ingest] e-mails repetidos em mais de {LIMITE_CNPJS_POR_EMAIL_TERCEIRO} CNPJs "
+        f"(marcados provavel_terceiro): {marcados}"
     )
 
 
 def gravar_no_banco(empresas: list[dict]) -> None:
     import psycopg
-
     from app.config import settings
 
     with psycopg.connect(settings.database_url) as conn:
@@ -200,11 +159,15 @@ def gravar_no_banco(empresas: list[dict]) -> None:
                 """
                 insert into mei_email.empresas
                     (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                     uf, email, ddd_1, telefone_1, data_abertura, provavel_terceiro)
+                     uf, email, ddd_1, telefone_1, data_abertura, provavel_terceiro,
+                     tipo_regime, mei_verificado, mei_verificado_em, mei_verificado_origem)
                 values
                     (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
                      %(situacao_cadastral)s, %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
-                     %(data_abertura)s, %(provavel_terceiro)s)
+                     %(data_abertura)s, %(provavel_terceiro)s, %(tipo_regime)s,
+                     %(mei_verificado)s,
+                     case when %(mei_verificado)s then now() else null end,
+                     %(mei_verificado_origem)s)
                 on conflict (cnpj) do update set
                     razao_social = excluded.razao_social,
                     nome_fantasia = excluded.nome_fantasia,
@@ -213,8 +176,21 @@ def gravar_no_banco(empresas: list[dict]) -> None:
                     ddd_1 = excluded.ddd_1,
                     telefone_1 = excluded.telefone_1,
                     data_abertura = excluded.data_abertura,
-                    provavel_terceiro = excluded.provavel_terceiro
-                    -- opt_out NUNCA e sobrescrito por reimportacao
+                    provavel_terceiro = excluded.provavel_terceiro,
+                    tipo_regime = case
+                        when excluded.mei_verificado then 'MEI'
+                        else mei_email.empresas.tipo_regime
+                    end,
+                    mei_verificado = mei_email.empresas.mei_verificado or excluded.mei_verificado,
+                    mei_verificado_em = case
+                        when excluded.mei_verificado then coalesce(mei_email.empresas.mei_verificado_em, now())
+                        else mei_email.empresas.mei_verificado_em
+                    end,
+                    mei_verificado_origem = case
+                        when excluded.mei_verificado then excluded.mei_verificado_origem
+                        else mei_email.empresas.mei_verificado_origem
+                    end
+                    -- opt_out, marketing_autorizado e historico de envio nunca sao sobrescritos
                 """,
                 empresas,
             )
@@ -227,16 +203,8 @@ def main() -> None:
     parser.add_argument("--estabelecimentos", type=Path)
     parser.add_argument("--empresas", type=Path)
     parser.add_argument("--simples", type=Path)
-    parser.add_argument(
-        "--sample",
-        action="store_true",
-        help="Usa os arquivos fake em data/sample/ em vez de dados reais.",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Roda tudo (parse + filtros + regra de terceiro) mas nao grava no banco.",
-    )
+    parser.add_argument("--sample", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     if args.sample:
@@ -252,7 +220,6 @@ def main() -> None:
 
     razao_por_basico = ler_empresas(empresas_arq)
     mei_por_basico = ler_simples(simples_arq)
-
     empresas = ingerir_estabelecimentos(
         estabelecimentos,
         razao_por_basico,
