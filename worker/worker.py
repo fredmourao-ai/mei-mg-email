@@ -151,7 +151,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
                    c.assunto, c.corpo_template,
                    emp.razao_social, emp.nome_fantasia,
                    emp.opt_out, emp.situacao_cadastral,
-                   emp.marketing_autorizado
+                   emp.provavel_terceiro, emp.marketing_autorizado
               from mei_email.envios e
               join mei_email.campanhas c on c.id = e.campanha_id
               join mei_email.empresas emp on emp.cnpj = e.cnpj
@@ -189,6 +189,10 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
 
         if envio["situacao_cadastral"] != "ATIVA":
             _atualizar_envio(conn, envio["envio_id"], "bloqueado", erro="empresa deixou de estar ATIVA apos enfileiramento")
+            continue
+
+        if envio["provavel_terceiro"]:
+            _atualizar_envio(conn, envio["envio_id"], "bloqueado", erro="contato marcado como provavel terceiro apos enfileiramento")
             continue
 
         if not envio["marketing_autorizado"]:
@@ -317,6 +321,10 @@ def pegar_proximo_lote(conn: psycopg.Connection, campanha_id: str | None = None)
             )
         lote = cur.fetchone()
         if lote is None:
+            # A SELECT ... FOR UPDATE inicia uma transacao mesmo sem linhas.
+            # Fechar imediatamente evita sessoes "idle in transaction" que
+            # seguram locks de relacao e podem bloquear futuras migrations.
+            conn.commit()
             return None
 
         cur.execute(
