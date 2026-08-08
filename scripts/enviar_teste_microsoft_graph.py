@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -13,7 +14,9 @@ load_dotenv(BASE_DIR / ".env")
 from app.email_provider import MicrosoftGraphEmailProvider
 from worker.worker import montar_corpo
 
-RECIPIENT = os.getenv("TEST_RECIPIENT", "fredmourao@gmail.com")
+# atendimento@shopvivaliz.com.br encaminha para fredmourao@gmail.com e serve
+# como caminho de validacao real sem usar Gmail como provedor de envio.
+RECIPIENT = os.getenv("TEST_RECIPIENT", "atendimento@shopvivaliz.com.br")
 EXPECTED_SENDER = "naoresponda@dev.shopvivaliz.com.br"
 EXPECTED_NAME = "Contabilidade Melo"
 TEMPLATE_PATH = BASE_DIR / "templates" / "mei-contabilidade-melo.html"
@@ -26,8 +29,8 @@ def main() -> None:
         {
             "cnpj": "00000000000000",
             "email": RECIPIENT,
-            "razao_social": "Empresa de Teste",
-            "nome_fantasia": "Teste Contabilidade Melo",
+            "razao_social": "Equipe ShopVivaliz",
+            "nome_fantasia": "ShopVivaliz",
         },
     )
     if "logo-contabilidade-melo-transparente.png" not in body.casefold():
@@ -47,15 +50,21 @@ def main() -> None:
     if provider.from_name != EXPECTED_NAME:
         raise SystemExit(f"Nome de remetente incorreto: {provider.from_name}")
 
-    result = provider.send(
-        to=RECIPIENT,
-        subject="VALIDACAO GRAPH - Template oficial Contabilidade Melo",
-        body=body,
-    )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    subject = f"VALIDACAO GRAPH CORRIGIDA - Contabilidade Melo - {stamp}"
+    result = provider.send(to=RECIPIENT, subject=subject, body=body)
     if not result.success:
-        raise SystemExit(f"Falha no envio de teste: {result.error}")
-    print(f"Template HTML oficial aceito pelo Microsoft Graph para {RECIPIENT}.")
+        raise SystemExit(f"Falha no envio de teste: status={result.status} erro={result.error}")
+    if result.status != "submitted":
+        raise SystemExit(f"Graph retornou status inesperado: {result.status!r}")
+
+    print("GRAPH_TEST_SUBMITTED")
+    print(f"recipient={RECIPIENT}")
     print(f"sender={EXPECTED_NAME} <{EXPECTED_SENDER}>")
+    print(f"subject={subject}")
+    print(f"status={result.status}")
+    print(f"status_code={result.status_code}")
+    print(f"request_id={result.message_id or ''}")
 
 
 if __name__ == "__main__":
