@@ -131,7 +131,7 @@ def test_daily_base_sync_is_independent_from_bulk_send():
     assert "base_sync_runs" in script
     assert "ingest_casa_dos_dados_daily.py" in script
     assert "ingest_from_huggingface.py" in script
-    assert "source_unconfigured" in script
+    assert "missing_secret" in script
     assert "source_stale" in script
     assert "disparar_10000" not in script
     assert "systemctl start mei-mg-email-worker" not in script
