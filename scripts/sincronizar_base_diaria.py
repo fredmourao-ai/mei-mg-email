@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Sincronizacao diaria auditavel da base de CNPJ, independente do disparo.
+
+A rotina consulta a revisao da fonte configurada, grava uma trilha em
+mei_email.base_sync_runs e somente executa a ingestao pesada quando a revisao
+mudou. Se a fonte nao muda por tempo demais, registra source_stale e retorna
+codigo diferente de zero para que o monitoramento nao confunda "rodou" com
+"dados realmente frescos".
+
+Esta rotina NAO cria campanhas e NAO inicia o worker de e-mail.
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.request import Request, urlopen
+
+import psycopg
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env", override=True)
+
+SOURCE_NAME = os.getenv("CNPJ_BASE_SOURCE_NAME", "huggingface_fluowai_datacorp_cnpj").strip()
+SOURCE_API = os.getenv(
+    "CNPJ_BASE_SOURCE_METADATA_URL",
+    "https://huggingface.co/api/datasets/fluowai/datacorp-cnpj-data",
+).strip()
+MAX_SOURCE_AGE_HOURS = int(os.getenv("CNPJ_BASE_MAX_SOURCE_AGE_HOURS", "48"))
+FORCE_REFRESH = os.getenv("CNPJ_BASE_FORCE_REFRESH", "0").strip().lower() in {"1", "true", "yes", "sim"}
+LOCK_ID = 14082026
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = value.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def fetch_source_metadata() -> tuple[str, datetime | None, dict]:
+    req = Request(
+        SOURCE_API,
+        headers={"User-Agent": "ShopVivaliz-MEI-base-sync/1.0", "Accept": "application/json"},
+    )
+    with urlopen(req, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    revision = str(payload.get("sha") or payload.get("id") or "").strip()
+    if not revision:
+        raise RuntimeError("Fonte nao informou uma revisao identificavel")
+    last_modified = _parse_datetime(str(payload.get("lastModified") or ""))
+    summary = {
+        "dataset_id": payload.get("id"),
+        "sha": revision,
+        "lastModified": payload.get("lastModified"),
+        "private": payload.get("private"),
+        "disabled": payload.get("disabled"),
+    }
+    return revision, last_modified, summary
+
+
+def source_age_hours(last_modified: datetime | None) -> float | None:
+    if last_modified is None:
+        return None
+    return max((datetime.now(timezone.utc) - last_modified.astimezone(timezone.utc)).total_seconds() / 3600.0, 0.0)
+
+
+def finish_run(conn, run_id: int, status: str, **fields) -> None:
+    details = fields.pop("details", {})
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update mei_email.base_sync_runs
+               set status=%s,
+                   finished_at=now(),
+                   source_revision=coalesce(%s,source_revision),
+                   source_last_modified=coalesce(%s,source_last_modified),
+                   rows_before=%s,
+                   rows_after=%s,
+                   rows_added=%s,
+                   details=%s::jsonb,
+                   error=%s
+             where id=%s
+            """,
+            (
+                status,
+                fields.get("source_revision"),
+                fields.get("source_last_modified"),
+                fields.get("rows_before"),
+                fields.get("rows_after"),
+                fields.get("rows_added"),
+                json.dumps(details, ensure_ascii=False, default=str),
+                fields.get("error"),
+                run_id,
+            ),
+        )
+    conn.commit()
+
+
+def main() -> int:
+    database_url = os.environ["DATABASE_URL"]
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute("select pg_try_advisory_lock(%s)", (LOCK_ID,))
+            if not cur.fetchone()[0]:
+                print("BASE_SYNC_SKIPPED=outra_sincronizacao_ja_esta_em_execucao", flush=True)
+                return 0
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into mei_email.base_sync_runs(source_name,status)
+                values (%s,'running') returning id
+                """,
+                (SOURCE_NAME,),
+            )
+            run_id = cur.fetchone()[0]
+        conn.commit()
+
+        try:
+            revision, last_modified, source_summary = fetch_source_metadata()
+            age_hours = source_age_hours(last_modified)
+            stale = age_hours is None or age_hours > MAX_SOURCE_AGE_HOURS
+
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select source_revision
+                      from mei_email.base_sync_runs
+                     where source_name=%s
+                       and id<>%s
+                       and status in ('success','no_change','source_stale')
+                       and source_revision is not null
+                     order by finished_at desc nulls last, id desc
+                     limit 1
+                    """,
+                    (SOURCE_NAME, run_id),
+                )
+                row = cur.fetchone()
+                previous_revision = row[0] if row else None
+
+            details = {
+                "source": source_summary,
+                "source_age_hours": round(age_hours, 2) if age_hours is not None else None,
+                "max_source_age_hours": MAX_SOURCE_AGE_HOURS,
+                "previous_revision": previous_revision,
+                "force_refresh": FORCE_REFRESH,
+            }
+
+            if previous_revision == revision and not FORCE_REFRESH:
+                status = "source_stale" if stale else "no_change"
+                finish_run(
+                    conn,
+                    run_id,
+                    status,
+                    source_revision=revision,
+                    source_last_modified=last_modified,
+                    details=details,
+                )
+                print(f"BASE_SYNC_STATUS={status}", flush=True)
+                print(f"SOURCE_REVISION={revision}", flush=True)
+                print(f"SOURCE_AGE_HOURS={details['source_age_hours']}", flush=True)
+                if stale:
+                    print(
+                        "SOURCE_FRESHNESS_ERROR=fonte_nao_ofereceu_revisao_nova_no_limite_configurado",
+                        flush=True,
+                    )
+                    return 2
+                return 0
+
+            with conn.cursor() as cur:
+                cur.execute("select count(*) from mei_email.empresas")
+                rows_before = int(cur.fetchone()[0])
+
+            ingest = subprocess.run(
+                [sys.executable, str(BASE_DIR / "scripts" / "ingest_from_huggingface.py")],
+                cwd=str(BASE_DIR),
+                text=True,
+            )
+            if ingest.returncode != 0:
+                raise RuntimeError(f"ingest_from_huggingface.py exit={ingest.returncode}")
+
+            with conn.cursor() as cur:
+                cur.execute("select count(*) from mei_email.empresas")
+                rows_after = int(cur.fetchone()[0])
+            rows_added = max(rows_after - rows_before, 0)
+            details["source_stale_at_import"] = stale
+
+            finish_run(
+                conn,
+                run_id,
+                "success",
+                source_revision=revision,
+                source_last_modified=last_modified,
+                rows_before=rows_before,
+                rows_after=rows_after,
+                rows_added=rows_added,
+                details=details,
+            )
+            print("BASE_SYNC_STATUS=success", flush=True)
+            print(f"SOURCE_REVISION={revision}", flush=True)
+            print(f"ROWS_BEFORE={rows_before}", flush=True)
+            print(f"ROWS_AFTER={rows_after}", flush=True)
+            print(f"ROWS_ADDED={rows_added}", flush=True)
+            if stale:
+                print("WARNING=fonte_importada_esta_mais_antiga_que_o_limite_de_frescor", flush=True)
+            return 0
+        except Exception as exc:
+            finish_run(conn, run_id, "failed", error=f"{type(exc).__name__}: {exc}")
+            print(f"BASE_SYNC_STATUS=failed error={type(exc).__name__}:{exc}", flush=True)
+            return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
