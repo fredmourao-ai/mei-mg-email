@@ -135,8 +135,15 @@ def sync_casa_dos_dados(conn, run_id: int) -> int:
             "missing_secret": "CASA_DOS_DADOS_API_KEY",
             "action_required": "configure_api_key_in_vm_secret_environment",
         }
-        finish_run(conn, run_id, "source_unconfigured", details=details)
-        print("BASE_SYNC_STATUS=source_unconfigured", flush=True)
+        finish_run(
+            conn,
+            run_id,
+            "failed",
+            details=details,
+            error="CASA_DOS_DADOS_API_KEY nao configurada",
+        )
+        print("BASE_SYNC_STATUS=failed", flush=True)
+        print("BASE_SYNC_REASON=missing_secret", flush=True)
         print("MISSING_SECRET=CASA_DOS_DADOS_API_KEY", flush=True)
         return 3
 
@@ -291,7 +298,15 @@ def main() -> int:
                 return sync_huggingface_fallback(conn, run_id)
             raise RuntimeError(f"CNPJ_DAILY_SOURCE invalida: {DAILY_SOURCE}")
         except Exception as exc:
-            finish_run(conn, run_id, "failed", error=f"{type(exc).__name__}: {exc}")
+            conn.rollback()
+            try:
+                finish_run(conn, run_id, "failed", error=f"{type(exc).__name__}: {exc}")
+            except Exception as audit_exc:
+                conn.rollback()
+                print(
+                    f"BASE_SYNC_AUDIT_ERROR={type(audit_exc).__name__}:{audit_exc}",
+                    flush=True,
+                )
             print(f"BASE_SYNC_STATUS=failed error={type(exc).__name__}:{exc}", flush=True)
             return 1
 
