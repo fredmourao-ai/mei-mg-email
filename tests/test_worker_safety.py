@@ -79,6 +79,7 @@ def test_daily_target_keeps_margin_below_hard_cap():
     assert EXPECTED_DAILY_TARGET == 9950
     assert settings.meta_envios_por_dia == 9950
     assert settings.max_envios_por_dia == 10000
+    assert settings.rate_limit_envios_por_minuto == 30
     assert settings.meta_envios_por_dia < settings.max_envios_por_dia
 
 
