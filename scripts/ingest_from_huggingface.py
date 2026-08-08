@@ -46,11 +46,11 @@ def situacao_cadastral(code: str | None) -> str:
 
 
 def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
-    """Insere cadastros novos e, nos existentes, refresca apenas campos de seguranca.
+    """Insere cadastros novos e refresca apenas campos cadastrais seguros.
 
-    Dados de consentimento, opt-out e historico de envio nunca sao alterados pela
-    importacao. Isso permite executar a rotina diariamente sem reabilitar um
-    destinatario ja contatado ou descadastrado.
+    Esta fonte nao contem o historico oficial de opcao pelo MEI. Portanto ela
+    pode classificar somente MEI_CANDIDATO; nunca define mei_verificado=true.
+    Consentimento, opt-out, verificacao MEI e historico de envio sao preservados.
     """
     if not empresas:
         return
@@ -66,11 +66,13 @@ def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
                      %(situacao_cadastral)s, %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
                      %(data_abertura)s, %(tipo_regime)s, %(provavel_terceiro)s)
                 on conflict (cnpj) do update set
-                    -- Atualiza somente o que pode retirar elegibilidade ou
-                    -- corrigir a classificacao operacional. Contato, consentimento,
-                    -- enviado e opt_out nunca sao sobrescritos por reimportacao.
                     situacao_cadastral = excluded.situacao_cadastral,
-                    tipo_regime = excluded.tipo_regime
+                    tipo_regime = case
+                        when mei_email.empresas.mei_verificado then mei_email.empresas.tipo_regime
+                        else excluded.tipo_regime
+                    end
+                    -- Contato, consentimento, verificacao MEI, enviado e opt_out
+                    -- nunca sao sobrescritos por esta fonte espelho.
                 """,
                 empresas,
             )
@@ -78,7 +80,11 @@ def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
 
 
 def fetch_and_ingest_mg_data() -> None:
-    print("=== SINCRONIZACAO DIARIA CNPJ MG VIA FONTE CONFIGURADA ===", flush=True)
+    print("=== SINCRONIZACAO CNPJ MG VIA FONTE ESPELHO CONFIGURADA ===", flush=True)
+    print(
+        "NOTE=Natureza juridica/porte geram apenas MEI_CANDIDATO; opcao MEI precisa de verificacao oficial separada.",
+        flush=True,
+    )
     conn_duck = duckdb.connect()
     total_processado = 0
     lotes_com_erro = 0
@@ -114,13 +120,13 @@ def fetch_and_ingest_mg_data() -> None:
 
                 empresas_chunk = []
                 for r in rows:
-                    cnpj = str(r[0]).zfill(14)
+                    cnpj = str(r[0]).strip().upper().zfill(14)
                     email = str(r[5]).strip().lower()
                     nat_jur = str(r[9]).strip() if r[9] else ""
                     porte = str(r[10]).strip() if r[10] else ""
 
                     if nat_jur == "2135" or porte == "01":
-                        tipo_regime = "MEI"
+                        tipo_regime = "MEI_CANDIDATO"
                     elif porte in ("03", "05") or nat_jur in ("2062", "2305"):
                         tipo_regime = "SIMPLES"
                     else:
@@ -157,8 +163,6 @@ def fetch_and_ingest_mg_data() -> None:
             f"Sincronizacao incompleta: {lotes_com_erro}/10 lotes falharam. Nenhum disparo deve depender desta carga parcial."
         )
 
-    # Heuristica anti-terceiro aplicada depois de uma carga completa. Nunca
-    # desmarca automaticamente quem ja foi identificado como terceiro.
     print("\nAplicando heuristica de e-mails compartilhados...", flush=True)
     with psycopg.connect(settings.database_url) as conn:
         with conn.cursor() as cur:
@@ -187,8 +191,8 @@ def fetch_and_ingest_mg_data() -> None:
         flush=True,
     )
     print(
-        "Novos CNPJs sao inseridos; existentes recebem apenas refresh de situacao/regime. "
-        "marketing_autorizado, enviado e opt_out nunca sao reativados pela importacao.",
+        "Novos CNPJs sao inseridos; existentes recebem refresh seguro. "
+        "marketing_autorizado, mei_verificado, enviado e opt_out nunca sao reativados pela fonte espelho.",
         flush=True,
     )
 
