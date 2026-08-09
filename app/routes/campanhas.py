@@ -35,15 +35,17 @@ def criar_campanha(payload: CampanhaCreate):
                 """
                 select
                   count(*) filter (
-                    where status = 'enviado'
-                      and enviado_em >= now() - interval '24 hours'
-                  ) as enviados_24h,
-                  count(*) filter (where status in ('pendente', 'enviando')) as comprometidos
+                    where status::text in ('submitted', 'delivered')
+                      and coalesce(submitted_at, enviado_em, criado_em) >= now() - interval '24 hours'
+                  ) as submetidos_24h,
+                  count(*) filter (
+                    where status::text in ('pending', 'processing')
+                  ) as comprometidos
                 from mei_email.envios
                 """
             )
             capacidade = cur.fetchone()
-            ja_comprometido = int(capacidade["enviados_24h"] or 0) + int(capacidade["comprometidos"] or 0)
+            ja_comprometido = int(capacidade["submetidos_24h"] or 0) + int(capacidade["comprometidos"] or 0)
             limite_operacional = min(settings.meta_envios_por_dia, settings.max_envios_por_dia)
             restante = max(limite_operacional - ja_comprometido, 0)
             if restante <= 0:
@@ -54,6 +56,8 @@ def criar_campanha(payload: CampanhaCreate):
                     ),
                 )
 
+            # A view centraliza opt-out, supressao, historico de envio e a
+            # verificacao de MEI. Nunca selecione diretamente de empresas aqui.
             filtros = ["1 = 1"]
             params: list[object] = []
             if payload.filtro_tipo_regime:
@@ -64,9 +68,7 @@ def criar_campanha(payload: CampanhaCreate):
                 params.append(payload.filtro_uf.upper())
 
             where_clause = " and ".join(filtros)
-            requested_limit = payload.limite_empresas if payload.limite_empresas is not None else restante
-            effective_limit = min(requested_limit, restante)
-            params.append(effective_limit)
+            params.append(restante)
 
             cur.execute(
                 f"""
@@ -94,7 +96,7 @@ def criar_campanha(payload: CampanhaCreate):
                     status_code=422,
                     detail=(
                         "Nenhuma empresa elegivel encontrada com esses filtros "
-                        "(ativa, autorizada, sem opt-out/terceiro e nunca enfileirada/contatada)."
+                        "(ativa, autorizada, sem opt-out e nunca enfileirada/contatada)."
                     ),
                 )
 
@@ -138,7 +140,7 @@ def criar_campanha(payload: CampanhaCreate):
                     """
                     insert into mei_email.envios
                         (campanha_id, lote_id, cnpj, email, status)
-                    values (%s, %s, %s, %s, 'pendente')
+                    values (%s, %s, %s, %s, 'pending')
                     """,
                     [(campanha["id"], lote_id, e["cnpj"], e["email"]) for e in fatia],
                 )

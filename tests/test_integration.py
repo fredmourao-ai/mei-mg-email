@@ -18,12 +18,14 @@ def clean_db():
         with conn.cursor() as cur:
             cur.execute("truncate table mei_email.campanhas cascade")
             cur.execute("truncate table mei_email.empresas cascade")
+            cur.execute("truncate table mei_email.email_suppressions cascade")
         conn.commit()
     yield
     with psycopg.connect(settings.database_url) as conn:
         with conn.cursor() as cur:
             cur.execute("truncate table mei_email.campanhas cascade")
             cur.execute("truncate table mei_email.empresas cascade")
+            cur.execute("truncate table mei_email.email_suppressions cascade")
         conn.commit()
 
 
@@ -130,10 +132,29 @@ def test_prioridade_e_envio_unico(clean_db):
             cur.execute("select cnpj, enviado, enviado_em from mei_email.empresas")
             empresas_db = {e["cnpj"]: e for e in cur.fetchall()}
 
-    assert empresas_db["11111111000101"]["enviado"] is True
-    assert empresas_db["11111111000101"]["enviado_em"] is not None
-    assert empresas_db["22222222000102"]["enviado"] is True
-    assert empresas_db["33333333000103"]["enviado"] is True
+    assert empresas_db["11111111000101"]["enviado"] is False
+    assert empresas_db["11111111000101"]["enviado_em"] is None
+    assert empresas_db["22222222000102"]["enviado"] is False
+    assert empresas_db["33333333000103"]["enviado"] is False
+
+    with psycopg.connect(settings.database_url) as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                select status, submitted_at, graph_request_id, last_error, enviado_em
+                  from mei_email.envios
+                 where campanha_id = %s
+                 order by criado_em asc
+                """,
+                (campanha["id"],),
+            )
+            envios_db = cur.fetchall()
+
+    assert all(row["status"] == "submitted" for row in envios_db)
+    assert all(row["submitted_at"] is not None for row in envios_db)
+    assert all(row["graph_request_id"] is not None for row in envios_db)
+    assert all(row["last_error"] is None for row in envios_db)
+    assert all(row["enviado_em"] is not None for row in envios_db)
 
     payload_2 = CampanhaCreate(
         nome="Campanha Teste Novo Envio",
@@ -210,4 +231,4 @@ def test_email_duplicado_recebe_apenas_um_envio(clean_db):
                    and enviado = true
                 """
             )
-            assert cur.fetchone()[0] == 2
+            assert cur.fetchone()[0] == 0

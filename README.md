@@ -60,7 +60,7 @@ mei-mg-email/
 │   ├── main.py
 │   ├── config.py
 │   ├── db.py
-│   ├── email_provider.py    # Interface EmailProvider (DryRun e Gmail SMTP)
+│   ├── email_provider.py    # Interface EmailProvider (DryRun e Microsoft Graph app-only)
 │   ├── schemas.py
 │   └── routes/
 │       ├── campanhas.py     # POST/GET /campanhas (criação e lotes)
@@ -124,13 +124,15 @@ Subir o Worker (em outro terminal):
 
 ---
 
-## 🛡️ Provedor de E-mail: Gmail SMTP
-O projeto já conta com o `GmailEmailProvider` integrado (ver [email_provider.py](file:///c:/mei-mg-email/app/email_provider.py)). 
+## 🛡️ Provedor de E-mail: Microsoft Graph app-only
+Produção usa apenas Microsoft Graph app-only com certificado instalado na VM Oracle. SMTP, Gmail, Brevo e login delegado estao desabilitados.
 
-Para enviar e-mails de verdade com o Gmail SMTP, configure no seu arquivo `.env`:
+Exemplo de configuracao:
 ```ini
-EMAIL_PROVIDER=gmail
-GMAIL_ADDRESS=seu_email@gmail.com
-GMAIL_APP_PASSWORD=sua_app_password_gerada_no_google
+EMAIL_PROVIDER=microsoft_graph
+MICROSOFT_GRAPH_USER=naoresponda@dev.shopvivaliz.com.br
+MAIL_FROM=Contabilidade Melo <naoresponda@dev.shopvivaliz.com.br>
+MAIL_REPLY_TO=fiscalmelo@hotmail.com
 ```
-*(Lembrando que o Gmail exige o uso de uma **App Password** gerada em https://myaccount.google.com/apppasswords e o 2FA ativo na conta).*
+
+`HTTP 202` do Graph significa apenas submissao ao Exchange. Nao conte isso como entrega sem trace/confirmacao posterior.

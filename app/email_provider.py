@@ -11,14 +11,20 @@ import logging
 import os
 import subprocess
 import time
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from email.utils import parseaddr
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger("mei_mg_email.email_provider")
+
+EXPECTED_PRODUCTION_SENDER = "naoresponda@dev.shopvivaliz.com.br"
+EXPECTED_PRODUCTION_NAME = "Contabilidade Melo"
+EXPECTED_PRODUCTION_REPLY_TO = "fiscalmelo@hotmail.com"
 
 
 @dataclass
@@ -63,10 +69,16 @@ class MicrosoftGraphEmailProvider(EmailProvider):
         self.auth_mode = os.getenv("MICROSOFT_GRAPH_AUTH_MODE", "app_only_cert").strip().lower()
         self.certificate_thumbprint = os.getenv("MICROSOFT_GRAPH_CERT_THUMBPRINT", "").replace(" ", "").strip().upper()
 
-        raw_from = os.getenv("MAIL_FROM", self.address).strip() or self.address
+        raw_mail_from = os.getenv("MAIL_FROM", "").strip()
+        raw_email_from = os.getenv("EMAIL_FROM", "").strip()
+        raw_reply_to = os.getenv("MAIL_REPLY_TO", "").strip() or os.getenv("REPLY_TO", "").strip()
+        raw_from = raw_mail_from or raw_email_from or self.address
         parsed_name, parsed_address = parseaddr(raw_from)
-        self.from_name = parsed_name.strip() or os.getenv("MAIL_FROM_NAME", "").strip() or "Contabilidade Melo"
+        self.from_name = parsed_name.strip() or os.getenv("MAIL_FROM_NAME", "").strip() or EXPECTED_PRODUCTION_NAME
         self.from_address = parsed_address.strip() or self.address
+        parsed_reply_to_name, parsed_reply_to_address = parseaddr(raw_reply_to) if raw_reply_to else ("", "")
+        self.reply_to_name = parsed_reply_to_name.strip()
+        self.reply_to_address = parsed_reply_to_address.strip() or EXPECTED_PRODUCTION_REPLY_TO
 
         base_dir = Path(__file__).resolve().parent.parent
         configured_broker = os.getenv("MICROSOFT_GRAPH_TOKEN_BROKER", "").strip()
@@ -86,10 +98,38 @@ class MicrosoftGraphEmailProvider(EmailProvider):
             raise RuntimeError("MICROSOFT_GRAPH_CERT_THUMBPRINT nao configurado.")
         if not self.token_broker.is_file():
             raise RuntimeError(f"token broker Graph ausente: {self.token_broker}")
-        if self.from_address.lower() != self.address.lower():
+        if self.address.lower() != EXPECTED_PRODUCTION_SENDER:
             raise RuntimeError(
-                "MAIL_FROM precisa usar o mesmo endereco de MICROSOFT_GRAPH_USER; "
+                "MICROSOFT_GRAPH_USER deve ser exatamente "
+                f"{EXPECTED_PRODUCTION_SENDER}."
+            )
+        if raw_mail_from:
+            _, configured_mail_from = parseaddr(raw_mail_from)
+            if configured_mail_from.strip().lower() != EXPECTED_PRODUCTION_SENDER:
+                raise RuntimeError(
+                    "MAIL_FROM deve ser exatamente "
+                    f"{EXPECTED_PRODUCTION_SENDER}."
+                )
+        if raw_email_from:
+            _, configured_email_from = parseaddr(raw_email_from)
+            if configured_email_from.strip().lower() != EXPECTED_PRODUCTION_SENDER:
+                raise RuntimeError(
+                    "EMAIL_FROM deve ser exatamente "
+                    f"{EXPECTED_PRODUCTION_SENDER}."
+                )
+        if self.from_address.lower() != EXPECTED_PRODUCTION_SENDER:
+            raise RuntimeError(
+                "MAIL_FROM/EMAIL_FROM precisa usar o mesmo endereco de MICROSOFT_GRAPH_USER; "
                 "spoof de endereco e bloqueado."
+            )
+        if self.from_name != EXPECTED_PRODUCTION_NAME:
+            raise RuntimeError(
+                f"MAIL_FROM_NAME deve ser exatamente {EXPECTED_PRODUCTION_NAME!r}."
+            )
+        if self.reply_to_address.lower() != EXPECTED_PRODUCTION_REPLY_TO:
+            raise RuntimeError(
+                "MAIL_REPLY_TO/REPLY_TO deve ser exatamente "
+                f"{EXPECTED_PRODUCTION_REPLY_TO!r}."
             )
 
         self._token: str | None = None
@@ -169,6 +209,7 @@ class MicrosoftGraphEmailProvider(EmailProvider):
         return max(seconds, 0)
 
     def send(self, to: str, subject: str, body: str) -> SendResult:
+        client_request_id = str(uuid.uuid4())
         content_type = "HTML" if _body_is_html(body) else "Text"
         sender_identity = {
             "emailAddress": {
@@ -182,6 +223,13 @@ class MicrosoftGraphEmailProvider(EmailProvider):
                 "body": {"contentType": content_type, "content": body},
                 "from": sender_identity,
                 "sender": sender_identity,
+                "replyTo": [
+                    {
+                        "emailAddress": {
+                            "address": self.reply_to_address,
+                        }
+                    }
+                ],
                 "toRecipients": [{"emailAddress": {"address": to}}],
             },
             "saveToSentItems": True,
@@ -189,18 +237,26 @@ class MicrosoftGraphEmailProvider(EmailProvider):
         try:
             access_token = self._get_access_token()
             req = Request(
-                f"https://graph.microsoft.com/v1.0/users/{self.address}/sendMail",
+                f"https://graph.microsoft.com/v1.0/users/{quote(self.address, safe='')}/sendMail",
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers={
                     "Authorization": f"Bearer {access_token}",
                     "Content-Type": "application/json; charset=utf-8",
+                    "client-request-id": client_request_id,
+                    "return-client-request-id": "true",
                 },
                 method="POST",
             )
             with urlopen(req, timeout=30) as response:
                 if response.status not in {200, 202}:
                     return SendResult(success=False, error=f"Microsoft Graph HTTP {response.status}")
-            return SendResult(success=True, message_id=None)
+                request_id = (
+                    response.headers.get("request-id")
+                    or response.headers.get("x-ms-request-id")
+                    or response.headers.get("client-request-id")
+                    or client_request_id
+                )
+            return SendResult(success=True, message_id=request_id)
         except HTTPError as error:
             retry_after = self._parse_retry_after(error)
             try:

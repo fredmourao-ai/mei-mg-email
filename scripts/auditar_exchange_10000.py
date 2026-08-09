@@ -29,8 +29,6 @@ TEMPLATE_PATH = BASE_DIR / "templates" / "mei-contabilidade-melo.html"
 def sender_address() -> str:
     if settings.email_provider in {"microsoft_graph", "microsoft-oauth", "graph"}:
         return os.getenv("MICROSOFT_GRAPH_USER", "").strip()
-    if settings.email_provider in {"microsoft", "outlook", "office365"}:
-        return os.getenv("MICROSOFT_SMTP_USER", "").strip()
     return ""
 
 
@@ -50,9 +48,7 @@ def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
 
-    if settings.email_provider not in {
-        "microsoft_graph", "microsoft-oauth", "graph", "microsoft", "outlook", "office365"
-    }:
+    if settings.email_provider not in {"microsoft_graph", "microsoft-oauth", "graph"}:
         errors.append(f"provider_nao_exchange={settings.email_provider}")
 
     if settings.max_envios_por_dia != 10000:
@@ -83,6 +79,13 @@ def main() -> int:
         warnings.append("MAIL_FROM_nao_configurado")
     elif sender and mail_from_address.casefold() != sender.casefold():
         errors.append(f"MAIL_FROM_diverge_do_usuario_microsoft={mail_from_address}!={sender}")
+
+    reply_to = os.getenv("MAIL_REPLY_TO", "").strip() or os.getenv("REPLY_TO", "").strip()
+    _, reply_to_address = parseaddr(reply_to)
+    if not reply_to_address:
+        warnings.append("MAIL_REPLY_TO_nao_configurado")
+    elif reply_to_address.casefold() != "fiscalmelo@hotmail.com":
+        errors.append(f"MAIL_REPLY_TO_diverge={reply_to_address}!=fiscalmelo@hotmail.com")
 
     unsubscribe = urlsplit(settings.base_url_descadastro)
     if unsubscribe.scheme != "https" or not unsubscribe.netloc:
@@ -125,15 +128,27 @@ def main() -> int:
                 cur.execute(
                     """
                     select
-                      count(*) filter (where status = 'enviado' and enviado_em >= now() - interval '24 hours') as enviados_24h,
-                      count(*) filter (where status in ('pendente', 'enviando')) as pendentes,
-                      count(*) filter (where status = 'falhou' and criado_em >= now() - interval '24 hours') as falhas_24h,
-                      count(*) filter (where status = 'bloqueado') as bloqueados,
-                      count(*) filter (where status = 'opt_out') as opt_out
+                      count(*) filter (
+                        where status in ('submitted', 'delivered', 'enviado')
+                          and coalesce(submitted_at, enviado_em, criado_em) >= now() - interval '24 hours'
+                      ) as submitted_24h,
+                      count(*) filter (
+                        where status in ('pending', 'processing', 'submitted', 'pendente', 'enviando', 'enviado')
+                      ) as pendentes,
+                      count(*) filter (
+                        where status in ('failed', 'falhou')
+                          and coalesce(failed_at, criado_em) >= now() - interval '24 hours'
+                      ) as falhas_24h,
+                      count(*) filter (
+                        where status in ('bounce_temporary', 'bounce_permanent', 'sender_blocked', 'bounced')
+                          and coalesce(bounced_at, criado_em) >= now() - interval '24 hours'
+                      ) as bounces_24h,
+                      count(*) filter (where status in ('cancelled', 'bloqueado')) as cancelados,
+                      count(*) filter (where status in ('suppressed', 'opt_out')) as suppressed
                     from mei_email.envios
                     """
                 )
-                enviados_24h, pendentes, falhas_24h, bloqueados, opt_out = cur.fetchone()
+                submitted_24h, pendentes, falhas_24h, bounces_24h, cancelados, suppressed = cur.fetchone()
 
                 cur.execute("select count(*) from mei_email.vw_empresas_elegiveis")
                 elegiveis = cur.fetchone()[0]
@@ -143,7 +158,7 @@ def main() -> int:
                     select count(*)
                       from mei_email.envios e
                       join mei_email.empresas emp on emp.cnpj = e.cnpj
-                     where e.status in ('pendente', 'enviando')
+                     where e.status in ('pending', 'processing', 'submitted', 'pendente', 'enviando', 'enviado')
                        and (emp.situacao_cadastral <> 'ATIVA' or emp.opt_out or not emp.marketing_autorizado)
                     """
                 )
@@ -151,10 +166,11 @@ def main() -> int:
 
                 cur.execute(
                     """
-                    select count(*)
+                      select count(*)
                       from (
                         select lower(btrim(email::text)) as email_normalizado
                           from mei_email.envios
+                         where status in ('pending', 'processing', 'submitted', 'delivered', 'pendente', 'enviando', 'enviado')
                          group by lower(btrim(email::text))
                         having count(*) > 1
                       ) repetidos
@@ -177,9 +193,9 @@ def main() -> int:
         print(f"database_audit_failed={type(exc).__name__}:{exc}")
         return 1
 
-    comprometido = enviados_24h + pendentes
-    if enviados_24h > settings.meta_envios_por_dia:
-        errors.append(f"envios_24h_acima_meta={enviados_24h}")
+    comprometido = submitted_24h + pendentes
+    if submitted_24h > settings.meta_envios_por_dia:
+        errors.append(f"submitted_24h_acima_meta={submitted_24h}")
     if comprometido > settings.meta_envios_por_dia:
         errors.append(f"fila_compromete_acima_meta={comprometido}")
     if emails_repetidos_na_fila_historico:
@@ -189,7 +205,7 @@ def main() -> int:
     if lotes_travados:
         errors.append(f"lotes_processando_travados={lotes_travados}")
 
-    total_tentados_24h = enviados_24h + falhas_24h
+    total_tentados_24h = submitted_24h + falhas_24h + bounces_24h
     failure_rate = (falhas_24h / total_tentados_24h) if total_tentados_24h else 0.0
     if falhas_24h:
         warnings.append(f"falhas_24h={falhas_24h};taxa={failure_rate:.2%}")
@@ -204,16 +220,18 @@ def main() -> int:
     print(f"provider={settings.email_provider}")
     print(f"sender={sender}")
     print(f"sender_domain={sender_domain}")
+    print(f"reply_to={reply_to_address}")
     print(f"terrl_threshold_confirmado={terrl}")
     print(f"rate_limit_por_minuto={settings.rate_limit_envios_por_minuto}")
     print(f"meta_envios_24h={settings.meta_envios_por_dia}")
     print(f"teto_local_24h={settings.max_envios_por_dia}")
-    print(f"enviados_ultimas_24h={enviados_24h}")
+    print(f"submitted_ultimas_24h={submitted_24h}")
     print(f"pendentes={pendentes}")
     print(f"comprometido={comprometido}")
     print(f"elegiveis_autorizados={elegiveis}")
-    print(f"bloqueados_total={bloqueados}")
-    print(f"opt_out_total={opt_out}")
+    print(f"cancelados_total={cancelados}")
+    print(f"suppressed_total={suppressed}")
+    print(f"bounces_24h={bounces_24h}")
     print(f"emails_repetidos_em_envios={emails_repetidos_na_fila_historico}")
     print("DNS_AUDIT_BEGIN")
     print(dns_output)

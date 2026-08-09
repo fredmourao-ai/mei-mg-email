@@ -9,6 +9,7 @@ confirmados, e lotes abandonados por crash podem ser recuperados no startup.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from urllib.parse import urlencode
 
@@ -17,11 +18,71 @@ from psycopg.rows import dict_row
 
 from app.config import settings
 from app.email_provider import get_email_provider
+from app.send_control import email_sends_paused, pause_email_sends
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mei_mg_email.worker")
 WORKER_ADVISORY_LOCK_ID = 100002026
 MAX_TENTATIVAS_TRANSITORIAS = 5
+
+
+def _extrair_ndr_code(error: str | None) -> str | None:
+    texto = error or ""
+    match = re.search(r"AS\(\d+\)", texto, flags=re.IGNORECASE)
+    if match:
+        return match.group(0).upper()
+    match = re.search(r"\b\d\.\d\.\d+\b", texto, flags=re.IGNORECASE)
+    if match:
+        return match.group(0).upper()
+    return None
+
+
+def _classificar_falha_final(error: str | None) -> tuple[str, str | None, str]:
+    texto = (error or "").casefold()
+    ndr_code = _extrair_ndr_code(error)
+
+    if any(
+        marcador in texto
+        for marcador in (
+            "as(42004)",
+            "errorsendasdenied",
+            "bad outbound sender",
+            "access denied",
+            "5.1.8",
+        )
+    ):
+        return "sender_blocked", ndr_code or "AS(42004)", error or "sender blocked"
+
+    if any(
+        marcador in texto
+        for marcador in (
+            "5.4.312",
+            "inforecords",
+            "dns query failed",
+            "mailbox not found",
+            "user unknown",
+            "invalid recipient",
+            "recipient not found",
+            "5.1.1",
+        )
+    ):
+        return "bounce_permanent", ndr_code, error or "permanent bounce"
+
+    if any(
+        marcador in texto
+        for marcador in (
+            "mailbox full",
+            "4.2.2",
+            "4.4.1",
+            "4.4.2",
+            "temporary",
+            "timed out",
+            "timeout",
+        )
+    ):
+        return "bounce_temporary", ndr_code, error or "temporary bounce"
+
+    return "failed", ndr_code, error or "send failed"
 
 
 def montar_corpo(template: str, empresa: dict) -> str:
@@ -37,14 +98,18 @@ def montar_corpo(template: str, empresa: dict) -> str:
     return texto
 
 
+class SenderBlockedError(RuntimeError):
+    pass
+
+
 def obter_envios_ultimas_24h(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute(
             """
             select count(*)
               from mei_email.envios
-             where status = 'enviado'
-               and enviado_em >= now() - interval '24 hours'
+             where status in ('submitted', 'delivered', 'enviado')
+               and coalesce(submitted_at, enviado_em, criado_em) >= now() - interval '24 hours'
             """
         )
         return cur.fetchone()[0]
@@ -109,6 +174,21 @@ def _recolocar_lote_pendente(conn, lote_id, motivo: str) -> None:
     conn.commit()
 
 
+def _marcar_envio_processando(conn, envio_id) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update mei_email.envios
+               set status = 'processing',
+                   erro = null,
+                   last_error = null
+             where id = %s
+            """,
+            (envio_id,),
+        )
+    conn.commit()
+
+
 def recuperar_lotes_travados(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
         cur.execute(
@@ -142,7 +222,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
               join mei_email.campanhas c on c.id = e.campanha_id
               join mei_email.empresas emp on emp.cnpj = e.cnpj
              where e.lote_id = %s
-               and e.status = 'pendente'
+               and e.status = 'pending'
              order by e.criado_em
             """,
             (lote["id"],),
@@ -173,8 +253,10 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             _atualizar_envio(
                 conn,
                 envio["envio_id"],
-                "opt_out",
+                "suppressed",
                 erro="opt-out registrado apos enfileiramento",
+                last_error="opt-out registrado apos enfileiramento",
+                incrementar_tentativas=False,
             )
             continue
 
@@ -182,8 +264,10 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             _atualizar_envio(
                 conn,
                 envio["envio_id"],
-                "bloqueado",
+                "cancelled",
                 erro="empresa deixou de estar ATIVA apos enfileiramento",
+                last_error="empresa deixou de estar ATIVA apos enfileiramento",
+                incrementar_tentativas=False,
             )
             continue
 
@@ -191,11 +275,25 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             _atualizar_envio(
                 conn,
                 envio["envio_id"],
-                "bloqueado",
+                "cancelled",
                 erro="comunicacao comercial nao autorizada no cadastro",
+                last_error="comunicacao comercial nao autorizada no cadastro",
+                incrementar_tentativas=False,
             )
             continue
 
+        if _email_suprimido(conn, envio["email"]):
+            _atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "suppressed",
+                erro="destinatario consta em suppression list",
+                last_error="destinatario consta em suppression list",
+                incrementar_tentativas=False,
+            )
+            continue
+
+        _marcar_envio_processando(conn, envio["envio_id"])
         corpo = montar_corpo(envio["corpo_template"], envio)
         resultado = provider.send(to=envio["email"], subject=envio["assunto"], body=corpo)
 
@@ -203,12 +301,23 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             _atualizar_envio(
                 conn,
                 envio["envio_id"],
-                "enviado",
+                "submitted",
                 provider_message_id=resultado.message_id,
+                graph_request_id=resultado.message_id,
+                erro=None,
+                last_error=None,
+                incrementar_tentativas=True,
             )
             enviados += 1
         elif _erro_transitorio(resultado.error) and envio["tentativas"] + 1 < MAX_TENTATIVAS_TRANSITORIAS:
-            _atualizar_envio(conn, envio["envio_id"], "pendente", erro=resultado.error)
+            _atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "pending",
+                erro=resultado.error,
+                last_error=resultado.error,
+                incrementar_tentativas=True,
+            )
             _registrar_contadores_campanha(conn, lote["campanha_id"], enviados, falhas)
             _recolocar_lote_pendente(
                 conn,
@@ -227,8 +336,26 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             time.sleep(espera)
             return
         else:
-            _atualizar_envio(conn, envio["envio_id"], "falhou", erro=resultado.error)
+            final_status, ndr_code, ndr_reason = _classificar_falha_final(resultado.error)
+            _atualizar_envio(
+                conn,
+                envio["envio_id"],
+                final_status,
+                erro=resultado.error,
+                last_error=resultado.error,
+                ndr_code=ndr_code,
+                ndr_reason=ndr_reason,
+                incrementar_tentativas=True,
+            )
             falhas += 1
+            if final_status == "sender_blocked":
+                _registrar_contadores_campanha(conn, lote["campanha_id"], enviados, falhas)
+                _recolocar_lote_pendente(
+                    conn,
+                    lote["id"],
+                    f"remetente bloqueado pelo provider: {ndr_code or 'AS(42004)'}",
+                )
+                raise SenderBlockedError(resultado.error or "sender blocked")
 
         time.sleep(intervalo_entre_envios)
 
@@ -251,28 +378,84 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
         enviados,
         falhas,
     )
+def _email_suprimido(conn: psycopg.Connection, email: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select exists(
+                select 1
+                  from mei_email.email_suppressions s
+                 where s.active
+                   and (
+                     (s.scope = 'email' and lower(btrim(s.value::text)) = lower(btrim(%s)))
+                     or
+                     (s.scope = 'domain' and lower(btrim(s.value::text)) = split_part(lower(btrim(%s)), '@', 2))
+                   )
+            )
+            """,
+            (email, email),
+        )
+        return bool(cur.fetchone()[0])
 
 
-def _atualizar_envio(conn, envio_id, status, provider_message_id=None, erro=None):
+def _atualizar_envio(
+    conn: psycopg.Connection,
+    envio_id,
+    status,
+    provider_message_id=None,
+    erro=None,
+    *,
+    graph_request_id=None,
+    internet_message_id=None,
+    ndr_code=None,
+    ndr_reason=None,
+    last_error=None,
+    incrementar_tentativas=True,
+):
     with conn.cursor() as cur:
         cur.execute(
             """
             update mei_email.envios
                set status = %s,
-                   tentativas = tentativas + 1,
+                   tentativas = tentativas + case when %s then 1 else 0 end,
                    provider_message_id = coalesce(%s, provider_message_id),
+                   graph_request_id = coalesce(%s, graph_request_id),
+                   internet_message_id = coalesce(%s, internet_message_id),
+                   ndr_code = coalesce(%s, ndr_code),
+                   ndr_reason = coalesce(%s, ndr_reason),
                    erro = %s,
-                   enviado_em = case when %s = 'enviado' then now() else enviado_em end
+                   last_error = %s,
+                   submitted_at = case when %s = 'submitted' then coalesce(submitted_at, now()) else submitted_at end,
+                   delivered_at = case when %s = 'delivered' then coalesce(delivered_at, now()) else delivered_at end,
+                   bounced_at = case when %s in ('bounce_temporary', 'bounce_permanent') then coalesce(bounced_at, now()) else bounced_at end,
+                   failed_at = case when %s in ('failed', 'cancelled', 'suppressed', 'sender_blocked') then coalesce(failed_at, now()) else failed_at end,
+                   enviado_em = case when %s = 'submitted' then coalesce(enviado_em, now()) else enviado_em end
              where id = %s
             """,
-            (status, provider_message_id, erro, status, envio_id),
+            (
+                status,
+                incrementar_tentativas,
+                provider_message_id,
+                graph_request_id,
+                internet_message_id,
+                ndr_code,
+                ndr_reason,
+                erro,
+                last_error if last_error is not None else erro,
+                status,
+                status,
+                status,
+                status,
+                status,
+                envio_id,
+            ),
         )
-        if status == "enviado":
+        if status == "delivered":
             cur.execute(
                 """
                 update mei_email.empresas
                    set enviado = true,
-                       enviado_em = now()
+                       enviado_em = coalesce(enviado_em, now())
                  where lower(btrim(email::text)) = lower(btrim((select email::text from mei_email.envios where id = %s)))
                 """,
                 (envio_id,),
@@ -285,11 +468,13 @@ def pegar_proximo_lote(conn: psycopg.Connection, campanha_id: str | None = None)
         if campanha_id:
             cur.execute(
                 """
-                select id, campanha_id, numero
-                  from mei_email.lotes
-                 where status = 'pendente'
-                   and campanha_id = %s
-                 order by criado_em, numero
+                select l.id, l.campanha_id, l.numero
+                  from mei_email.lotes l
+                  join mei_email.campanhas c on c.id = l.campanha_id
+                 where l.status = 'pendente'
+                   and c.status in ('enfileirada', 'em_andamento')
+                   and l.campanha_id = %s
+                 order by l.criado_em, l.numero
                  for update skip locked
                  limit 1
                 """,
@@ -298,10 +483,12 @@ def pegar_proximo_lote(conn: psycopg.Connection, campanha_id: str | None = None)
         else:
             cur.execute(
                 """
-                select id, campanha_id, numero
-                  from mei_email.lotes
-                 where status = 'pendente'
-                 order by criado_em, numero
+                select l.id, l.campanha_id, l.numero
+                  from mei_email.lotes l
+                  join mei_email.campanhas c on c.id = l.campanha_id
+                 where l.status = 'pendente'
+                   and c.status in ('enfileirada', 'em_andamento')
+                 order by l.criado_em, l.numero
                  for update skip locked
                  limit 1
                 """
@@ -336,6 +523,9 @@ def run() -> None:
         raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO nao pode ultrapassar 30 no Exchange Online.")
     if settings.rate_limit_envios_por_minuto <= 0:
         raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO precisa ser maior que zero.")
+    if email_sends_paused():
+        logger.warning("Envios pausados por controle operacional; worker nao sera iniciado.")
+        return
 
     provider = get_email_provider(settings.email_provider)
     logger.info(
@@ -366,6 +556,11 @@ def run() -> None:
                     time.sleep(settings.worker_poll_interval_segundos)
                     continue
                 processar_lote(conn, lote, provider)
+            except SenderBlockedError as exc:
+                logger.error("Remetente bloqueado pelo provider; pausando worker: %s", exc)
+                pause_email_sends(str(exc))
+                conn.rollback()
+                raise SystemExit(2)
             except Exception:
                 logger.exception("Erro processando lote -- worker continua rodando")
                 conn.rollback()

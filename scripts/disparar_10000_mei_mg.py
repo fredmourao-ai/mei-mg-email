@@ -3,8 +3,9 @@
 
 O script usa o template HTML oficial, considera a janela movel de 24 horas e a
 fila ja existente e so seleciona destinatarios presentes em
-vw_empresas_elegiveis. A view e fail-closed: ativo, autorizado, sem opt-out,
-nao-terceiro e nunca previamente enfileirado/contatado pelo mesmo e-mail.
+vw_empresas_elegiveis. A view e fail-closed: ativo, autorizado, sem opt-out
+e nunca previamente enfileirado/contatado pelo mesmo e-mail. Cadastros que
+compartilham e-mail sao deduplicados para uma unica mensagem.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from app.config import settings
+from app.send_control import email_sends_paused
 from app.routes.campanhas import criar_campanha
 from app.schemas import CampanhaCreate
 
@@ -48,8 +50,8 @@ def capacidade_para_nova_fila() -> tuple[int, int, int]:
                 """
                 select count(*)
                   from mei_email.envios
-                 where status = 'enviado'
-                   and enviado_em >= now() - interval '24 hours'
+                 where status::text in ('submitted', 'delivered')
+                   and coalesce(submitted_at, enviado_em, criado_em) >= now() - interval '24 hours'
                 """
             )
             enviados_24h = cur.fetchone()[0]
@@ -58,7 +60,7 @@ def capacidade_para_nova_fila() -> tuple[int, int, int]:
                 """
                 select count(*)
                   from mei_email.envios
-                 where status in ('pendente', 'enviando')
+                 where status::text in ('pending', 'processing')
                 """
             )
             pendentes = cur.fetchone()[0]
@@ -71,6 +73,9 @@ def capacidade_para_nova_fila() -> tuple[int, int, int]:
 
 
 def enfileirar_meta_diaria_mei_mg() -> int:
+    if email_sends_paused():
+        print("Envios pausados por controle operacional; nenhuma campanha sera enfileirada.", flush=True)
+        return 0
     if settings.max_envios_por_dia != 10000:
         raise RuntimeError(
             f"MAX_ENVIOS_POR_DIA precisa permanecer em 10000; atual={settings.max_envios_por_dia}"
@@ -99,12 +104,11 @@ def enfileirar_meta_diaria_mei_mg() -> int:
     agora_sp = datetime.now(ZoneInfo("America/Sao_Paulo"))
     payload = CampanhaCreate(
         nome=f"MEI MG Diario {agora_sp:%Y-%m-%d} - Contabilidade Melo",
-        assunto="Aviso Importante para MEI - Regularizacao Fiscal",
+        assunto="MEI: Ganhe Certificado Digital + 10 Notas Fiscais por mes",
         corpo_template=template_html,
         filtro_tipo_regime="MEI",
         filtro_uf="MG",
         tamanho_lote=100,
-        limite_empresas=disponivel,
     )
     campanha = criar_campanha(payload)
     print(

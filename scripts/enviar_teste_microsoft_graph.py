@@ -16,6 +16,8 @@ from worker.worker import montar_corpo
 RECIPIENT = os.getenv("TEST_RECIPIENT", "fredmourao@gmail.com")
 EXPECTED_SENDER = "naoresponda@dev.shopvivaliz.com.br"
 EXPECTED_NAME = "Contabilidade Melo"
+EXPECTED_REPLY_TO = "fiscalmelo@hotmail.com"
+EXPECTED_SUBJECT = "MEI: Ganhe Certificado Digital + 10 Notas Fiscais por mes"
 TEMPLATE_PATH = BASE_DIR / "templates" / "mei-contabilidade-melo.html"
 
 
@@ -32,8 +34,8 @@ def main() -> None:
     )
     if "logo-contabilidade-melo-transparente.png" not in body.casefold():
         raise SystemExit("Template de teste sem a logo oficial no rodape.")
-    if "R$ 200,00/mês" not in body:
-        raise SystemExit("Template de teste nao corresponde ao Plano Basico MEI aprovado.")
+    if EXPECTED_SUBJECT not in body:
+        raise SystemExit("Template de teste nao corresponde ao titulo MEI aprovado.")
     if "Quero falar no WhatsApp" not in body:
         raise SystemExit("Template de teste sem CTA oficial do WhatsApp.")
     if "{{unsubscribe_url}}" in body:
@@ -46,16 +48,19 @@ def main() -> None:
         raise SystemExit(f"MAIL_FROM incorreto: {provider.from_address}")
     if provider.from_name != EXPECTED_NAME:
         raise SystemExit(f"Nome de remetente incorreto: {provider.from_name}")
+    if provider.reply_to_address.casefold() != EXPECTED_REPLY_TO:
+        raise SystemExit(f"Reply-To incorreto: {provider.reply_to_address}")
 
     result = provider.send(
         to=RECIPIENT,
-        subject="VALIDACAO GRAPH - Template oficial Contabilidade Melo",
+        subject=EXPECTED_SUBJECT,
         body=body,
     )
     if not result.success:
         raise SystemExit(f"Falha no envio de teste: {result.error}")
     print(f"Template HTML oficial aceito pelo Microsoft Graph para {RECIPIENT}.")
     print(f"sender={EXPECTED_NAME} <{EXPECTED_SENDER}>")
+    print(f"reply_to={EXPECTED_REPLY_TO}")
 
 
 if __name__ == "__main__":
