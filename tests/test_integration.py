@@ -76,13 +76,15 @@ def test_prioridade_e_envio_unico(clean_db):
                 """
                 insert into mei_email.empresas
                     (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                     uf, email, ddd_1, telefone_1, data_abertura, provavel_terceiro,
-                     marketing_autorizado, marketing_autorizado_em, marketing_autorizado_origem)
+                         uf, email, ddd_1, telefone_1, data_abertura, provavel_terceiro,
+                         marketing_autorizado, marketing_autorizado_em, marketing_autorizado_origem,
+                         mei_verificado, mei_verificado_em, mei_verificado_origem)
                 values
                     (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
                      %(situacao_cadastral)s, %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
-                     %(data_abertura)s, %(provavel_terceiro)s,
-                     true, now(), 'fixture_teste')
+                         %(data_abertura)s, %(provavel_terceiro)s,
+                         true, now(), 'fixture_teste',
+                         true, now(), 'fixture_teste')
                 """,
                 empresas_teste,
             )
@@ -174,12 +176,14 @@ def test_email_duplicado_recebe_apenas_um_envio(clean_db):
                 """
                 insert into mei_email.empresas
                     (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                     uf, email, data_abertura, provavel_terceiro,
-                     marketing_autorizado, marketing_autorizado_em, marketing_autorizado_origem)
+                         uf, email, data_abertura, provavel_terceiro,
+                         marketing_autorizado, marketing_autorizado_em, marketing_autorizado_origem,
+                         mei_verificado, mei_verificado_em, mei_verificado_origem)
                 values
                     (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
-                     'ATIVA', 'MG', 'contato-compartilhado@example.com',
-                     %(data_abertura)s, false, true, now(), 'fixture_teste')
+                         'ATIVA', 'MG', 'contato-compartilhado@example.com',
+                         %(data_abertura)s, false, true, now(), 'fixture_teste',
+                         true, now(), 'fixture_teste')
                 """,
                 [
                     {
