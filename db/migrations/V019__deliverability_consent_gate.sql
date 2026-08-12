@@ -2,6 +2,22 @@
 -- Base publica de CNPJ nunca e consentimento comercial por si so.
 set search_path = mei_email, public;
 
+-- Qualquer autorizacao antiga sem data/origem auditavel volta a false.
+-- Os dados de origem/data sao preservados para auditoria; apenas o booleano
+-- operacional deixa de liberar comunicacao comercial.
+update empresas
+   set marketing_autorizado = false
+ where marketing_autorizado = true
+   and (
+        marketing_autorizado_em is null
+        or marketing_autorizado_origem is null
+        or lower(btrim(marketing_autorizado_origem)) not in (
+            'cadastro_site',
+            'cliente_ativo',
+            'importacao_consentida'
+        )
+   );
+
 -- Retira da fila atual destinatarios sem evidencia auditavel de autorizacao.
 update envios x
    set status = 'bloqueado',
@@ -19,6 +35,34 @@ update envios x
             'importacao_consentida'
         )
    );
+
+-- Impede que futuras cargas ou operacoes voltem a habilitar um contato sem
+-- evidencia auditavel. Importacoes publicas continuam podendo atualizar dados,
+-- mas nao podem conceder autorizacao comercial.
+do $$
+begin
+  if not exists (
+    select 1
+      from pg_constraint
+     where conname = 'chk_empresas_marketing_autorizacao_auditavel'
+       and conrelid = 'mei_email.empresas'::regclass
+  ) then
+    alter table empresas
+      add constraint chk_empresas_marketing_autorizacao_auditavel
+      check (
+        not marketing_autorizado
+        or (
+          marketing_autorizado_em is not null
+          and marketing_autorizado_origem is not null
+          and lower(btrim(marketing_autorizado_origem)) in (
+            'cadastro_site',
+            'cliente_ativo',
+            'importacao_consentida'
+          )
+        )
+      );
+  end if;
+end $$;
 
 create or replace view vw_empresas_elegiveis as
 select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.email,
