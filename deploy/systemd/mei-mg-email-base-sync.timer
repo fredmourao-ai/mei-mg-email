@@ -1,0 +1,12 @@
+[Unit]
+Description=Run MEI MG CNPJ base synchronization every day
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 America/Sao_Paulo
+Persistent=true
+RandomizedDelaySec=10m
+AccuracySec=1m
+Unit=mei-mg-email-base-sync.service
+
+[Install]
+WantedBy=timers.target
