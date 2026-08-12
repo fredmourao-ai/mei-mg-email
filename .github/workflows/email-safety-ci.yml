@@ -8,10 +8,12 @@ on:
       - "app/**"
       - "worker/**"
       - "scripts/**"
+      - "deploy/systemd/**"
       - "templates/**"
       - "db/migrations/**"
       - "tests/test_worker_safety.py"
       - "tests/test_queue_replenisher.py"
+      - "tests/test_monitor_operacao.py"
       - "requirements*.txt"
       - ".github/workflows/email-safety-ci.yml"
 
@@ -30,6 +32,9 @@ jobs:
       RATE_LIMIT_ENVIOS_POR_MINUTO: "30"
       QUEUE_MIN_PENDING: "1000"
       QUEUE_TARGET_PENDING: "5000"
+      MONITOR_INTERVAL_SECONDS: "60"
+      MONITOR_SEND_STALL_MINUTES: "10"
+      MONITOR_BASE_MAX_AGE_HOURS: "26"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,4 +51,4 @@ jobs:
         run: python -m compileall -q app worker scripts
 
       - name: Run email safety unit tests
-        run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py
+        run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py tests/test_monitor_operacao.py
