@@ -1,0 +1,13 @@
+[Unit]
+Description=MEI MG daily CNPJ base synchronization
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__RUN_USER__
+WorkingDirectory=__APP_DIR__
+ExecStart=__PYTHON__ scripts/sincronizar_base_diaria.py
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
