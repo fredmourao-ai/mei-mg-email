@@ -30,6 +30,12 @@ class Settings:
         os.getenv("WORKER_POLL_INTERVAL_SEGUNDOS", "5")
     )
 
+    # Continuous queue buffer. Queue depth is intentionally independent from
+    # the rolling 24-hour send quota: enqueuing does not send. The worker is
+    # the final quota gate before every Graph submission.
+    queue_min_pending: int = int(os.getenv("QUEUE_MIN_PENDING", "1000"))
+    queue_target_pending: int = int(os.getenv("QUEUE_TARGET_PENDING", "5000"))
+
     base_url_descadastro: str = os.getenv(
         "BASE_URL_DESCADASTRO", "http://localhost:8000/descadastro"
     )

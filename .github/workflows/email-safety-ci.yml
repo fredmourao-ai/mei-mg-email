@@ -11,6 +11,7 @@ on:
       - "templates/**"
       - "db/migrations/**"
       - "tests/test_worker_safety.py"
+      - "tests/test_queue_replenisher.py"
       - "requirements*.txt"
       - ".github/workflows/email-safety-ci.yml"
 
@@ -27,6 +28,8 @@ jobs:
       MAX_ENVIOS_POR_DIA: "10000"
       META_ENVIOS_POR_DIA: "9950"
       RATE_LIMIT_ENVIOS_POR_MINUTO: "30"
+      QUEUE_MIN_PENDING: "1000"
+      QUEUE_TARGET_PENDING: "5000"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,5 +45,5 @@ jobs:
       - name: Compile application and operational scripts
         run: python -m compileall -q app worker scripts
 
-      - name: Run worker safety unit tests
-        run: pytest -q tests/test_worker_safety.py
+      - name: Run email safety unit tests
+        run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py

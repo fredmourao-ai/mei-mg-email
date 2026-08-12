@@ -3,7 +3,8 @@
 
 Executar no mesmo ambiente do worker, com o .env e banco de producao. O script
 NAO envia e-mail. Valida DNS, autenticacao Microsoft Graph app-only, remetente,
-TERRL derivado das assinaturas Microsoft, template HTML e seguranca da fila.
+TERRL derivado das assinaturas Microsoft, template HTML, seguranca da fila e o
+buffer continuo. A fila pendente e deliberadamente separada da cota de envio.
 """
 from __future__ import annotations
 
@@ -124,6 +125,12 @@ def main() -> int:
         errors.append(f"rate_limit_invalido={settings.rate_limit_envios_por_minuto}")
     elif settings.rate_limit_envios_por_minuto > 20:
         warnings.append("rate_limit_acima_de_20_min_reduz_margem_para_throttling")
+    if settings.queue_min_pending < 1:
+        errors.append(f"QUEUE_MIN_PENDING_invalido={settings.queue_min_pending}")
+    if settings.queue_target_pending <= settings.queue_min_pending:
+        errors.append(
+            f"QUEUE_TARGET_PENDING_deve_ser_maior_que_min={settings.queue_target_pending}/{settings.queue_min_pending}"
+        )
 
     sender = sender_address()
     if not sender or "@" not in sender:
@@ -287,11 +294,18 @@ def main() -> int:
         print(f"database_audit_failed={type(exc).__name__}:{exc}")
         return 1
 
-    comprometido = consumidos_24h + pendentes
     if consumidos_24h > settings.meta_envios_por_dia:
         errors.append(f"consumidos_24h_acima_meta={consumidos_24h}")
-    if comprometido > settings.meta_envios_por_dia:
-        errors.append(f"fila_compromete_acima_meta={comprometido}")
+    if pendentes == 0:
+        warnings.append("fila_zerada_autoqueue_deve_repor_imediatamente")
+    elif pendentes <= settings.queue_min_pending:
+        warnings.append(
+            f"fila_no_gatilho_de_reposicao={pendentes}/{settings.queue_min_pending}"
+        )
+    if pendentes > settings.queue_target_pending:
+        warnings.append(
+            f"fila_acima_target_legado_ou_manual={pendentes}/{settings.queue_target_pending}"
+        )
     if duplicados_na_fila_atual:
         errors.append(f"emails_duplicados_na_fila_atual={duplicados_na_fila_atual}")
     if pendentes_ja_submetidos:
@@ -313,9 +327,11 @@ def main() -> int:
         if total_tentados_24h >= 100 and failure_rate >= 0.10:
             errors.append(f"taxa_falha_24h_alta={failure_rate:.2%}")
 
-    restante = max(settings.meta_envios_por_dia - comprometido, 0)
-    if elegiveis < restante:
-        warnings.append(f"elegiveis_autorizados_insuficientes={elegiveis}/{restante}")
+    necessario_para_target = max(settings.queue_target_pending - pendentes, 0)
+    if elegiveis < necessario_para_target:
+        warnings.append(
+            f"elegiveis_autorizados_insuficientes_para_target={elegiveis}/{necessario_para_target}"
+        )
 
     print("EXCHANGE_9950_AUDIT")
     print(f"provider={settings.email_provider}")
@@ -330,7 +346,8 @@ def main() -> int:
     print(f"teto_local_24h={settings.max_envios_por_dia}")
     print(f"submitted_ou_enviados_ultimas_24h={consumidos_24h}")
     print(f"pendentes={pendentes}")
-    print(f"comprometido={comprometido}")
+    print(f"queue_min_pending={settings.queue_min_pending}")
+    print(f"queue_target_pending={settings.queue_target_pending}")
     print(f"elegiveis_autorizados={elegiveis}")
     print(f"bloqueados_total={bloqueados}")
     print(f"opt_out_total={opt_out}")
@@ -352,6 +369,7 @@ def main() -> int:
         return 1
 
     print("READY_FOR_AUTHORIZED_RECIPIENTS_WITHIN_CONFIGURED_LIMITS")
+    print("NOTE=A fila pendente e um buffer continuo e nao e somada a cota de envio; o worker valida 9.950/24h antes de cada submissao.")
     print("NOTE=TERRL quota is derived from Microsoft company subscription data and the published formula; direct tenant ObservedValue still requires the Exchange Online TERRL report/cmdlet.")
     print("NOTE=Readiness tecnico nao autoriza envio para contatos sem permissao nem elimina bloqueios dinamicos do provedor.")
     return 0

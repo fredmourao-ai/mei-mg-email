@@ -16,6 +16,7 @@ from psycopg.rows import dict_row
 
 from app.config import settings
 from app.email_provider import get_email_provider
+from app.queue_manager import repor_fila_automatica
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mei_mg_email.worker")
@@ -353,15 +354,21 @@ def run() -> None:
         raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO nao pode ultrapassar 30 no Exchange Online.")
     if settings.rate_limit_envios_por_minuto <= 0:
         raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO precisa ser maior que zero.")
+    if settings.queue_min_pending < 1:
+        raise RuntimeError("QUEUE_MIN_PENDING precisa ser pelo menos 1.")
+    if settings.queue_target_pending <= settings.queue_min_pending:
+        raise RuntimeError("QUEUE_TARGET_PENDING precisa ser maior que QUEUE_MIN_PENDING.")
 
     provider = get_email_provider(settings.email_provider)
     logger.info(
-        "Worker iniciado. provedor=%s rate_limit=%d/min meta_24h=%d teto_24h=%d poll=%ds",
+        "Worker iniciado. provedor=%s rate_limit=%d/min meta_24h=%d teto_24h=%d poll=%ds fila_min=%d fila_target=%d",
         settings.email_provider,
         settings.rate_limit_envios_por_minuto,
         settings.meta_envios_por_dia,
         settings.max_envios_por_dia,
         settings.worker_poll_interval_segundos,
+        settings.queue_min_pending,
+        settings.queue_target_pending,
     )
 
     with psycopg.connect(settings.database_url) as conn:
@@ -378,13 +385,16 @@ def run() -> None:
 
         while True:
             try:
+                # Repor antes de consumir o proximo lote evita que a fila seque.
+                # A cota de 24h continua sendo validada antes de cada envio.
+                repor_fila_automatica(conn)
                 lote = pegar_proximo_lote(conn)
                 if lote is None:
                     time.sleep(settings.worker_poll_interval_segundos)
                     continue
                 processar_lote(conn, lote, provider)
             except Exception:
-                logger.exception("Erro processando lote -- worker continua rodando")
+                logger.exception("Erro processando lote ou repondo fila -- worker continua rodando")
                 conn.rollback()
                 time.sleep(settings.worker_poll_interval_segundos)
 
