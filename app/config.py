@@ -4,6 +4,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    value = int(os.getenv(name, str(default)))
+    return max(value, 1)
+
+
 class Settings:
     database_url: str = os.getenv(
         "DATABASE_URL",
@@ -13,11 +18,23 @@ class Settings:
     api_port: int = int(os.getenv("API_PORT", "8000"))
 
     email_provider: str = os.getenv("EMAIL_PROVIDER", "dryrun")
-    # Operational limit required for this sender. The worker still enforces
-    # provider backoff/retry handling and the rolling 24-hour ceiling.
-    rate_limit_envios_por_minuto: int = int(
-        os.getenv("RATE_LIMIT_ENVIOS_POR_MINUTO", "30")
+
+    # Exchange permits up to 30/min in this project, but deliverability recovery
+    # deliberately runs slower. The effective rate is the lower value, so an
+    # old production .env still set to 30/min cannot accidentally bypass the
+    # reputation-recovery cap after deploy.
+    configured_rate_envios_por_minuto: int = _positive_int_env(
+        "RATE_LIMIT_ENVIOS_POR_MINUTO", 30
     )
+    deliverability_max_envios_por_minuto: int = _positive_int_env(
+        "DELIVERABILITY_MAX_ENVIOS_POR_MINUTO", 10
+    )
+    rate_limit_envios_por_minuto: int = min(
+        configured_rate_envios_por_minuto,
+        deliverability_max_envios_por_minuto,
+        30,
+    )
+
     # Hard local ceiling for a rolling 24-hour window. This remains separate
     # from the operational target so there is always explicit safety margin.
     max_envios_por_dia: int = int(
