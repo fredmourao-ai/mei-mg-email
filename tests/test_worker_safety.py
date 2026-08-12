@@ -4,6 +4,7 @@ from urllib.error import HTTPError
 
 from app.config import settings
 from app.email_provider import MicrosoftGraphEmailProvider
+from app.queue_manager import AUTOQUEUE_SUBJECT
 from scripts.disparar_10000_mei_mg import EXPECTED_DAILY_TARGET, carregar_template_html
 from scripts.ingest_casa_dos_dados_daily import (
     build_search_payload,
@@ -83,12 +84,22 @@ def test_unsubscribe_url_is_injected(monkeypatch):
     assert "12345678000190" in corpo
 
 
-def test_daily_target_keeps_margin_below_hard_cap():
+def test_daily_target_keeps_margin_and_recovery_rate():
     assert EXPECTED_DAILY_TARGET == 9950
     assert settings.meta_envios_por_dia == 9950
     assert settings.max_envios_por_dia == 10000
-    assert settings.rate_limit_envios_por_minuto == 30
+    assert settings.configured_rate_envios_por_minuto == 30
+    assert settings.deliverability_max_envios_por_minuto == 10
+    assert settings.rate_limit_envios_por_minuto == 10
     assert settings.meta_envios_por_dia < settings.max_envios_por_dia
+
+
+def test_autoqueue_subject_is_clear_not_urgent():
+    subject = AUTOQUEUE_SUBJECT.casefold()
+    assert "contabilidade melo" in subject
+    assert "importante" not in subject
+    assert "urgente" not in subject
+    assert "ultima chance" not in subject
 
 
 def test_official_template_is_html_with_footer_logo_and_unsubscribe():
@@ -98,6 +109,9 @@ def test_official_template_is_html_with_footer_logo_and_unsubscribe():
     assert "{{nome_fantasia}}" in template
     assert "{{unsubscribe_url}}" in template
     assert "logo-contabilidade-melo-transparente.png" in lower
+    assert "autorização comercial" in lower
+    assert "base pública de cnpj" not in lower
+    assert "grátis" not in lower
     assert "</html>" in lower
 
 
@@ -111,6 +125,41 @@ def test_fail_closed_migration_requires_authorization_and_global_dedupe():
     assert "from envios" in normalized
     assert "lower(btrim(x.email::text))" in normalized
     assert "situacao_cadastral = 'ativa'" in normalized
+
+
+def test_deliverability_consent_gate_blocks_public_or_unaudited_queue():
+    migration = (ROOT / "db" / "migrations" / "V019__deliverability_consent_gate.sql").read_text(
+        encoding="utf-8"
+    )
+    normalized = " ".join(migration.casefold().split())
+    assert "marketing_autorizado_em is null" in normalized
+    assert "marketing_autorizado_origem is null" in normalized
+    assert "cadastro_site" in normalized
+    assert "cliente_ativo" in normalized
+    assert "importacao_consentida" in normalized
+    assert "status = 'bloqueado'" in normalized
+    assert "base publica de cnpj nunca e consentimento" in normalized
+
+
+def test_pending_campaign_copy_is_neutralized():
+    migration = (ROOT / "db" / "migrations" / "V020__refresh_pending_campaign_copy.sql").read_text(
+        encoding="utf-8"
+    )
+    normalized = " ".join(migration.casefold().split())
+    assert "contabilidade melo para mei: plano mensal e suporte fiscal" in normalized
+    assert "autorização comercial registrada" in normalized
+    assert "status::text in ('pendente', 'enviando')" in normalized
+
+
+def test_exchange_transport_rules_add_bulk_compliance_headers():
+    script = (ROOT / "scripts" / "configurar_exchange_deliverability.ps1").read_text(
+        encoding="utf-8"
+    ).casefold()
+    assert "list-unsubscribe-post" in script
+    assert "list-unsubscribe=one-click" in script
+    assert "feedback-id" in script
+    assert "setheadername" in script
+    assert "setheadervalue" in script
 
 
 def test_cnpj_alphanumeric_migration_and_submitted_guard_are_present():
