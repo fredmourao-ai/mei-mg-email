@@ -14,7 +14,7 @@ from app.config import settings
 logger = logging.getLogger("mei_mg_email.queue")
 CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID = 99502026
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "mei-contabilidade-melo.html"
-AUTOQUEUE_SUBJECT = "Aviso Importante para MEI - Regularizacao Fiscal"
+AUTOQUEUE_SUBJECT = "Contabilidade Melo para MEI: plano mensal e suporte fiscal"
 AUTOQUEUE_LOT_SIZE = 100
 
 
@@ -38,6 +38,8 @@ def validar_config_fila() -> None:
         raise RuntimeError("QUEUE_MIN_PENDING precisa ser pelo menos 1.")
     if settings.queue_target_pending <= settings.queue_min_pending:
         raise RuntimeError("QUEUE_TARGET_PENDING precisa ser maior que QUEUE_MIN_PENDING.")
+    if not settings.marketing_allowed_origins:
+        raise RuntimeError("MARKETING_ALLOWED_ORIGINS precisa conter ao menos uma origem auditavel.")
 
 
 def quantidade_para_repor(pendentes: int) -> int:
@@ -100,6 +102,8 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                   from mei_email.vw_empresas_elegiveis
                  where tipo_regime = 'MEI'
                    and uf = 'MG'
+                   and marketing_autorizado_em is not null
+                   and lower(btrim(marketing_autorizado_origem)) = any(%s)
             )
             select cnpj, email
               from candidatas
@@ -107,7 +111,7 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
              order by data_abertura desc nulls last, cnpj
              limit %s
             """,
-            (quantidade,),
+            (list(settings.marketing_allowed_origins), quantidade),
         )
         empresas = cur.fetchall()
 
@@ -116,10 +120,11 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             level = logging.CRITICAL if pendentes_antes == 0 else logging.WARNING
             logger.log(
                 level,
-                "Autoqueue sem candidatos elegiveis. pendentes=%d min=%d target=%d",
+                "Autoqueue sem candidatos consentidos/elegiveis. pendentes=%d min=%d target=%d allowed_origins=%s",
                 pendentes_antes,
                 settings.queue_min_pending,
                 settings.queue_target_pending,
+                ",".join(settings.marketing_allowed_origins),
             )
             return 0
 
