@@ -27,9 +27,10 @@ venv/
 # macOS
 .DS_Store
 
-# Logs
+# Logs e estado runtime
 *.log
 logs/
+runtime/
 
 .flyway-cache/
 .oauth/
