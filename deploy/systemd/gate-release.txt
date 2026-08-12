@@ -1,0 +1,4 @@
+Auto Gate release trigger
+Date: 2026-08-12
+Approved main SHA: e1a8081f9f3a4c7d2372e8ae94ae3ab96c71f5d5
+Purpose: trigger production Auto Gate after PR merge without changing runtime logic.
