@@ -9,12 +9,6 @@ def _positive_int_env(name: str, default: int) -> int:
     return max(value, 1)
 
 
-def _csv_env(name: str, default: str) -> tuple[str, ...]:
-    raw = os.getenv(name, default)
-    values = [item.strip().casefold() for item in raw.split(",") if item.strip()]
-    return tuple(dict.fromkeys(values))
-
-
 class Settings:
     database_url: str = os.getenv(
         "DATABASE_URL",
@@ -39,13 +33,6 @@ class Settings:
         configured_rate_envios_por_minuto,
         deliverability_max_envios_por_minuto,
         30,
-    )
-
-    # Only auditable consent/customer-origin sources are eligible for marketing.
-    # Public-CNPJ ingestion never grants authorization by itself.
-    marketing_allowed_origins: tuple[str, ...] = _csv_env(
-        "MARKETING_ALLOWED_ORIGINS",
-        "cadastro_site,cliente_ativo,importacao_consentida",
     )
 
     # Hard local ceiling for a rolling 24-hour window. This remains separate
