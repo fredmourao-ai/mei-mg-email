@@ -1,0 +1,18 @@
+[Unit]
+Description=MEI MG email sending, queue and base monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__RUN_USER__
+WorkingDirectory=__APP_DIR__
+ExecStart=__PYTHON__ scripts/monitor_operacao.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
