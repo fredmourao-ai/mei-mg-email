@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlencode
 
 import psycopg
@@ -22,6 +24,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mei_mg_email.worker")
 WORKER_ADVISORY_LOCK_ID = 100002026
 MAX_TENTATIVAS_TRANSITORIAS = 5
+SENDER_BLOCK_SENTINEL = Path(__file__).resolve().parents[1] / "runtime" / "sender_blocked.pause"
 
 
 def montar_corpo(template: str, empresa: dict) -> str:
@@ -75,6 +78,27 @@ def _erro_transitorio(error: str | None) -> bool:
         "connection aborted",
     )
     return any(marcador in texto for marcador in marcadores)
+
+
+def _registrar_sender_blocked_pause(error: str | None) -> None:
+    """Abre um circuito persistente para impedir novas tentativas de envio.
+
+    O arquivo fica fora do banco e sobrevive a restart do worker. A retomada e
+    deliberadamente manual: somente remova o sentinel apos confirmar no Exchange
+    que o remetente saiu de Restricted entities / AS(42004).
+    """
+    SENDER_BLOCK_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
+    detalhe = (error or "sender_blocked sem detalhe").strip()
+    conteudo = (
+        f"blocked_at_utc={datetime.now(timezone.utc).isoformat()}\n"
+        f"sender=naoresponda@dev.shopvivaliz.com.br\n"
+        f"error={detalhe[:1000]}\n"
+    )
+    SENDER_BLOCK_SENTINEL.write_text(conteudo, encoding="utf-8")
+
+
+def _sender_blocked_pause_ativo() -> bool:
+    return SENDER_BLOCK_SENTINEL.is_file()
 
 
 def _registrar_falhas_campanha(conn, campanha_id, falhas: int) -> None:
@@ -221,6 +245,18 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
         elif getattr(resultado, "status", None) == "sender_blocked":
             _atualizar_envio(conn, envio["envio_id"], "sender_blocked", erro=resultado.error)
             falhas += 1
+            _registrar_falhas_campanha(conn, lote["campanha_id"], falhas)
+            _recolocar_lote_pendente(
+                conn,
+                lote["id"],
+                f"sender_blocked; circuito aberto: {resultado.error or 'sem detalhe'}",
+            )
+            _registrar_sender_blocked_pause(resultado.error)
+            logger.critical(
+                "SENDER_BLOCKED: circuito persistente aberto em %s. Nenhum novo envio sera tentado ate remocao manual apos desbloqueio no Exchange.",
+                SENDER_BLOCK_SENTINEL,
+            )
+            return
         elif _erro_transitorio(resultado.error) and envio["tentativas"] + 1 < MAX_TENTATIVAS_TRANSITORIAS:
             _atualizar_envio(conn, envio["envio_id"], "pendente", erro=resultado.error)
             _registrar_falhas_campanha(conn, lote["campanha_id"], falhas)
@@ -385,6 +421,14 @@ def run() -> None:
 
         while True:
             try:
+                if _sender_blocked_pause_ativo():
+                    logger.critical(
+                        "Worker pausado por sender_blocked. Sentinel=%s. Confirme desbloqueio no Exchange antes de remover o arquivo.",
+                        SENDER_BLOCK_SENTINEL,
+                    )
+                    time.sleep(max(settings.worker_poll_interval_segundos, 60))
+                    continue
+
                 # Repor antes de consumir o proximo lote evita que a fila seque.
                 # A cota de 24h continua sendo validada antes de cada envio.
                 repor_fila_automatica(conn)
