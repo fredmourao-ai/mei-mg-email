@@ -25,6 +25,7 @@ def test_current_incident_pause_is_runtime_state_not_git_state():
     deploy = (ROOT / "scripts" / "deploy_hardening_20260813.sh").read_text(
         encoding="utf-8"
     ).casefold()
-    assert "/var/lib/mei-mg-email/sender_blocked.pause" in deploy
+    assert 'state_dir="/var/lib/mei-mg-email"' in deploy
+    assert 'sentinel="$state_dir/sender_blocked.pause"' in deploy
     assert "deploy_worker_stopped=true" in deploy
     assert "worker_resume_allowed=false" in deploy
