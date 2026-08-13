@@ -8,8 +8,9 @@ atrasos de publicacao.
 Politica operacional confirmada pelo operador em 2026-08-13: toda linha
 processada por esta importacao e gravada explicitamente com
 marketing_autorizado=true e mei_verificado=true, com origem auditavel
-`politica_importacao_operador_2026-08-13`. O opt-out continua sendo preservado
-e permanece soberano para impedir envio.
+`politica_importacao_operador_2026-08-13`. O opt_out continua sendo preservado
+e permanece soberano para impedir envio. Os campos enviado/enviado_em e o
+historico de envio tambem nao sao sobrescritos pelo UPSERT.
 
 Esta rotina NAO cria campanhas e NAO inicia o worker de e-mail.
 """
@@ -336,7 +337,7 @@ def main() -> int:
     print("CASA_DOS_DADOS_STATUS=success", flush=True)
     print("CASA_DOS_DADOS_RESULT=" + json.dumps(stats, ensure_ascii=False, sort_keys=True), flush=True)
     print(
-        "POLICY=marketing_autorizado_true,mei_verificado_true;opt_out_preservado;worker_nao_iniciado",
+        "POLICY=marketing_autorizado_true,mei_verificado_true;opt_out_preservado;enviado_preservado;worker_nao_iniciado",
         flush=True,
     )
     return 0
