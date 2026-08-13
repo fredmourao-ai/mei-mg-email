@@ -20,3 +20,31 @@ def test_suppression_callback_satisfies_historical_v019_dependency():
         encoding="utf-8"
     ).casefold()
     assert "not mei_email.is_email_suppressed(e.email)" in v019
+
+
+def test_status_enum_callback_recreates_production_v019_prerequisites():
+    callback = (ROOT / "db" / "migrations" / "beforeEachMigrate.sql").read_text(
+        encoding="utf-8"
+    ).casefold()
+    expected_in_order = [
+        "descartado",
+        "submitted",
+        "sender_blocked",
+        "bloqueado",
+        "delivered",
+        "bounce_permanent",
+        "bounce_temporary",
+        "suppressed",
+        "cancelled",
+        "pending",
+        "processing",
+        "failed",
+    ]
+    positions = []
+    for label in expected_in_order:
+        needle = f"add value if not exists '{label}'"
+        assert needle in callback
+        positions.append(callback.index(needle))
+    assert positions == sorted(positions)
+    assert "n.nspname = 'mei_email'" in callback
+    assert "t.typname = 'status_envio'" in callback
