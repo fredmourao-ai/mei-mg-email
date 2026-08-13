@@ -15,6 +15,16 @@ RUN_GROUP="$(id -gn "$RUN_USER")"
 STATE_DIR="/var/lib/mei-mg-email"
 SENTINEL="$STATE_DIR/sender_blocked.pause"
 WORKER_UNIT="mei-mg-email-worker.service"
+if [[ -x "$APP_DIR/.venv/bin/python" ]]; then
+  PYTHON="$APP_DIR/.venv/bin/python"
+else
+  PYTHON="$(command -v python3)"
+fi
+
+if [[ -z "$PYTHON" ]]; then
+  echo "ERRO: python3 nao encontrado" >&2
+  exit 9
+fi
 
 # P0: pare o processo antes de qualquer outra mudanca. Esta release NAO
 # reinicia o worker; a retomada exige desbloqueio + teste controlado posterior.
@@ -48,7 +58,7 @@ bash scripts/instalar_monitoramento_vm.sh
 
 # O NDR guard depende de Mail.Read app-only. Nao aceite um service apenas
 # "active" se o Graph estiver negando leitura da Inbox.
-"$APP_DIR/.venv/bin/python" scripts/auditar_graph_mail_read.py 2>/dev/null || python3 scripts/auditar_graph_mail_read.py
+"$PYTHON" scripts/auditar_graph_mail_read.py
 
 # Configura headers de deliverability e recupera Restricted entities com o
 # mesmo certificado administrativo da VM, sempre com o worker parado.
