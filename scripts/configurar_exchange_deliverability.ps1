@@ -1,15 +1,46 @@
 param(
     [string]$Sender = 'naoresponda@dev.shopvivaliz.com.br',
     [string]$Organization = 'contabilidademelo.onmicrosoft.com',
-    [string]$AppId = $env:MICROSOFT_GRAPH_CLIENT_ID,
-    [string]$CertificatePath = $(if ($env:MICROSOFT_GRAPH_CERT_PATH) { $env:MICROSOFT_GRAPH_CERT_PATH } else { '/home/ubuntu/.shopvivaliz/m365/graph-auth.crt' }),
-    [string]$PrivateKeyPath = $(if ($env:MICROSOFT_GRAPH_KEY_PATH) { $env:MICROSOFT_GRAPH_KEY_PATH } else { '/home/ubuntu/.shopvivaliz/m365/graph-auth.key' })
+    [string]$AppId = '',
+    [string]$CertificatePath = '',
+    [string]$PrivateKeyPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-if ([string]::IsNullOrWhiteSpace($AppId)) { throw 'EXCHANGE_APP_ID_MISSING' }
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$DotEnvPath = Join-Path $RepoRoot '.env'
+
+function Get-ConfigValue {
+    param(
+        [Parameter(Mandatory=$true)][string]$Name,
+        [string]$CurrentValue = '',
+        [string]$DefaultValue = ''
+    )
+    if (-not [string]::IsNullOrWhiteSpace($CurrentValue)) { return $CurrentValue }
+    $fromEnv = [Environment]::GetEnvironmentVariable($Name)
+    if (-not [string]::IsNullOrWhiteSpace($fromEnv)) { return $fromEnv }
+    if (Test-Path -LiteralPath $DotEnvPath -PathType Leaf) {
+        $prefix = "$Name="
+        foreach ($line in Get-Content -LiteralPath $DotEnvPath) {
+            if ($line.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+                $value = $line.Substring($prefix.Length).Trim()
+                if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+                    $value = $value.Substring(1, $value.Length - 2)
+                }
+                return $value
+            }
+        }
+    }
+    return $DefaultValue
+}
+
+$AppId = Get-ConfigValue -Name 'MICROSOFT_GRAPH_CLIENT_ID' -CurrentValue $AppId
+$CertificatePath = Get-ConfigValue -Name 'MICROSOFT_GRAPH_CERT_PATH' -CurrentValue $CertificatePath -DefaultValue '/home/ubuntu/.shopvivaliz/m365/graph-auth.crt'
+$PrivateKeyPath = Get-ConfigValue -Name 'MICROSOFT_GRAPH_KEY_PATH' -CurrentValue $PrivateKeyPath -DefaultValue '/home/ubuntu/.shopvivaliz/m365/graph-auth.key'
+
+if ([string]::IsNullOrWhiteSpace($AppId)) { throw 'EXCHANGE_APP_ID_MISSING: MICROSOFT_GRAPH_CLIENT_ID nao configurado.' }
 if (-not (Test-Path -LiteralPath $CertificatePath -PathType Leaf)) { throw "EXCHANGE_CERT_MISSING: $CertificatePath" }
 if (-not (Test-Path -LiteralPath $PrivateKeyPath -PathType Leaf)) { throw "EXCHANGE_PRIVATE_KEY_MISSING: $PrivateKeyPath" }
 
@@ -61,15 +92,13 @@ try {
         -ShowBanner:$false `
         -CommandName @('Get-TransportRule','New-TransportRule','Set-TransportRule')
     $connected = $true
-    Write-Host "EXCHANGE_APP_ONLY_CONNECTED app_id=$AppId organization=$Organization"
+    Write-Host "EXCHANGE_APP_ONLY_CONNECTED organization=$Organization"
 
-    # RFC 8058 one-click header. O MIME do Graph ja envia List-Unsubscribe.
     Ensure-HeaderRule `
         -Name 'ShopVivaliz MEI OneClick Unsubscribe' `
         -HeaderName 'List-Unsubscribe-Post' `
         -HeaderValue 'List-Unsubscribe=One-Click'
 
-    # Identificador estavel para feedback loop do Gmail.
     Ensure-HeaderRule `
         -Name 'ShopVivaliz MEI Gmail Feedback ID' `
         -HeaderName 'Feedback-ID' `
