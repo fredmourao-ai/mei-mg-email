@@ -1,4 +1,5 @@
-Auto Gate release trigger
-Date: 2026-08-12
-Approved main SHA: e1a8081f9f3a4c7d2372e8ae94ae3ab96c71f5d5
-Purpose: trigger production Auto Gate after PR merge without changing runtime logic.
+Auto Gate emergency release trigger
+Date: 2026-08-13
+Purpose: EMERGENCY PAUSE production sender after repeated 550 5.1.8 AS(42004).
+Required runtime state: deploy current main worker circuit breaker and preserve runtime/sender_blocked.pause.
+Do not resume sending until Exchange Restricted entities unblock is confirmed.
