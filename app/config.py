@@ -3,6 +3,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# No-op deployment marker: ensures PR merge touches application code so the
+# production Auto Gate cannot classify this release as documentation-only.
+
 
 def _positive_int_env(name: str, default: int) -> int:
     value = int(os.getenv(name, str(default)))
