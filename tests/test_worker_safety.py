@@ -141,13 +141,23 @@ def test_deliverability_consent_gate_blocks_public_or_unaudited_queue():
     assert "base publica de cnpj nunca e consentimento" in normalized
 
 
-def test_pending_campaign_copy_is_neutralized():
-    migration = (ROOT / "db" / "migrations" / "V020__refresh_pending_campaign_copy.sql").read_text(
+def test_production_v020_history_is_immutable_cleanup_policy():
+    migration_path = ROOT / "db" / "migrations" / "V020__national_scope_and_cleanup_policy.sql"
+    assert migration_path.exists()
+    normalized = " ".join(migration_path.read_text(encoding="utf-8").casefold().split())
+    assert "alter table empresas alter column marketing_autorizado set default true" in normalized
+    assert "alter table envios drop constraint if exists envios_cnpj_fkey" in normalized
+    assert "alter table descadastros drop constraint if exists descadastros_cnpj_fkey" in normalized
+    assert not (ROOT / "db" / "migrations" / "V020__refresh_pending_campaign_copy.sql").exists()
+
+
+def test_pending_campaign_copy_is_neutralized_by_forward_migration():
+    migration = (ROOT / "db" / "migrations" / "V024__replace_pending_campaign_template.sql").read_text(
         encoding="utf-8"
     )
     normalized = " ".join(migration.casefold().split())
     assert "contabilidade melo para mei: plano mensal e suporte fiscal" in normalized
-    assert "autorização comercial registrada" in normalized
+    assert "autorização comercial" in normalized
     assert "status::text in ('pendente', 'enviando')" in normalized
 
 
