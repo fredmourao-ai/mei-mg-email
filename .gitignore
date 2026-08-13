@@ -1,12 +1,22 @@
-# Variáveis de ambiente locais
+# Variaveis de ambiente locais
 .env
 .env.local
 .env.*.local
 
+# Credenciais e chaves privadas - nunca versionar
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.token
+*.secret
+
 # Volume do PostgreSQL
 pgdata/
 
-# Dados reais da Receita (potencialmente grandes e sensíveis — nunca versionar)
+# Dados reais da Receita (potencialmente grandes e sensiveis - nunca versionar)
 data/receita/
 *.csv
 !data/sample/*.csv
