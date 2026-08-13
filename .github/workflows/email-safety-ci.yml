@@ -91,4 +91,4 @@ jobs:
           docker compose run --rm flyway info
 
       - name: Run email safety unit tests
-        run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py tests/test_monitor_operacao.py tests/test_sender_blocked_circuit.py tests/test_ndr_guard.py tests/test_import_policy.py
+        run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py tests/test_monitor_operacao.py tests/test_sender_blocked_circuit.py tests/test_ndr_guard.py tests/test_import_policy.py tests/test_import_policy_explicit.py

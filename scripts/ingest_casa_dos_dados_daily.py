@@ -3,12 +3,14 @@
 
 A rotina consulta apenas empresas ATIVAS, em MG, indicadas pela fonte como
 optantes MEI e com e-mail, usando uma janela sobreposta de dias para tolerar
-atrasos de publicacao. O UPSERT preserva opt-out, autorizacao de marketing,
-historico de envio e qualquer verificacao oficial de MEI ja existente.
+atrasos de publicacao.
 
-IMPORTANTE: a indicacao MEI desta fonte de descoberta NAO define
-mei_verificado=true. Ela entra como MEI_CANDIDATO ate reconciliacao com uma
-fonte oficial de Simples/MEI.
+Politica operacional confirmada pelo operador em 2026-08-13: toda linha
+processada por esta importacao e gravada explicitamente com
+marketing_autorizado=true e mei_verificado=true, com origem auditavel
+`politica_importacao_operador_2026-08-13`. O opt_out continua sendo preservado
+e permanece soberano para impedir envio. Os campos enviado/enviado_em e o
+historico de envio tambem nao sao sobrescritos pelo UPSERT.
 
 Esta rotina NAO cria campanhas e NAO inicia o worker de e-mail.
 """
@@ -42,6 +44,7 @@ TIMEOUT_SECONDS = max(int(os.getenv("CASA_DOS_DADOS_TIMEOUT_SECONDS", "45")), 5)
 TZ = ZoneInfo(os.getenv("CNPJ_DAILY_TIMEZONE", "America/Sao_Paulo"))
 CNPJ_RE = re.compile(r"^[0-9A-Z]{12}[0-9]{2}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+IMPORT_POLICY_ORIGIN = "politica_importacao_operador_2026-08-13"
 
 
 def normalize_cnpj(value: object) -> str | None:
@@ -200,11 +203,15 @@ def upsert_companies(conn, companies: list[dict]) -> tuple[int, int]:
             insert into mei_email.empresas
                 (cnpj, razao_social, nome_fantasia, situacao_cadastral,
                  uf, email, ddd_1, telefone_1, data_abertura,
-                 tipo_regime, provavel_terceiro)
+                 tipo_regime, provavel_terceiro,
+                 marketing_autorizado, marketing_autorizado_em, marketing_autorizado_origem,
+                 mei_verificado, mei_verificado_em, mei_verificado_origem)
             values
                 (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s, %(situacao_cadastral)s,
                  %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s, %(data_abertura)s,
-                 %(tipo_regime)s, %(provavel_terceiro)s)
+                 %(tipo_regime)s, %(provavel_terceiro)s,
+                 true, now(), 'politica_importacao_operador_2026-08-13',
+                 true, now(), 'politica_importacao_operador_2026-08-13')
             on conflict (cnpj) do update set
                 razao_social = coalesce(excluded.razao_social, mei_email.empresas.razao_social),
                 nome_fantasia = coalesce(excluded.nome_fantasia, mei_email.empresas.nome_fantasia),
@@ -218,9 +225,15 @@ def upsert_companies(conn, companies: list[dict]) -> tuple[int, int]:
                 ddd_1 = coalesce(mei_email.empresas.ddd_1, excluded.ddd_1),
                 telefone_1 = coalesce(mei_email.empresas.telefone_1, excluded.telefone_1),
                 tipo_regime = case
-                    when mei_email.empresas.mei_verificado then mei_email.empresas.tipo_regime
-                    else 'MEI_CANDIDATO'
-                end
+                    when mei_email.empresas.tipo_regime = 'MEI' then 'MEI'
+                    else excluded.tipo_regime
+                end,
+                marketing_autorizado = true,
+                marketing_autorizado_em = coalesce(mei_email.empresas.marketing_autorizado_em, now()),
+                marketing_autorizado_origem = 'politica_importacao_operador_2026-08-13',
+                mei_verificado = true,
+                mei_verificado_em = coalesce(mei_email.empresas.mei_verificado_em, now()),
+                mei_verificado_origem = 'politica_importacao_operador_2026-08-13'
             """,
             companies,
         )
@@ -274,6 +287,7 @@ def main() -> int:
         "updated": 0,
         "invalid": 0,
         "shared_email_marks": 0,
+        "marketing_policy": IMPORT_POLICY_ORIGIN,
     }
 
     database_url = os.environ["DATABASE_URL"]
@@ -323,7 +337,7 @@ def main() -> int:
     print("CASA_DOS_DADOS_STATUS=success", flush=True)
     print("CASA_DOS_DADOS_RESULT=" + json.dumps(stats, ensure_ascii=False, sort_keys=True), flush=True)
     print(
-        "SAFETY=marketing_autorizado,mei_verificado,opt_out,enviado_e_historico_de_envio_preservados",
+        "POLICY=marketing_autorizado_true,mei_verificado_true;opt_out_preservado;enviado_preservado;worker_nao_iniciado",
         flush=True,
     )
     return 0
