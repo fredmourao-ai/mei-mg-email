@@ -1,12 +1,23 @@
 # Operacoes Microsoft 365
 
-O desbloqueio de remetente restrito usa Exchange Online PowerShell, nao Microsoft Graph puro.
-Nunca grave tokens neste repositorio. O workflow `Exchange Sender Unblock` aceita tokens apenas por GitHub Actions Secrets e valida a audience antes de conectar.
+## Exchange Online administrativo
 
-Secrets reconhecidos, em ordem:
-- `EXCHANGE_ADMIN_ACCESS_TOKEN`
-- `MICROSOFT_EXCHANGE_ADMIN_TOKEN`
-- `MICROSOFT_GRAPH_ADMIN_TOKEN` (somente se o valor for, na pratica, um token emitido para Exchange Online)
-- `MICROSOFT_GRAPH_ACCESS_TOKEN` (mesma ressalva acima)
+O desbloqueio de remetente restrito usa Exchange Online PowerShell com o mesmo App Registration administrativo e certificado X.509 protegido na VM.
 
-Um access token com audience `https://graph.microsoft.com` sera recusado. Para Exchange Online, o token deve ser emitido para `https://outlook.office365.com/.default` e ter as permissoes/RBAC necessarias ao cmdlet `Remove-BlockedSenderAddress`.
+Arquivos de credencial esperados na VM:
+- `/home/ubuntu/.shopvivaliz/m365/graph-auth.crt`
+- `/home/ubuntu/.shopvivaliz/m365/graph-auth.key`
+
+Nunca grave token, chave privada ou senha no GitHub. O procedimento suportado e:
+
+```powershell
+pwsh ./scripts/desbloquear_exchange_app_cert.ps1 -ConfirmUnblock
+```
+
+O script consulta `Get-BlockedSenderAddress`, executa `Remove-BlockedSenderAddress` somente com confirmacao explicita e exige que o remetente deixe de aparecer em Restricted entities antes de reportar sucesso.
+
+O desbloqueio nao remove automaticamente `/var/lib/mei-mg-email/sender_blocked.pause`. A retomada do worker e uma etapa separada, posterior a propagacao e teste controlado.
+
+## NDR guard
+
+`mei-mg-email-ndr-guard.service` observa NDRs assincronos na caixa Microsoft via Graph `Mail.Read`. Ao detectar `AS(42004)`, `5.1.8` ou equivalente, cria `/var/lib/mei-mg-email/sender_blocked.pause`. O worker continua fail-closed ate remocao operacional deliberada do sentinel.
