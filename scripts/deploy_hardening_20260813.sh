@@ -46,7 +46,12 @@ docker compose run --rm flyway migrate
 # Instala monitor, NDR guard, timer diario e migra o link do sentinel para /var/lib.
 bash scripts/instalar_monitoramento_vm.sh
 
-# Configura headers de deliverability no Exchange enquanto o worker esta parado.
+# O NDR guard depende de Mail.Read app-only. Nao aceite um service apenas
+# "active" se o Graph estiver negando leitura da Inbox.
+"$APP_DIR/.venv/bin/python" scripts/auditar_graph_mail_read.py 2>/dev/null || python3 scripts/auditar_graph_mail_read.py
+
+# Configura headers de deliverability e recupera Restricted entities com o
+# mesmo certificado administrativo da VM, sempre com o worker parado.
 if ! command -v pwsh >/dev/null 2>&1; then
   echo "ERRO: pwsh nao encontrado na VM" >&2
   exit 11
@@ -61,6 +66,7 @@ pwsh -NoProfile -Command '
   Write-Host "EXO_MODULE_READY version=$((Get-Module ExchangeOnlineManagement).Version)"
 '
 pwsh -NoProfile -File ./scripts/configurar_exchange_deliverability.ps1
+pwsh -NoProfile -File ./scripts/desbloquear_exchange_app_cert.ps1 -ConfirmUnblock
 
 # Atestado objetivo do rollout.
 SHA="$(git rev-parse HEAD)"
@@ -85,5 +91,6 @@ printf '%s\n' "$INFO" | grep -Eq '(^|[[:space:]])22([[:space:]]|\|).*Success|V02
 printf '%s\n' "$INFO" | grep -Eq '(^|[[:space:]])23([[:space:]]|\|).*Success|V023' || { echo 'ERRO: V023 nao confirmada' >&2; exit 23; }
 printf '%s\n' "$INFO" | grep -Eq '(^|[[:space:]])24([[:space:]]|\|).*Success|V024' || { echo 'ERRO: V024 nao confirmada' >&2; exit 24; }
 
+echo "DEPLOY_EXCHANGE_UNBLOCK_CONFIRMED=true"
 echo "DEPLOY_HARDENING_OK"
 echo "WORKER_RESUME_ALLOWED=false"
