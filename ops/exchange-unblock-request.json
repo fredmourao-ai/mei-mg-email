@@ -1,0 +1,9 @@
+{
+  "sender": "naoresponda@dev.shopvivaliz.com.br",
+  "error_code": "AS(42004)",
+  "ndr": "550 5.1.8 Access denied, bad outbound sender AS(42004)",
+  "incident_detected_utc": "2026-08-13T00:05:45Z",
+  "requested_at_utc": "2026-08-13T02:53:00Z",
+  "worker_must_remain_paused": true,
+  "resume_requires_separate_pr": true
+}
