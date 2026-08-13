@@ -11,11 +11,13 @@ on:
       - "deploy/systemd/**"
       - "templates/**"
       - "db/migrations/**"
-      - "runtime/sender_blocked.pause"
+      - "ops/**"
       - "tests/test_worker_safety.py"
       - "tests/test_queue_replenisher.py"
       - "tests/test_monitor_operacao.py"
       - "tests/test_sender_blocked_circuit.py"
+      - "tests/test_ndr_guard.py"
+      - "tests/test_import_policy.py"
       - "requirements*.txt"
       - ".github/workflows/email-safety-ci.yml"
 
@@ -32,6 +34,7 @@ jobs:
       MAX_ENVIOS_POR_DIA: "10000"
       META_ENVIOS_POR_DIA: "9950"
       RATE_LIMIT_ENVIOS_POR_MINUTO: "30"
+      DELIVERABILITY_MAX_ENVIOS_POR_MINUTO: "10"
       QUEUE_MIN_PENDING: "1000"
       QUEUE_TARGET_PENDING: "5000"
       MONITOR_INTERVAL_SECONDS: "60"
@@ -46,6 +49,24 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Reject committed credentials
+        run: python scripts/auditar_segredos_repo.py
+
+      - name: Validate PowerShell syntax
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              Write-Error "PowerShell syntax error in $($_.FullName): $($errors -join '; ')"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
@@ -53,4 +74,4 @@ jobs:
         run: python -m compileall -q app worker scripts
 
       - name: Run email safety unit tests
-        run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py tests/test_monitor_operacao.py tests/test_sender_blocked_circuit.py
+        run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py tests/test_monitor_operacao.py tests/test_sender_blocked_circuit.py tests/test_ndr_guard.py tests/test_import_policy.py
