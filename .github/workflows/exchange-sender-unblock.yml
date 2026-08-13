@@ -5,8 +5,6 @@ on:
     branches: [main]
     paths:
       - "ops/exchange-unblock-request.json"
-      - ".github/workflows/exchange-sender-unblock.yml"
-      - "scripts/desbloquear_exchange_sender.ps1"
 
 permissions:
   contents: read
@@ -40,7 +38,25 @@ jobs:
           if ($request.error_code -ne 'AS(42004)') {
             throw 'Unexpected incident code in unblock request.'
           }
+          if (-not $request.worker_must_remain_paused) {
+            throw 'Unblock request must keep production worker paused.'
+          }
           Write-Host "INCIDENT_REQUEST_VALID sender=$($request.sender) code=$($request.error_code)"
+
+      - name: Validate Exchange admin secret
+        shell: pwsh
+        run: |
+          $tokens = @(
+            $env:EXCHANGE_ADMIN_ACCESS_TOKEN,
+            $env:MICROSOFT_EXCHANGE_ADMIN_TOKEN,
+            $env:MICROSOFT_GRAPH_ADMIN_TOKEN,
+            $env:MICROSOFT_GRAPH_ACCESS_TOKEN
+          )
+          $available = @($tokens | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+          if ($available.Count -eq 0) {
+            throw 'EXCHANGE_ADMIN_TOKEN_MISSING: no recognized GitHub Actions secret is configured. Do not paste tokens into workflow files or logs.'
+          }
+          Write-Host 'EXCHANGE_ADMIN_SECRET_PRESENT=true'
 
       - name: Install Exchange Online module
         shell: pwsh
@@ -59,9 +75,10 @@ jobs:
             -Organization $org `
             -AdminUpn $env:EXCHANGE_ADMIN_UPN
 
-      - name: Keep production worker paused
+      - name: Verify production worker remains paused
+        if: always()
         shell: bash
         run: |
           test -f runtime/sender_blocked.pause
           echo "WORKER_PAUSE_MARKER_REMAINS=true"
-          echo "Resume only in a separate PR after unblock confirmation and propagation check."
+          echo "Resume only after Exchange unblock confirmation and propagation verification."
