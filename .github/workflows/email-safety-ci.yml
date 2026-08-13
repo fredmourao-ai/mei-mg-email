@@ -14,6 +14,7 @@ on:
       - "ops/**"
       - "tests/**"
       - "requirements*.txt"
+      - "docker-compose.yml"
       - ".github/workflows/email-safety-ci.yml"
   push:
     branches: [main]
@@ -27,6 +28,7 @@ on:
       - "ops/**"
       - "tests/**"
       - "requirements*.txt"
+      - "docker-compose.yml"
       - ".github/workflows/email-safety-ci.yml"
 
 permissions:
@@ -35,7 +37,7 @@ permissions:
 jobs:
   safety:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       EMAIL_PROVIDER: dryrun
       BASE_URL_DESCADASTRO: https://dev.shopvivaliz.com.br/descadastro
@@ -48,6 +50,7 @@ jobs:
       MONITOR_INTERVAL_SECONDS: "60"
       MONITOR_SEND_STALL_MINUTES: "10"
       MONITOR_BASE_MAX_AGE_HOURS: "26"
+      POSTGRES_PASSWORD: ci_postgres_password_not_for_production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,6 +83,12 @@ jobs:
 
       - name: Compile application and operational scripts
         run: python -m compileall -q app worker scripts
+
+      - name: Validate all Flyway migrations on clean PostgreSQL
+        run: |
+          docker compose up -d db
+          docker compose run --rm flyway migrate
+          docker compose run --rm flyway info
 
       - name: Run email safety unit tests
         run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py tests/test_monitor_operacao.py tests/test_sender_blocked_circuit.py tests/test_ndr_guard.py tests/test_import_policy.py
