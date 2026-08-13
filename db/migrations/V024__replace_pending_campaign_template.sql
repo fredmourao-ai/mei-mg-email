@@ -1,0 +1,69 @@
+-- V024: substitui integralmente a copy das campanhas ainda nao finalizadas.
+-- Evita que campanhas antigas preservem trechos agressivos que V020 nao tenha
+-- conseguido substituir por diferencas de HTML/espacamento.
+set search_path = mei_email, public;
+
+update campanhas c
+   set assunto = 'Contabilidade Melo para MEI: plano mensal e suporte fiscal',
+       corpo_template = $html$
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Plano MEI - Contabilidade Melo</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;margin:0;padding:24px 0;">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #e5eaf2;">
+          <tr><td style="padding:34px;">
+            <p style="font-size:16px;line-height:1.6;margin:0 0 18px;">Olá <strong>{{nome_fantasia}}</strong>, tudo bem?</p>
+            <p style="font-size:16px;line-height:1.6;margin:0 0 18px;">A <strong>Contabilidade Melo</strong> oferece suporte contábil para MEI, com acompanhamento das obrigações fiscais e apoio na emissão de notas.</p>
+            <p style="font-size:16px;line-height:1.6;margin:0 0 22px;">Abaixo estão as condições do nosso plano mensal para você avaliar com tranquilidade.</p>
+
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#0b1f3a;border-radius:16px;margin:0 0 24px;">
+              <tr><td style="padding:24px;color:#ffffff;">
+                <h1 style="font-size:24px;line-height:1.3;margin:0 0 6px;color:#ffffff;">Plano MEI</h1>
+                <p style="font-size:32px;line-height:1.2;margin:0;color:#ffffff;"><strong>R$ 200,00/mês</strong></p>
+                <p style="font-size:14px;line-height:1.5;margin:8px 0 0;color:#dce6f2;">Serviços contábeis para apoiar a rotina do seu CNPJ.</p>
+              </td></tr>
+            </table>
+
+            <ul style="padding-left:20px;margin:0 0 24px;font-size:16px;line-height:1.7;">
+              <li><strong>Certificado digital incluído</strong> no plano</li>
+              <li><strong>Até 10 notas fiscais por mês</strong> incluídas</li>
+              <li><strong>Declaração anual DASN-SIMEI</strong></li>
+              <li><strong>Suporte contábil especializado</strong></li>
+            </ul>
+
+            <p style="font-size:16px;line-height:1.6;margin:0 0 24px;">Se quiser entender como o plano funciona ou confirmar se ele faz sentido para sua empresa, fale com nossa equipe.</p>
+            <table role="presentation" cellspacing="0" cellpadding="0" align="center" style="margin:0 auto 26px;">
+              <tr><td align="center" bgcolor="#16a34a" style="border-radius:999px;">
+                <a href="https://wa.me/5537996704011" target="_blank" style="display:inline-block;padding:15px 26px;font-size:16px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:999px;">Falar com a Contabilidade Melo</a>
+              </td></tr>
+            </table>
+            <p style="font-size:15px;line-height:1.6;margin:0 0 18px;color:#4b5563;">WhatsApp: <strong>(37) 99670-4011</strong>.</p>
+            <p style="font-size:15px;line-height:1.6;margin:0 0 18px;color:#4b5563;">Atenciosamente,<br><strong>Equipe Contabilidade Melo</strong></p>
+
+            <table role="presentation" cellspacing="0" cellpadding="0" align="center" style="margin:0 auto 22px;">
+              <tr><td align="center">
+                <img src="https://dev.shopvivaliz.com.br/mei-email-assets/logo-contabilidade-melo-transparente.png?v=20260804a" width="280" alt="Contabilidade Melo" style="display:block;width:280px;max-width:80%;height:auto;border:0;outline:none;text-decoration:none;">
+              </td></tr>
+            </table>
+
+            <hr style="border:0;border-top:1px solid #e5e7eb;margin:26px 0 14px;">
+            <p style="font-size:12px;line-height:1.5;margin:0;color:#6b7280;">Você recebe esta mensagem porque há uma autorização comercial registrada para este contato. Se não quiser receber novas mensagens da Contabilidade Melo, use o link de <a href="{{unsubscribe_url}}" style="color:#0b1f3a;">descadastro</a>.</p>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>
+$html$
+ where exists (
+   select 1
+     from envios e
+    where e.campanha_id = c.id
+      and e.status::text in ('pendente', 'enviando')
+ );
