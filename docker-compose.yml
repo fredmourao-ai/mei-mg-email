@@ -26,7 +26,7 @@ services:
     depends_on:
       db:
         condition: service_started
-    command: -connectRetries=30 -callbackLocations=filesystem:/flyway/callbacks migrate
+    command: -connectRetries=30 migrate
     environment:
       FLYWAY_URL: jdbc:postgresql://db:5432/mei_mg_email
       FLYWAY_USER: postgres
@@ -35,7 +35,6 @@ services:
       FLYWAY_DEFAULT_SCHEMA: mei_email
     volumes:
       - ./db/migrations:/flyway/sql:ro
-      - ./db/callbacks:/flyway/callbacks:ro
     networks:
       - mei-mg-email
 
