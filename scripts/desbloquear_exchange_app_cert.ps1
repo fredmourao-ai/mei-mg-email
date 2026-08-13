@@ -66,7 +66,9 @@ try {
     $connected = $true
     Write-Host "EXCHANGE_APP_ONLY_CONNECTED organization=$Organization"
 
-    $blocked = Get-BlockedSenderAddress -SenderAddress $SenderAddress -ErrorAction SilentlyContinue
+    # Fail closed: erro de permissao/conexao precisa interromper o gate. Somente
+    # um retorno realmente vazio significa que o remetente nao esta na lista.
+    $blocked = Get-BlockedSenderAddress -SenderAddress $SenderAddress -ErrorAction Stop
     if ($null -eq $blocked) {
         Write-Host "EXCHANGE_SENDER_NOT_BLOCKED sender=$SenderAddress"
         Write-Host 'WORKER_RESUME_ALLOWED=false reason=controlled_test_still_required'
@@ -83,14 +85,15 @@ try {
 
     Remove-BlockedSenderAddress `
         -SenderAddress $SenderAddress `
-        -Reason 'Authorized recovery after AS(42004); worker remains fail-closed until verification.'
+        -Reason 'Authorized recovery after AS(42004); worker remains fail-closed until verification.' `
+        -ErrorAction Stop
     Write-Host "EXCHANGE_UNBLOCK_SUBMITTED sender=$SenderAddress"
 
     $deadline = [DateTimeOffset]::UtcNow.AddMinutes(5)
     $remaining = $blocked
     do {
         Start-Sleep -Seconds 10
-        $remaining = Get-BlockedSenderAddress -SenderAddress $SenderAddress -ErrorAction SilentlyContinue
+        $remaining = Get-BlockedSenderAddress -SenderAddress $SenderAddress -ErrorAction Stop
         if ($null -eq $remaining) { break }
     } while ([DateTimeOffset]::UtcNow -lt $deadline)
 
