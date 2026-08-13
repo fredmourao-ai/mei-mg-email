@@ -10,7 +10,7 @@ def snapshot_base():
         "limits": {
             "meta_24h": 9950,
             "max_24h": 10000,
-            "rate_per_minute": 30,
+            "rate_per_minute": 10,
             "queue_min_pending": 1000,
             "queue_target_pending": 5000,
         },
@@ -22,9 +22,9 @@ def snapshot_base():
         },
         "sending": {
             "submitted_enviado_24h": 4000,
-            "submitted_enviado_60m": 900,
-            "submitted_enviado_15m": 225,
-            "submitted_enviado_5m": 75,
+            "submitted_enviado_60m": 600,
+            "submitted_enviado_15m": 150,
+            "submitted_enviado_5m": 50,
             "last_submission_at": "2026-08-12T12:00:00+00:00",
             "last_submission_age_minutes": 0.2,
             "failures_24h": 2,
@@ -33,6 +33,10 @@ def snapshot_base():
         "worker": {
             "advisory_lock_held": True,
             "systemd_active": "active",
+            "sender_block_pause_active": False,
+            "sender_block_pause_path": "/var/lib/mei-mg-email/sender_blocked.pause",
+            "ndr_guard_active": "active",
+            "ndr_guard_enabled": "enabled",
         },
         "base_sync": {
             "latest": {"status": "success"},
@@ -76,6 +80,27 @@ def test_missing_worker_lock_is_detected_when_work_is_expected():
     snapshot = snapshot_base()
     snapshot["worker"]["advisory_lock_held"] = False
     assert "worker_lock_missing" in codes(snapshot)
+
+
+def test_sender_pause_explains_intentional_worker_stop():
+    snapshot = snapshot_base()
+    snapshot["worker"]["sender_block_pause_active"] = True
+    snapshot["worker"]["advisory_lock_held"] = False
+    snapshot["sending"]["submitted_enviado_15m"] = 0
+    snapshot["sending"]["last_submission_age_minutes"] = 60.0
+    result = codes(snapshot)
+    assert "sender_block_pause_active" in result
+    assert "worker_lock_missing" not in result
+    assert "sending_stalled" not in result
+
+
+def test_ndr_guard_failure_is_critical():
+    snapshot = snapshot_base()
+    snapshot["worker"]["ndr_guard_active"] = "failed"
+    snapshot["worker"]["ndr_guard_enabled"] = "disabled"
+    result = codes(snapshot)
+    assert "ndr_guard_not_active" in result
+    assert "ndr_guard_not_enabled" in result
 
 
 def test_base_sync_overdue_and_timer_disabled_are_detected():
