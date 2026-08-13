@@ -2,6 +2,19 @@ name: Email Safety CI
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "worker/**"
+      - "scripts/**"
+      - "deploy/systemd/**"
+      - "templates/**"
+      - "db/migrations/**"
+      - "ops/**"
+      - "tests/**"
+      - "requirements*.txt"
+      - ".github/workflows/email-safety-ci.yml"
   push:
     branches: [main]
     paths:
@@ -12,12 +25,7 @@ on:
       - "templates/**"
       - "db/migrations/**"
       - "ops/**"
-      - "tests/test_worker_safety.py"
-      - "tests/test_queue_replenisher.py"
-      - "tests/test_monitor_operacao.py"
-      - "tests/test_sender_blocked_circuit.py"
-      - "tests/test_ndr_guard.py"
-      - "tests/test_import_policy.py"
+      - "tests/**"
       - "requirements*.txt"
       - ".github/workflows/email-safety-ci.yml"
 
