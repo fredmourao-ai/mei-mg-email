@@ -1,58 +1,97 @@
 # Disparo Contabilidade Melo - MEI
 
-## Estado atual
+## Estado operacional atual
 
-O projeto usa Microsoft Graph com autenticacao App-Only por certificado X.509 na Oracle VM. SMTP AUTH, Gmail, Brevo, client secret e login Graph interativo/delegado ficam desabilitados no runtime de producao.
+A producao usa Microsoft Graph App-Only com certificado X.509 armazenado somente na Oracle VM. SMTP AUTH, Gmail SMTP, Brevo, client secret e autenticacao Graph interativa/delegada estao desabilitados no runtime.
 
-O dominio de envio de volume e `dev.shopvivaliz.com.br`, com remetente operacional `naoresponda@dev.shopvivaliz.com.br`. O dominio foi validado publicamente para Microsoft 365 com SPF, MX, DKIM (selector1/selector2), DMARC, autodiscover e TXT de verificacao Microsoft. A auditoria automatizada esta em `scripts/auditar_dns_microsoft.py`.
+Remetente: `naoresponda@dev.shopvivaliz.com.br`.
+Dominio: `dev.shopvivaliz.com.br`.
 
-Importante: DNS autenticado melhora identidade e entregabilidade, mas nao remove os limites do Exchange Online nem garante ausencia de bloqueios antispam. O projeto opera fail-closed dentro dos limites configurados e preserva margem na janela movel de 24 horas.
+HTTP 202 do Graph significa apenas `submitted`: nunca deve ser tratado como entrega confirmada. NDRs assincronos precisam ser observados pelo `mei-mg-email-ndr-guard.service`.
 
-## Limites operacionais
+## Incidente AS(42004) e fail-closed
 
-- `MAX_ENVIOS_POR_DIA=10000`: teto local em janela movel de 24 horas.
-- `META_ENVIOS_POR_DIA=9950`: meta operacional, mantendo margem de 50 destinatarios abaixo do teto local.
-- `RATE_LIMIT_ENVIOS_POR_MINUTO=30`: taxa operacional configurada para o worker; o codigo continua tratando `Retry-After`, throttling e falhas transitorias.
-- Apenas um worker de envio pode ficar ativo; uma advisory lock no Postgres impede multiplicacao acidental da taxa.
-- O worker reprograma falhas transitorias, recupera lotes presos e devolve o lote para a fila quando a cota de 24 horas e atingida.
-- O TERRL do tenant e um limite separado e deve permanecer suficiente para a meta operacional.
-- Nunca usar o dominio padrao `*.onmicrosoft.com` para o disparo de volume externo.
+Quando aparecer `550 5.1.8 Access denied, bad outbound sender AS(42004)`:
 
-## Configuracao de producao
+1. parar o worker;
+2. manter `/var/lib/mei-mg-email/sender_blocked.pause` presente;
+3. manter o NDR guard e o monitor ativos;
+4. corrigir Restricted entities com `scripts/desbloquear_exchange_app_cert.ps1 -ConfirmUnblock`, usando o certificado administrativo da VM;
+5. confirmar que `Get-BlockedSenderAddress` nao retorna mais o remetente;
+6. nao remover a pausa nem iniciar volume nessa mesma etapa;
+7. fazer teste controlado separado e somente retomar se nao surgir novo NDR de bloqueio.
+
+O deploy de hardening esta em `scripts/deploy_hardening_20260813.sh` e termina obrigatoriamente com `WORKER_RESUME_ALLOWED=false`.
+
+## Limites
+
+- `MAX_ENVIOS_POR_DIA=10000`: teto tecnico local em janela movel de 24h.
+- `META_ENVIOS_POR_DIA=9950`: meta operacional.
+- `RATE_LIMIT_ENVIOS_POR_MINUTO=30`: valor configuravel legado/teto local.
+- `DELIVERABILITY_MAX_ENVIOS_POR_MINUTO=10`: cap de recuperacao de reputacao.
+- Taxa efetiva: menor valor entre os dois limites acima e 30/min; com os defaults atuais, **10/min**.
+- Somente um worker pode possuir a advisory lock global de envio.
+
+## Politica de importacao
+
+Por decisao operacional registrada em 2026-08-13:
+
+- V022 marca o estoque existente `marketing_autorizado=true` e `mei_verificado=true`, com origem auditavel de override do operador;
+- V023 aplica a mesma politica a novos INSERTs no banco;
+- `scripts/ingest_casa_dos_dados_daily.py` tambem grava os dois flags explicitamente em INSERT e UPDATE;
+- `opt_out` continua soberano e nunca e reativado pela importacao;
+- `enviado/enviado_em` e historico de envio sao preservados.
+
+A origem `politica_importacao_operador_2026-08-13` identifica a decisao operacional e nao deve ser confundida com verificacao oficial da Receita/Simples.
+
+## Deliverability
+
+O envio MIME inclui `List-Unsubscribe` e `List-Unsubscribe-Post`. O Exchange tambem deve ter as regras criadas por `scripts/configurar_exchange_deliverability.ps1`, que asseguram:
+
+- `List-Unsubscribe-Post: List-Unsubscribe=One-Click`;
+- `Feedback-ID: meimg:marketing:contamelo:VivalizMEI`.
+
+O assunto/template de campanhas ainda pendentes e normalizado pela V024 para a copia atual de recuperacao de reputacao.
+
+## Configuracao principal
 
 ```ini
 EMAIL_PROVIDER=microsoft_graph
 MICROSOFT_GRAPH_AUTH_MODE=app_only_cert
-MICROSOFT_SENDER_DOMAIN=dev.shopvivaliz.com.br
-MICROSOFT_GRAPH_TENANT_ID=ID_DO_TENANT
-MICROSOFT_GRAPH_CLIENT_ID=ID_DO_APLICATIVO
 MICROSOFT_GRAPH_USER=naoresponda@dev.shopvivaliz.com.br
 MICROSOFT_GRAPH_CERT_PATH=/home/ubuntu/.shopvivaliz/m365/graph-auth.crt
 MICROSOFT_GRAPH_KEY_PATH=/home/ubuntu/.shopvivaliz/m365/graph-auth.key
 MAIL_FROM=Contabilidade Melo <naoresponda@dev.shopvivaliz.com.br>
-MAIL_FROM_NAME=Contabilidade Melo
 MAX_ENVIOS_POR_DIA=10000
 META_ENVIOS_POR_DIA=9950
 RATE_LIMIT_ENVIOS_POR_MINUTO=30
-BASE_URL_DESCADASTRO=https://dev.shopvivaliz.com.br/descadastro
+DELIVERABILITY_MAX_ENVIOS_POR_MINUTO=10
+SENDER_BLOCK_SENTINEL_PATH=/var/lib/mei-mg-email/sender_blocked.pause
+NDR_GUARD_POLL_SECONDS=60
+MONITOR_NDR_GUARD_UNIT=mei-mg-email-ndr-guard.service
 ```
 
-A chave privada e o certificado de autenticacao pertencem ao filesystem protegido da VM e nunca devem ser commitados. O runtime nao aceita `MICROSOFT_GRAPH_CLIENT_SECRET`.
+A chave privada, tokens, senhas e arquivos de segredo nunca devem ser versionados.
 
-## Checklist antes de liberar volume
+## Checklist de liberacao
 
-1. Rode `python scripts/auditar_dns_microsoft.py` e exija `READY_DNS_MICROSOFT_CUSTOM_DOMAIN`.
-2. Rode `python scripts/auditar_graph_token.py` e exija `GRAPH_APP_ONLY_TOKEN_READY`, `role_Mail.Send=true` e o remetente oficial.
-3. Rode `python scripts/auditar_exchange_10000.py` no mesmo ambiente do worker e exija readiness sem erros bloqueantes.
-4. Confirme `RATE_LIMIT_ENVIOS_POR_MINUTO=30`, `META_ENVIOS_POR_DIA=9950` e `MAX_ENVIOS_POR_DIA=10000`.
-5. Confirme que a fila nao possui duplicados nem destinatarios ja `submitted`/`enviado` e que todos os pendentes continuam elegiveis.
-6. Inicie somente um worker; a advisory lock do Postgres e a cota movel de 24 horas permanecem obrigatorias.
+1. `scripts/auditar_graph_token.py`: validar app-only e `Mail.Send`.
+2. `scripts/auditar_graph_mail_read.py`: validar `Mail.Read` para o NDR guard.
+3. `scripts/auditar_dns_microsoft.py`: validar DNS do dominio.
+4. `scripts/auditar_exchange_10000.py`: validar banco, fila, limites e runtime.
+5. confirmar monitor + NDR guard + timer diario ativos.
+6. confirmar ausencia de Restricted entity/AS(42004).
+7. fazer apenas um teste controlado.
+8. somente depois remover a pausa persistente e iniciar o worker.
 
 ## Arquivos principais
 
-- `templates/mei-contabilidade-melo.html`: template HTML da campanha.
-- `scripts/auditar_graph_token.py`: auditoria do token App-Only e role `Mail.Send`.
-- `scripts/auditar_dns_microsoft.py`: auditoria DNS publica.
-- `scripts/auditar_exchange_10000.py`: auditoria do runtime, banco e limites.
-- `scripts/disparar_10000_mei_mg.py`: controlador de capacidade diaria.
-- `worker/worker.py`: envio real, cota movel, retries, deduplicacao e recuperacao.
+- `worker/worker.py`
+- `scripts/ndr_guard.py`
+- `scripts/monitor_operacao.py`
+- `scripts/deploy_hardening_20260813.sh`
+- `scripts/desbloquear_exchange_app_cert.ps1`
+- `scripts/configurar_exchange_deliverability.ps1`
+- `scripts/sincronizar_base_diaria.py`
+- `scripts/ingest_casa_dos_dados_daily.py`
+- `templates/mei-contabilidade-melo.html`
