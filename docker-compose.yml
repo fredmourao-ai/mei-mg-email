@@ -33,8 +33,10 @@ services:
       FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
       FLYWAY_SCHEMAS: mei_email
       FLYWAY_DEFAULT_SCHEMA: mei_email
+      FLYWAY_CALLBACK_LOCATIONS: filesystem:/flyway/callbacks
     volumes:
       - ./db/migrations:/flyway/sql:ro
+      - ./db/callbacks:/flyway/callbacks:ro
     networks:
       - mei-mg-email
 
