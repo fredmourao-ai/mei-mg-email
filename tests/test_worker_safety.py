@@ -1,3 +1,4 @@
+import zlib
 from datetime import date, timezone
 from pathlib import Path
 from urllib.error import HTTPError
@@ -16,6 +17,13 @@ from scripts.sincronizar_base_diaria import _parse_datetime
 from worker.worker import _erro_transitorio, montar_corpo
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _flyway_checksum(path: Path) -> int:
+    crc = 0
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        crc = zlib.crc32(line.encode("utf-8"), crc)
+    return crc if crc < 2**31 else crc - 2**32
 
 
 def test_transient_exchange_errors_are_retryable():
@@ -127,18 +135,15 @@ def test_fail_closed_migration_requires_authorization_and_global_dedupe():
     assert "situacao_cadastral = 'ativa'" in normalized
 
 
-def test_deliverability_consent_gate_blocks_public_or_unaudited_queue():
-    migration = (ROOT / "db" / "migrations" / "V019__deliverability_consent_gate.sql").read_text(
-        encoding="utf-8"
-    )
-    normalized = " ".join(migration.casefold().split())
-    assert "marketing_autorizado_em is null" in normalized
-    assert "marketing_autorizado_origem is null" in normalized
-    assert "cadastro_site" in normalized
-    assert "cliente_ativo" in normalized
-    assert "importacao_consentida" in normalized
-    assert "status = 'bloqueado'" in normalized
-    assert "base publica de cnpj nunca e consentimento" in normalized
+def test_production_v019_history_is_immutable_dedup_policy():
+    migration_path = ROOT / "db" / "migrations" / "V019__deduplicate_shared_email_without_exclusion.sql"
+    assert migration_path.exists()
+    normalized = " ".join(migration_path.read_text(encoding="utf-8").casefold().split())
+    assert "not mei_email.is_email_suppressed(e.email)" in normalized
+    assert "lower(btrim(x.email::text)) = lower(btrim(e.email::text))" in normalized
+    assert "'pending', 'processing', 'submitted', 'delivered'" in normalized
+    assert _flyway_checksum(migration_path) == -1127628677
+    assert not (ROOT / "db" / "migrations" / "V019__deliverability_consent_gate.sql").exists()
 
 
 def test_production_v020_history_is_immutable_cleanup_policy():
@@ -148,7 +153,22 @@ def test_production_v020_history_is_immutable_cleanup_policy():
     assert "alter table empresas alter column marketing_autorizado set default true" in normalized
     assert "alter table envios drop constraint if exists envios_cnpj_fkey" in normalized
     assert "alter table descadastros drop constraint if exists descadastros_cnpj_fkey" in normalized
+    assert _flyway_checksum(migration_path) == -1128497321
     assert not (ROOT / "db" / "migrations" / "V020__refresh_pending_campaign_copy.sql").exists()
+
+
+def test_forward_operator_policy_authorizes_and_verifies_existing_and_new_rows():
+    v022 = (ROOT / "db" / "migrations" / "V022__operator_authorize_and_verify_existing_base.sql").read_text(
+        encoding="utf-8"
+    ).casefold()
+    v023 = (ROOT / "db" / "migrations" / "V023__auto_authorize_and_verify_new_imports.sql").read_text(
+        encoding="utf-8"
+    ).casefold()
+    assert "set marketing_autorizado = true" in v022
+    assert "set mei_verificado = true" in v022
+    assert "new.marketing_autorizado := true" in v023
+    assert "new.mei_verificado := true" in v023
+    assert "opt-out nao e alterado" in v023
 
 
 def test_pending_campaign_copy_is_neutralized_by_forward_migration():
