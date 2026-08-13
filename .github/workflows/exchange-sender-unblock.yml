@@ -32,15 +32,9 @@ jobs:
         shell: pwsh
         run: |
           $request = Get-Content ops/exchange-unblock-request.json -Raw | ConvertFrom-Json
-          if ($request.sender -ne 'naoresponda@dev.shopvivaliz.com.br') {
-            throw 'Unexpected sender in unblock request.'
-          }
-          if ($request.error_code -ne 'AS(42004)') {
-            throw 'Unexpected incident code in unblock request.'
-          }
-          if (-not $request.worker_must_remain_paused) {
-            throw 'Unblock request must keep production worker paused.'
-          }
+          if ($request.sender -ne 'naoresponda@dev.shopvivaliz.com.br') { throw 'Unexpected sender in unblock request.' }
+          if ($request.error_code -ne 'AS(42004)') { throw 'Unexpected incident code in unblock request.' }
+          if (-not $request.worker_must_remain_paused) { throw 'Unblock request must keep production worker paused.' }
           Write-Host "INCIDENT_REQUEST_VALID sender=$($request.sender) code=$($request.error_code)"
 
       - name: Validate Exchange admin secret
@@ -69,8 +63,18 @@ jobs:
       - name: Unblock restricted sender
         shell: pwsh
         run: |
+          $tokens = @(
+            $env:EXCHANGE_ADMIN_ACCESS_TOKEN,
+            $env:MICROSOFT_EXCHANGE_ADMIN_TOKEN,
+            $env:MICROSOFT_GRAPH_ADMIN_TOKEN,
+            $env:MICROSOFT_GRAPH_ACCESS_TOKEN
+          )
+          $available = @($tokens | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+          $token = [string]$available[0]
+          Write-Output "::add-mask::$token"
           $org = if ([string]::IsNullOrWhiteSpace($env:EXCHANGE_ORGANIZATION)) { 'contabilidademelo.onmicrosoft.com' } else { $env:EXCHANGE_ORGANIZATION }
-          ./scripts/desbloquear_exchange_sender.ps1 `
+          ./scripts/desbloquear_exchange_sender_v2.ps1 `
+            -AccessToken $token `
             -SenderAddress 'naoresponda@dev.shopvivaliz.com.br' `
             -Organization $org `
             -AdminUpn $env:EXCHANGE_ADMIN_UPN
