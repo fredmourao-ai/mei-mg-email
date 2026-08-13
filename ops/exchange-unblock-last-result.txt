@@ -1,7 +1,0 @@
-2026-08-13T02:58:22Z
-status=not_executed
-reason=github_actions_admin_secret_missing
-sender=naoresponda@dev.shopvivaliz.com.br
-exchange_module=3.10.1
-restriction=AS(42004)
-worker_resume_allowed=false

@@ -10,10 +10,10 @@ from app.email_provider import MicrosoftGraphEmailProvider
 def main() -> None:
     provider = MicrosoftGraphEmailProvider()
     provider.authenticate()
-    print("OAuth Microsoft Graph autorizado e cache local salvo com seguranca.")
+    print("GRAPH_APP_ONLY_AUTH_OK")
+    print("token_storage=memory_only")
+    print(f"sender={provider.address}")
 
 
 if __name__ == "__main__":
     main()
-
-

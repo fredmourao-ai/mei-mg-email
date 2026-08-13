@@ -1,8 +1,8 @@
-Auto Gate Exchange recovery release
+Auto Gate hardening + Exchange recovery release
 Date: 2026-08-13
-Purpose: deploy current fail-closed worker and execute the authorized Exchange Restricted entities recovery for AS(42004).
-Required runtime state before Exchange action: runtime/sender_blocked.pause must remain present and no worker resume is allowed.
-VM command after checkout/update: pwsh ./scripts/desbloquear_exchange_app_cert.ps1 -ConfirmUnblock
-Authentication: existing app-only X.509 certificate stored only on the VM.
-Success condition: Get-BlockedSenderAddress no longer returns naoresponda@dev.shopvivaliz.com.br.
-Do not remove runtime/sender_blocked.pause and do not resume worker in this release. Resume requires a separate controlled-test release after propagation verification.
+Purpose: stop production safely, apply V022/V023/V024, install asynchronous NDR guard, persist sender-block state outside Git, configure deliverability headers and remove AS(42004) through Exchange Online certificate auth.
+Required VM command after checkout/update: bash scripts/deploy_hardening_20260813.sh
+Mandatory success markers: DEPLOY_WORKER_STOPPED_CONFIRMED=true, DEPLOY_EXCHANGE_UNBLOCK_CONFIRMED=true, DEPLOY_HARDENING_OK.
+Mandatory runtime marker: WORKER_RESUME_ALLOWED=false.
+Required final state: worker stopped; /var/lib/mei-mg-email/sender_blocked.pause exists; mei-mg-email-ndr-guard.service active; monitor active; base-sync timer active; Graph Mail.Read preflight passed; V022/V023/V024 applied; Get-BlockedSenderAddress no longer returns naoresponda@dev.shopvivaliz.com.br.
+Do NOT resume the worker in this release. A separate controlled-test/resume release is required after mailbox verification shows no new AS(42004).

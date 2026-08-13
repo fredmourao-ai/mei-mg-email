@@ -1,136 +1,127 @@
 # MEI-MG Email
 
-API + worker para disparo de e-mail em lotes de 100 para MEIs de Minas Gerais, a partir dos dados abertos de CNPJ da Receita Federal.
+Sistema de fila, envio e monitoramento de e-mails para a operação MEI/MG da Contabilidade Melo.
 
-**Status:** Ambiente local configurado com Postgres (Docker), API FastAPI operacional, worker integrado e testado. Controle de priorização por data de abertura e governança de envio único (frequência máxima de 1 e-mail por contato) totalmente implementados e validados por testes de integração. Repositório Git local inicializado e espelhado no GitHub.
+## Produção
 
----
+- Provedor exclusivo: **Microsoft Graph app-only com certificado X.509**.
+- Remetente permitido: `naoresponda@dev.shopvivaliz.com.br`.
+- HTTP 202 do Graph é registrado como `submitted`; não representa entrega confirmada.
+- SMTP/Gmail/Brevo e autenticação Graph interativa/delegada não são suportados em produção.
+- Worker único por advisory lock do PostgreSQL.
+- Cota operacional em janela móvel: `META_ENVIOS_POR_DIA=9950`, teto técnico `MAX_ENVIOS_POR_DIA=10000`.
+- Modo de recuperação de reputação: `DELIVERABILITY_MAX_ENVIOS_POR_MINUTO=10`.
 
-## 🏗️ Novas Implementações Realizadas
+## Fila contínua
 
-### 1. Governança de Envio Único (Compliance & LGPD)
-* **Objetivo:** Garantir que cada MEI receba no máximo um e-mail promocional/campanha e nunca seja re-enviado.
-* **Solução:**
-  * Adicionadas as colunas `enviado` (boolean, default `false`) e `enviado_em` (timestamptz) na tabela `empresas` (ver [V004__add_enviado_to_empresas.sql](file:///c:/mei-mg-email/db/migrations/V004__add_enviado_to_empresas.sql)).
-  * Atualização automática da view de conformidade `vw_empresas_elegiveis` para selecionar apenas empresas onde `enviado = false`.
-  * Assim que o worker executa o envio do lote com sucesso, a empresa é marcada na base de dados de contatos (`enviado = true`).
-  * Em caso de re-ingestão de dados (atualização a cada 24 horas), o status `enviado` e `opt_out` são mantidos intactos, prevenindo novos envios.
+O worker chama o enfileirador antes de buscar o próximo lote. Com os defaults atuais:
 
-### 2. Fila por Prioridade (Data de Abertura)
-* **Objetivo:** Priorizar os novos MEIs ativos no estado de Minas Gerais para assumirem o topo da fila de envio.
-* **Solução:**
-  * A consulta de seleção de MEIs elegíveis para novas campanhas foi ordenada por `data_abertura DESC` (mais recente primeiro).
-  * O particionamento em lotes de tamanho parametrizável (ex: 100) distribui os contatos de modo que os lotes com número menor (ex: Lote 0) contenham os MEIs mais novos, respeitando limites de cota de disparo diário/mensal.
+- `QUEUE_MIN_PENDING=1000`
+- `QUEUE_TARGET_PENDING=5000`
 
-### 3. Redução Drástica de Armazenamento local (Dados Filtrados)
-* **Objetivo:** Não necessitar baixar e descompactar os 20GB+ da base nacional da Receita Federal na máquina local.
-* **Solução:**
-  * Desenvolvido o script [download_cnpj_mg.py](file:///c:/mei-mg-email/scripts/download_cnpj_mg.py). Ele realiza o download dos arquivos compactados zip diretamente dos servidores da Receita Federal, realiza a descompactação e filtragem *on-the-fly* (linha por linha) mantendo apenas os registros de Minas Gerais (MG), salvando no disco apenas arquivos pequenos e leves (~300MB total).
+Ao atingir o gatilho mínimo, a fila é reposta até o target quando houver destinatários elegíveis. Enfileirar não consome a cota móvel; a trava de 24h é aplicada imediatamente antes de cada submissão.
 
-### 4. Simplificação de Dados (Foco Exclusivo em Contatos)
-* **Objetivo:** Remover informações desnecessárias de endereço físico/geográfico que não são úteis para contato direto.
-* **Solução:**
-  * Aplicada a migração [V005__remove_address_and_cnae_columns.sql](file:///c:/mei-mg-email/db/migrations/V005__remove_address_and_cnae_columns.sql) que removeu as colunas `cep`, `municipio`, `cnae` e `cnae_descricao` da tabela `empresas`, mantendo a base ultra leve e estritamente focada em contato.
+## Política de importação
 
-### 5. API de Atualização de Base Diária
-* **Objetivo:** Atualizar a base de dados a cada 24 horas com novos MEIs mantendo os status de envios anteriores.
-* **Solução:**
-  * Endpoint `POST /empresas/atualizar-base` adicionado à API. Ele faz a leitura dos arquivos de MG gerados pelo downloader, executa o `UPSERT` mantendo intactos os contatos que já receberam e-mail ou solicitaram opt-out.
+A partir das migrations V022/V023, a decisão operacional registrada em 13/08/2026 é:
 
----
+- estoque já existente: `marketing_autorizado=true` e `mei_verificado=true`;
+- novos registros inseridos em `mei_email.empresas`: os mesmos flags entram como `true`;
+- a origem do override é gravada em `marketing_autorizado_origem` e `mei_verificado_origem`;
+- `opt_out=true` continua bloqueando envio independentemente desses flags.
 
-## 📁 Estrutura do Projeto
+## Atualização diária da base
 
-```
-mei-mg-email/
-├── docker-compose.yml       # Postgres 16 (Porta 5433) + Flyway (migrations automáticas)
-├── requirements.txt         # dependências da API/worker
-├── requirements-dev.txt     # + pytest
-├── .env.example
-├── db/
-│   ├── init/                # extensões (executado 1x pelo Postgres)
-│   └── migrations/          # Migrações Flyway (V001 a V005)
-├── data/
-│   ├── README.md            # layout dos arquivos e Mirror da Receita
-│   └── sample/              # CSVs fake no layout real da Receita p/ testes
-├── scripts/
-│   ├── download_cnpj_mg.py  # download sob demanda e filtro de MG on-the-fly
-│   └── ingest_estabelecimentos.py   # ingestão de CSVs filtrados -> banco
-├── app/                      # API (FastAPI)
-│   ├── main.py
-│   ├── config.py
-│   ├── db.py
-│   ├── email_provider.py    # Interface EmailProvider (DryRun e Gmail SMTP)
-│   ├── schemas.py
-│   └── routes/
-│       ├── campanhas.py     # POST/GET /campanhas (criação e lotes)
-│       ├── descadastro.py   # POST /descadastro
-│       └── empresas.py      # POST /empresas/atualizar-base
-├── worker/
-│   └── worker.py            # consome a fila de lotes do Postgres, dispara e atualiza status
-└── tests/
-    ├── test_ingest.py       # testa os filtros de ingestão
-    └── test_integration.py  # testa a prioridade por data de abertura e envio único
+O timer `mei-mg-email-base-sync.timer` executa diariamente às 03:15 em `America/Sao_Paulo`, com `Persistent=true` e atraso aleatório de até 10 minutos.
+
+A rotina `scripts/sincronizar_base_diaria.py` registra cada execução em `mei_email.base_sync_runs` e não cria campanhas nem inicia o worker.
+
+## Circuit breaker de remetente
+
+Há duas camadas de proteção:
+
+1. o worker abre a pausa ao receber `sender_blocked` de forma síncrona;
+2. `mei-mg-email-ndr-guard.service` monitora NDRs assíncronos e abre a mesma pausa ao detectar `AS(42004)`, `5.1.8`, `bad outbound sender` ou equivalente.
+
+O estado persistente fica fora do Git em:
+
+```text
+/var/lib/mei-mg-email/sender_blocked.pause
 ```
 
----
+O worker não deve ser retomado até o remetente sair de Restricted entities e um teste controlado confirmar propagação.
 
-## ⚙️ Setup Local e Execução
+## Exchange Online administrativo
 
-### 1. Subir Banco de Dados e Migrações (Docker Compose)
-Com o Docker Desktop aberto na máquina local, execute:
+O App Registration administrativo usa os arquivos protegidos da VM:
+
+```text
+/home/ubuntu/.shopvivaliz/m365/graph-auth.crt
+/home/ubuntu/.shopvivaliz/m365/graph-auth.key
+```
+
+Desbloqueio de Restricted entities:
+
+```powershell
+pwsh ./scripts/desbloquear_exchange_app_cert.ps1 -ConfirmUnblock
+```
+
+O script consulta `Get-BlockedSenderAddress`, executa `Remove-BlockedSenderAddress` e confirma que o endereço deixou de aparecer na lista. Ele **não remove automaticamente** o sentinel do worker.
+
+## Monitoramento residente
+
+`mei-mg-email-monitor.service` observa:
+
+- profundidade da fila;
+- contadores `submitted/enviado` em janelas recentes;
+- advisory lock do worker;
+- falhas e `sender_blocked` no PostgreSQL;
+- estado do timer e idade da sincronização diária.
+
+O NDR guard complementa o monitor para falhas que só aparecem na caixa após o Graph aceitar a submissão.
+
+## Instalação dos serviços na VM
+
+```bash
+bash scripts/instalar_monitoramento_vm.sh
+```
+
+O instalador cria o estado persistente em `/var/lib/mei-mg-email`, instala/ativa monitor, NDR guard e timer da base, e executa uma sincronização inicial de validação.
+
+## Teste controlado
+
+Após desbloqueio e com o worker ainda pausado:
+
+```bash
+python scripts/enviar_teste_microsoft_graph.py
+```
+
+O teste usa um destinatário controlado e valida o template atual. Não use esse script para volume.
+
+## Desenvolvimento local
+
 ```powershell
 docker compose up -d
-```
-Confirme se as migrações aplicaram com sucesso:
-```powershell
-docker compose logs flyway
-```
-
-### 2. Criar e Ativar Ambiente Virtual Python
-```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements-dev.txt
-```
-
-### 3. Baixar e Filtrar os Dados Reais de MG
-```powershell
-python scripts/download_cnpj_mg.py
-```
-
-### 4. Rodar Ingestão dos Dados de MG no Banco
-```powershell
-python scripts/ingest_estabelecimentos.py \
-    --estabelecimentos data/receita/ESTABELECIMENTOS_mg.csv \
-    --empresas data/receita/EMPRESAS_mg.csv \
-    --simples data/receita/SIMPLES_mg.csv
-```
-
-### 5. Executar os Testes Automatizados (pytest)
-```powershell
 pytest
 ```
 
-### 6. Iniciar a API e o Worker de Disparo
-Subir a API FastAPI (Porta 8000):
+API local:
+
 ```powershell
 .\.venv\Scripts\uvicorn app.main:app --reload --port 8000
 ```
-Subir o Worker (em outro terminal):
+
+Worker local/dry-run:
+
 ```powershell
 .\.venv\Scripts\python -m worker.worker
 ```
 
----
+## Segurança
 
-## 🛡️ Provedor de E-mail: Gmail SMTP
-O projeto já conta com o `GmailEmailProvider` integrado (ver [email_provider.py](file:///c:/mei-mg-email/app/email_provider.py)). 
-
-Para enviar e-mails de verdade com o Gmail SMTP, configure no seu arquivo `.env`:
-```ini
-EMAIL_PROVIDER=gmail
-GMAIL_ADDRESS=seu_email@gmail.com
-GMAIL_APP_PASSWORD=sua_app_password_gerada_no_google
-```
-*(Lembrando que o Gmail exige o uso de uma **App Password** gerada em https://myaccount.google.com/apppasswords e o 2FA ativo na conta).*
+- Nunca commite `.env`, senha, token, app password ou chave privada.
+- O CI executa `scripts/auditar_segredos_repo.py` e valida sintaxe dos scripts PowerShell.
+- Credenciais expostas em commits antigos devem ser rotacionadas; remover o arquivo do `main` não invalida um segredo já publicado no histórico Git.

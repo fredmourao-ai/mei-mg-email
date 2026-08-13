@@ -12,8 +12,20 @@ def test_worker_has_persistent_sender_block_circuit():
     assert "nenhum novo envio sera tentado" in worker
 
 
-def test_current_incident_pause_marker_is_versioned():
-    marker = (ROOT / "runtime" / "sender_blocked.pause").read_text(encoding="utf-8").casefold()
-    assert "naoresponda@dev.shopvivaliz.com.br" in marker
-    assert "5.1.8" in marker
-    assert "42004" in marker
+def test_current_incident_pause_is_runtime_state_not_git_state():
+    assert not (ROOT / "runtime" / "sender_blocked.pause").exists()
+
+    incident = (ROOT / "ops" / "incidents" / "2026-08-13-AS42004.md").read_text(
+        encoding="utf-8"
+    ).casefold()
+    assert "naoresponda@dev.shopvivaliz.com.br" in incident
+    assert "5.1.8" in incident
+    assert "42004" in incident
+
+    deploy = (ROOT / "scripts" / "deploy_hardening_20260813.sh").read_text(
+        encoding="utf-8"
+    ).casefold()
+    assert 'state_dir="/var/lib/mei-mg-email"' in deploy
+    assert 'sentinel="$state_dir/sender_blocked.pause"' in deploy
+    assert "deploy_worker_stopped=true" in deploy
+    assert "worker_resume_allowed=false" in deploy

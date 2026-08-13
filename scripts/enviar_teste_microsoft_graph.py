@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 import os
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(BASE_DIR))
 load_dotenv(BASE_DIR / ".env")
 
 from app.email_provider import MicrosoftGraphEmailProvider
 from worker.worker import montar_corpo
 
-# atendimento@shopvivaliz.com.br encaminha para fredmourao@gmail.com e serve
-# como caminho de validacao real sem usar Gmail como provedor de envio.
+# Destinatario controlado. Nunca use este script para volume.
 RECIPIENT = os.getenv("TEST_RECIPIENT", "atendimento@shopvivaliz.com.br")
 EXPECTED_SENDER = "naoresponda@dev.shopvivaliz.com.br"
 EXPECTED_NAME = "Contabilidade Melo"
@@ -33,12 +30,15 @@ def main() -> None:
             "nome_fantasia": "ShopVivaliz",
         },
     )
-    if "logo-contabilidade-melo-transparente.png" not in body.casefold():
+    lower = body.casefold()
+    if "logo-contabilidade-melo-transparente.png" not in lower:
         raise SystemExit("Template de teste sem a logo oficial no rodape.")
     if "R$ 200,00/mês" not in body:
-        raise SystemExit("Template de teste nao corresponde ao Plano Basico MEI aprovado.")
-    if "Quero falar no WhatsApp" not in body:
-        raise SystemExit("Template de teste sem CTA oficial do WhatsApp.")
+        raise SystemExit("Template de teste nao corresponde ao Plano MEI aprovado.")
+    if "Falar com a Contabilidade Melo" not in body:
+        raise SystemExit("Template de teste sem CTA atual da Contabilidade Melo.")
+    if "base pública de cnpj" in lower or "grátis" in lower:
+        raise SystemExit("Template de teste contem copy antiga de deliverability.")
     if "{{unsubscribe_url}}" in body:
         raise SystemExit("Template de teste saiu com placeholder de descadastro sem renderizar.")
 
@@ -51,7 +51,7 @@ def main() -> None:
         raise SystemExit(f"Nome de remetente incorreto: {provider.from_name}")
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
-    subject = f"VALIDACAO GRAPH CORRIGIDA - Contabilidade Melo - {stamp}"
+    subject = f"VALIDACAO CONTROLADA - Contabilidade Melo - {stamp}"
     result = provider.send(to=RECIPIENT, subject=subject, body=body)
     if not result.success:
         raise SystemExit(f"Falha no envio de teste: status={result.status} erro={result.error}")
