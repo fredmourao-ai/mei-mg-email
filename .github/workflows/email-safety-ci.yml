@@ -11,9 +11,11 @@ on:
       - "deploy/systemd/**"
       - "templates/**"
       - "db/migrations/**"
+      - "runtime/sender_blocked.pause"
       - "tests/test_worker_safety.py"
       - "tests/test_queue_replenisher.py"
       - "tests/test_monitor_operacao.py"
+      - "tests/test_sender_blocked_circuit.py"
       - "requirements*.txt"
       - ".github/workflows/email-safety-ci.yml"
 
@@ -51,4 +53,4 @@ jobs:
         run: python -m compileall -q app worker scripts
 
       - name: Run email safety unit tests
-        run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py tests/test_monitor_operacao.py
+        run: pytest -q tests/test_worker_safety.py tests/test_queue_replenisher.py tests/test_monitor_operacao.py tests/test_sender_blocked_circuit.py
