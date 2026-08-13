@@ -1,5 +1,8 @@
-Auto Gate emergency release trigger
+Auto Gate Exchange recovery release
 Date: 2026-08-13
-Purpose: EMERGENCY PAUSE production sender after repeated 550 5.1.8 AS(42004).
-Required runtime state: deploy current main worker circuit breaker and preserve runtime/sender_blocked.pause.
-Do not resume sending until Exchange Restricted entities unblock is confirmed.
+Purpose: deploy current fail-closed worker and execute the authorized Exchange Restricted entities recovery for AS(42004).
+Required runtime state before Exchange action: runtime/sender_blocked.pause must remain present and no worker resume is allowed.
+VM command after checkout/update: pwsh ./scripts/desbloquear_exchange_app_cert.ps1 -ConfirmUnblock
+Authentication: existing app-only X.509 certificate stored only on the VM.
+Success condition: Get-BlockedSenderAddress no longer returns naoresponda@dev.shopvivaliz.com.br.
+Do not remove runtime/sender_blocked.pause and do not resume worker in this release. Resume requires a separate controlled-test release after propagation verification.

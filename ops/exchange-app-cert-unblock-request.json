@@ -1,0 +1,12 @@
+{
+  "operation": "exchange_restricted_sender_unblock",
+  "sender": "naoresponda@dev.shopvivaliz.com.br",
+  "incident": "550 5.1.8 Access denied, bad outbound sender AS(42004)",
+  "auth": "app_only_certificate_on_vm",
+  "certificate_path": "/home/ubuntu/.shopvivaliz/m365/graph-auth.crt",
+  "private_key_path": "/home/ubuntu/.shopvivaliz/m365/graph-auth.key",
+  "execute": "pwsh ./scripts/desbloquear_exchange_app_cert.ps1 -ConfirmUnblock",
+  "precondition": "runtime/sender_blocked.pause must remain present",
+  "resume_worker": false,
+  "postcondition": "Get-BlockedSenderAddress must no longer return the sender before any controlled delivery test"
+}
