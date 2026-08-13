@@ -1,8 +1,8 @@
-Auto Gate hardening release
+Auto Gate hardening + Exchange recovery release
 Date: 2026-08-13
-Purpose: stop production safely, apply V022/V023/V024, install asynchronous NDR guard and persist sender-block state outside Git.
+Purpose: stop production safely, apply V022/V023/V024, install asynchronous NDR guard, persist sender-block state outside Git, configure deliverability headers and remove AS(42004) through Exchange Online certificate auth.
 Required VM command after checkout/update: bash scripts/deploy_hardening_20260813.sh
-Mandatory success marker: DEPLOY_HARDENING_OK
-Mandatory runtime marker: WORKER_RESUME_ALLOWED=false
-Required state: /var/lib/mei-mg-email/sender_blocked.pause exists; mei-mg-email-ndr-guard.service active; monitor active; base-sync timer active; V022/V023/V024 applied.
-Do NOT execute Exchange unblock in this release. First prove that the old worker stopped submitting mail. Exchange recovery and the controlled test are a separate release after this deployment is observed in production.
+Mandatory success markers: DEPLOY_WORKER_STOPPED_CONFIRMED=true, DEPLOY_EXCHANGE_UNBLOCK_CONFIRMED=true, DEPLOY_HARDENING_OK.
+Mandatory runtime marker: WORKER_RESUME_ALLOWED=false.
+Required final state: worker stopped; /var/lib/mei-mg-email/sender_blocked.pause exists; mei-mg-email-ndr-guard.service active; monitor active; base-sync timer active; Graph Mail.Read preflight passed; V022/V023/V024 applied; Get-BlockedSenderAddress no longer returns naoresponda@dev.shopvivaliz.com.br.
+Do NOT resume the worker in this release. A separate controlled-test/resume release is required after mailbox verification shows no new AS(42004).
