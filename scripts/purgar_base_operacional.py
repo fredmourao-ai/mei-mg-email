@@ -3,14 +3,14 @@
 
 Por padrao apenas calcula/mostra lotes. Use --apply para efetivar. O processo e
 idempotente: email/CNPJ entram em email_suppressions e nunca voltam pelos
-triggers da V025. Registros enviados antigos sao removidos de envios/empresas;
-a janela de 24h continua preservada para novos envios pelo ledger anonimo da
-V025.
+triggers da V025. Para envios das ultimas 24h, o PII e removido mas a linha e
+mantida anonima somente como ledger de quota; depois de 24h essa linha pode ser
+removida sem afetar a janela movel do Microsoft 365.
 """
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from datetime import datetime, timezone, timedelta
 
 import psycopg
 from psycopg.rows import dict_row
@@ -21,14 +21,18 @@ SENT_STATUSES = ("submitted", "enviado", "delivered")
 LEDGER_PATTERN = "quota+%@invalid.local"
 
 
-@dataclass
-class Stats:
-    sent_purged: int = 0
-    filtered_purged: int = 0
+def _ledger_email(envio_id) -> str:
+    return f"quota+{str(envio_id).replace('-', '')}@invalid.local"
 
 
-def purge_sent(conn: psycopg.Connection, batch_size: int, apply: bool) -> int:
-    total = 0
+def _ledger_cnpj(envio_id) -> str:
+    return str(envio_id).replace("-", "").upper()[:14]
+
+
+def purge_sent(conn: psycopg.Connection, batch_size: int, apply: bool) -> tuple[int, int]:
+    """Retorna (anonimizados_24h, removidos_antigos)."""
+    anonymized = 0
+    deleted = 0
     while True:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -46,33 +50,48 @@ def purge_sent(conn: psycopg.Connection, batch_size: int, apply: bool) -> int:
             rows = cur.fetchall()
         if not rows:
             break
-        print(f"sent_batch={len(rows)}", flush=True)
-        if not apply:
-            total += len(rows)
-            break
 
-        ids = [row["id"] for row in rows]
-        cnpjs = [row["cnpj"] for row in rows if row["cnpj"]]
-        emails = [str(row["email"]).strip().lower() for row in rows if row["email"]]
+        recent = sum(1 for row in rows if row["event_at"] >= datetime.now(timezone.utc) - timedelta(hours=24))
+        old = len(rows) - recent
+        print(f"sent_batch={len(rows)} recent_to_anonymize={recent} old_to_delete={old}", flush=True)
+        if not apply:
+            return recent, old
+
         with conn.cursor() as cur:
             for row in rows:
                 cur.execute(
                     "select mei_email.register_operational_suppression(%s,%s::citext,'sent','historical_cleanup',%s,%s)",
                     (row["cnpj"], row["email"], str(row["id"]), row["event_at"]),
                 )
-            cur.execute("delete from mei_email.envios where id = any(%s)", (ids,))
-            if cnpjs or emails:
                 cur.execute(
                     """
                     delete from mei_email.empresas
-                     where (%s and btrim(cnpj::text) = any(%s))
-                        or (%s and lower(btrim(email::text)) = any(%s))
+                     where btrim(cnpj::text) = %s
+                        or lower(btrim(email::text)) = lower(btrim(%s))
                     """,
-                    (bool(cnpjs), cnpjs or [""], bool(emails), emails or [""]),
+                    (row["cnpj"], row["email"]),
                 )
+
+                if row["event_at"] >= datetime.now(timezone.utc) - timedelta(hours=24):
+                    cur.execute(
+                        """
+                        update mei_email.envios
+                           set email = %s::citext,
+                               cnpj = %s,
+                               erro = case
+                                 when erro is null or erro = '' then 'PII_PURGED_RATE_LEDGER'
+                                 else erro || ' | PII_PURGED_RATE_LEDGER'
+                               end
+                         where id = %s
+                        """,
+                        (_ledger_email(row["id"]), _ledger_cnpj(row["id"]), row["id"]),
+                    )
+                    anonymized += 1
+                else:
+                    cur.execute("delete from mei_email.envios where id = %s", (row["id"],))
+                    deleted += 1
         conn.commit()
-        total += len(rows)
-    return total
+    return anonymized, deleted
 
 
 def purge_filtered(conn: psycopg.Connection, batch_size: int, apply: bool) -> int:
@@ -124,10 +143,11 @@ def purge_filtered(conn: psycopg.Connection, batch_size: int, apply: bool) -> in
                 cur.execute(
                     """
                     delete from mei_email.envios
-                     where btrim(cnpj::text) = %s
-                        or (%s is not null and lower(btrim(email::text)) = lower(btrim(%s)))
+                     where email::text not like %s
+                       and (btrim(cnpj::text) = %s
+                        or (%s is not null and lower(btrim(email::text)) = lower(btrim(%s))))
                     """,
-                    (cnpj, email, email),
+                    (LEDGER_PATTERN, cnpj, email, email),
                 )
                 cur.execute("delete from mei_email.empresas where btrim(cnpj::text) = %s", (cnpj,))
             last_cnpj = cnpj
@@ -136,20 +156,50 @@ def purge_filtered(conn: psycopg.Connection, batch_size: int, apply: bool) -> in
     return total
 
 
+def cleanup_expired_ledgers(conn: psycopg.Connection, apply: bool) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select count(*)
+              from mei_email.envios
+             where email::text like %s
+               and enviado_em < now() - interval '24 hours'
+            """,
+            (LEDGER_PATTERN,),
+        )
+        count = int(cur.fetchone()[0] or 0)
+        if apply and count:
+            cur.execute(
+                """
+                delete from mei_email.envios
+                 where email::text like %s
+                   and enviado_em < now() - interval '24 hours'
+                """,
+                (LEDGER_PATTERN,),
+            )
+    if apply:
+        conn.commit()
+    return count
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--apply", action="store_true", help="Efetiva supressao e exclusao; sem esta flag apenas amostra um lote.")
+    parser.add_argument("--apply", action="store_true", help="Efetiva supressao/exclusao; sem esta flag apenas amostra.")
     parser.add_argument("--batch-size", type=int, default=500, help="Tamanho dos lotes de limpeza.")
     args = parser.parse_args()
     batch_size = max(10, min(args.batch_size, 5000))
 
     with psycopg.connect(settings.database_url) as conn:
-        sent = purge_sent(conn, batch_size, args.apply)
+        anonymized, deleted = purge_sent(conn, batch_size, args.apply)
         filtered = purge_filtered(conn, batch_size, args.apply)
+        expired = cleanup_expired_ledgers(conn, args.apply)
 
     print(f"PURGE_APPLY={str(args.apply).lower()}")
-    print(f"PURGED_SENT={sent}")
-    print(f"PURGED_FILTERED={filtered}")
+    print(f"SENT_RECENT_ANONYMIZED={anonymized}")
+    print(f"SENT_OLDER_DELETED={deleted}")
+    print(f"FILTERED_DELETED={filtered}")
+    print(f"EXPIRED_LEDGER_DELETED={expired if args.apply else 0}")
+    print(f"EXPIRED_LEDGER_WOULD_DELETE={expired}")
     return 0
 
 
