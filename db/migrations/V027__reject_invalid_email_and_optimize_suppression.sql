@@ -136,7 +136,7 @@ begin
   end if;
 
   for r in
-    select e.cnpj::text as cnpj, e.email
+    select e.cnpj, e.email
       from mei_email.empresas e
      where e.email is not null
        and not mei_email.is_valid_email_address(e.email)
@@ -144,7 +144,7 @@ begin
      limit p_limit
   loop
     perform mei_email.register_operational_suppression(
-      r.cnpj,
+      r.cnpj::text,
       r.email,
       'filter_email_invalid',
       'v027_invalid_email_cleanup',
@@ -153,10 +153,10 @@ begin
     );
 
     delete from mei_email.envios x
-     where btrim(x.cnpj::text) = btrim(r.cnpj);
+     where x.cnpj = r.cnpj;
 
     delete from mei_email.empresas x
-     where btrim(x.cnpj::text) = btrim(r.cnpj);
+     where x.cnpj = r.cnpj;
 
     purged := purged + 1;
   end loop;
