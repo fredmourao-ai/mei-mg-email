@@ -16,8 +16,9 @@ CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID = 99502026
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "mei-contabilidade-melo.html"
 AUTOQUEUE_SUBJECT = "Contabilidade Melo para MEI: plano mensal e suporte fiscal"
 AUTOQUEUE_LOT_SIZE = 100
+AUTOQUEUE_REFILL_BATCH_SIZE = 1000
 AUTOQUEUE_CANDIDATE_OVERSAMPLE = 4
-AUTOQUEUE_CANDIDATE_MIN_EXTRA = 5000
+AUTOQUEUE_CANDIDATE_MIN_EXTRA = 2000
 
 
 def carregar_template_html() -> str:
@@ -46,16 +47,24 @@ def quantidade_para_repor(pendentes: int) -> int:
     validar_config_fila()
     if pendentes > settings.queue_min_pending:
         return 0
-    return max(settings.queue_target_pending - pendentes, 0)
+    # Repor milhares de uma vez cria uma consulta e uma transacao grandes demais
+    # para a VM pequena. Mil destinatarios ja representam ~100 minutos de buffer
+    # no rate atual de 10/min e permitem que o worker volte a enviar rapidamente.
+    return min(
+        max(settings.queue_target_pending - pendentes, 0),
+        AUTOQUEUE_REFILL_BATCH_SIZE,
+    )
 
 
 def contar_pendentes(conn: psycopg.Connection) -> int:
+    # A fila operacional e representada por lotes. Este contador evita varrer a
+    # tabela historica/ledger de envios apenas para decidir se precisa repor.
     with conn.cursor() as cur:
         cur.execute(
             """
-            select count(*)
-              from mei_email.envios
-             where status in ('pendente', 'enviando')
+            select coalesce(sum(tamanho), 0)
+              from mei_email.lotes
+             where status in ('pendente', 'processando')
             """
         )
         return int(cur.fetchone()[0] or 0)
@@ -78,9 +87,9 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
         )
         cur.execute(
             """
-            select count(*) as pendentes
-              from mei_email.envios
-             where status in ('pendente', 'enviando')
+            select coalesce(sum(tamanho), 0) as pendentes
+              from mei_email.lotes
+             where status in ('pendente', 'processando')
             """
         )
         pendentes_antes = int(cur.fetchone()["pendentes"] or 0)
@@ -89,26 +98,57 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             conn.commit()
             return 0
 
-        # Nao ranqueie milhoes de empresas a cada reposicao. A view continua
-        # aplicando todos os gates fail-closed; primeiro pegamos apenas um pool
-        # recente e superamostrado, depois deduplicamos por e-mail nesse pool.
-        # Se muitos CNPJs compartilham o mesmo e-mail e vierem menos registros
-        # que o alvo, a proxima reposicao avanca naturalmente porque os e-mails
-        # ja comprometidos deixam de ser elegiveis pela propria view.
         candidate_limit = max(
             quantidade * AUTOQUEUE_CANDIDATE_OVERSAMPLE,
             quantidade + AUTOQUEUE_CANDIDATE_MIN_EXTRA,
         )
+
+        # Primeiro use somente predicados baratos/canonicos que combinam com o
+        # indice existente idx_empresas_elegiveis_regime_uf
+        # (tipo_regime, uf, data_abertura). So depois do LIMIT aplicamos os gates
+        # caros de supressao e dedupe. Todos os gates continuam fail-closed.
         cur.execute(
             """
-            with preselecionadas as (
-                select cnpj, email, data_abertura
-                  from mei_email.vw_empresas_elegiveis
-                 where tipo_regime = 'MEI'
-                   and uf = 'MG'
-                   and marketing_autorizado = true
-                 order by data_abertura desc nulls last, cnpj
+            with base as materialized (
+                select e.cnpj, e.email, e.data_abertura
+                  from mei_email.empresas e
+                 where e.tipo_regime = 'MEI'
+                   and e.uf = 'MG'
+                   and e.situacao_cadastral = 'ATIVA'
+                   and e.opt_out = false
+                   and e.provavel_terceiro = false
+                   and e.email is not null
+                   and btrim(e.email::text) <> ''
+                   and e.enviado = false
+                   and e.marketing_autorizado = true
+                   and e.mei_verificado = true
+                   and mei_email.is_valid_email_address(e.email)
+                 order by e.data_abertura desc nulls last, e.cnpj
                  limit %s
+            ),
+            preselecionadas as (
+                select b.cnpj, b.email, b.data_abertura
+                  from base b
+                 where not mei_email.is_email_suppressed(b.email)
+                   and not mei_email.is_cnpj_suppressed(b.cnpj::text)
+                   and not exists (
+                       select 1
+                         from mei_email.envios x
+                        where x.cnpj = b.cnpj
+                          and x.status::text in (
+                              'pendente', 'enviando', 'pending', 'processing',
+                              'submitted', 'enviado', 'delivered', 'bounced'
+                          )
+                   )
+                   and not exists (
+                       select 1
+                         from mei_email.envios x
+                        where lower(btrim(x.email::text)) = lower(btrim(b.email::text))
+                          and x.status::text in (
+                              'pendente', 'enviando', 'pending', 'processing',
+                              'submitted', 'enviado', 'delivered', 'bounced'
+                          )
+                   )
             ),
             candidatas as (
                 select cnpj, email, data_abertura,
