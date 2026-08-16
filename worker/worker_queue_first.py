@@ -16,6 +16,7 @@ from psycopg.rows import dict_row
 from app.config import settings
 from app.email_provider import get_email_provider
 from app.queue_manager import repor_fila_automatica
+import worker.worker as base_worker
 from worker.worker import (
     WORKER_ADVISORY_LOCK_ID,
     SENDER_BLOCK_SENTINEL,
@@ -27,13 +28,54 @@ from worker.worker import (
 )
 
 
-def _purgar_invalidos_do_lote(conn: psycopg.Connection, lote_id) -> int:
-    """Suprime e remove destinatarios invalidos do lote sem chamar o Graph.
+def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
+    """Conta a janela movel pelo indice parcial V030, sem cast do enum."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select count(*)
+              from mei_email.envios
+             where status in ('submitted', 'enviado')
+               and enviado_em >= now() - interval '24 hours'
+            """
+        )
+        return int(cur.fetchone()[0] or 0)
 
-    A busca usa o indice (lote_id,status), portanto nao varre a tabela inteira.
-    Email e CNPJ sao gravados na tabela compacta de supressoes antes da remocao,
-    impedindo que cargas diarias reintroduzam o mesmo registro.
-    """
+
+def _ja_submetido_ou_entregue_indexado(
+    conn: psycopg.Connection, envio_id, email: str
+) -> bool:
+    """Consulta primeiro a supressao compacta e cai para o indice de email."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select mei_email.is_email_suppressed(%s::citext)",
+            (email,),
+        )
+        if bool(cur.fetchone()[0]):
+            return True
+        cur.execute(
+            """
+            select 1
+              from mei_email.envios
+             where id <> %s
+               and status in ('submitted', 'enviado')
+               and lower(btrim(email::text)) = lower(btrim(%s))
+             limit 1
+            """,
+            (envio_id, email),
+        )
+        return cur.fetchone() is not None
+
+
+# processar_lote e uma funcao do modulo worker.worker. Substituir estes dois
+# globals mantem toda a logica de seguranca original, mas usa os caminhos
+# indexados quando a funcao roda.
+base_worker.obter_envios_ultimas_24h = _obter_envios_ultimas_24h_indexado
+base_worker._ja_submetido_ou_entregue = _ja_submetido_ou_entregue_indexado
+
+
+def _purgar_invalidos_do_lote(conn: psycopg.Connection, lote_id) -> int:
+    """Suprime e remove destinatarios invalidos do lote sem chamar o Graph."""
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
@@ -58,7 +100,6 @@ def _purgar_invalidos_do_lote(conn: psycopg.Connection, lote_id) -> int:
                 """,
                 (item["cnpj"], item["email"]),
             )
-            # Igualdade direta em CNPJ usa os indices existentes e evita scan.
             cur.execute(
                 "delete from mei_email.envios where cnpj = %s",
                 (item["cnpj"],),
@@ -128,15 +169,12 @@ def run() -> None:
                     time.sleep(max(settings.worker_poll_interval_segundos, 60))
                     continue
 
-                # Prioridade operacional: consumir o que ja esta pronto.
-                # Uma reposicao cara nunca deve bloquear lotes pendentes.
                 lote = pegar_proximo_lote(conn)
                 if lote is not None:
                     _purgar_invalidos_do_lote(conn, lote["id"])
                     processar_lote(conn, lote, provider)
                     continue
 
-                # So repoe quando a fila realmente secou.
                 adicionados = repor_fila_automatica(conn)
                 if adicionados:
                     logger.warning("Fila vazia; autoqueue repôs %d destinatarios.", adicionados)
