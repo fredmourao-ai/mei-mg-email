@@ -16,6 +16,8 @@ CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID = 99502026
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "mei-contabilidade-melo.html"
 AUTOQUEUE_SUBJECT = "Contabilidade Melo para MEI: plano mensal e suporte fiscal"
 AUTOQUEUE_LOT_SIZE = 100
+AUTOQUEUE_CANDIDATE_OVERSAMPLE = 4
+AUTOQUEUE_CANDIDATE_MIN_EXTRA = 5000
 
 
 def carregar_template_html() -> str:
@@ -53,7 +55,7 @@ def contar_pendentes(conn: psycopg.Connection) -> int:
             """
             select count(*)
               from mei_email.envios
-             where status::text in ('pendente', 'enviando')
+             where status in ('pendente', 'enviando')
             """
         )
         return int(cur.fetchone()[0] or 0)
@@ -78,7 +80,7 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             """
             select count(*) as pendentes
               from mei_email.envios
-             where status::text in ('pendente', 'enviando')
+             where status in ('pendente', 'enviando')
             """
         )
         pendentes_antes = int(cur.fetchone()["pendentes"] or 0)
@@ -87,18 +89,34 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             conn.commit()
             return 0
 
+        # Nao ranqueie milhoes de empresas a cada reposicao. A view continua
+        # aplicando todos os gates fail-closed; primeiro pegamos apenas um pool
+        # recente e superamostrado, depois deduplicamos por e-mail nesse pool.
+        # Se muitos CNPJs compartilham o mesmo e-mail e vierem menos registros
+        # que o alvo, a proxima reposicao avanca naturalmente porque os e-mails
+        # ja comprometidos deixam de ser elegiveis pela propria view.
+        candidate_limit = max(
+            quantidade * AUTOQUEUE_CANDIDATE_OVERSAMPLE,
+            quantidade + AUTOQUEUE_CANDIDATE_MIN_EXTRA,
+        )
         cur.execute(
             """
-            with candidatas as (
+            with preselecionadas as (
+                select cnpj, email, data_abertura
+                  from mei_email.vw_empresas_elegiveis
+                 where tipo_regime = 'MEI'
+                   and uf = 'MG'
+                   and marketing_autorizado = true
+                 order by data_abertura desc nulls last, cnpj
+                 limit %s
+            ),
+            candidatas as (
                 select cnpj, email, data_abertura,
                        row_number() over (
                            partition by lower(btrim(email::text))
                            order by data_abertura desc nulls last, cnpj
                        ) as posicao_do_email
-                  from mei_email.vw_empresas_elegiveis
-                 where tipo_regime = 'MEI'
-                   and uf = 'MG'
-                   and marketing_autorizado = true
+                  from preselecionadas
             )
             select cnpj, email
               from candidatas
@@ -106,7 +124,7 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
              order by data_abertura desc nulls last, cnpj
              limit %s
             """,
-            (quantidade,),
+            (candidate_limit, quantidade),
         )
         empresas = cur.fetchall()
 
