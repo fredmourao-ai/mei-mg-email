@@ -1,15 +1,17 @@
 """Worker operacional que prioriza a fila existente antes de repor autoqueue.
 
 Evita que uma consulta de reposicao lenta bloqueie milhares de envios ja
-prontos. A reposicao so ocorre quando nao existe lote pendente. Todas as travas
-de seguranca, cota movel, sender_blocked e processamento permanecem nas funcoes
-do worker principal.
+prontos. A reposicao so ocorre quando nao existe lote pendente. Enderecos com
+sintaxe invalida sao suprimidos e removidos antes de qualquer chamada ao Graph.
+Todas as travas de seguranca, cota movel, sender_blocked e processamento
+permanecem nas funcoes do worker principal.
 """
 from __future__ import annotations
 
 import time
 
 import psycopg
+from psycopg.rows import dict_row
 
 from app.config import settings
 from app.email_provider import get_email_provider
@@ -23,6 +25,58 @@ from worker.worker import (
     processar_lote,
     recuperar_lotes_travados,
 )
+
+
+def _purgar_invalidos_do_lote(conn: psycopg.Connection, lote_id) -> int:
+    """Suprime e remove destinatarios invalidos do lote sem chamar o Graph.
+
+    A busca usa o indice (lote_id,status), portanto nao varre a tabela inteira.
+    Email e CNPJ sao gravados na tabela compacta de supressoes antes da remocao,
+    impedindo que cargas diarias reintroduzam o mesmo registro.
+    """
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            select distinct e.cnpj::text as cnpj, e.email
+              from mei_email.envios e
+             where e.lote_id = %s
+               and e.status = 'pendente'
+               and not mei_email.is_valid_email_address(e.email)
+             order by e.cnpj::text
+            """,
+            (lote_id,),
+        )
+        invalidos = cur.fetchall()
+
+    for item in invalidos:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select mei_email.register_operational_suppression(
+                    %s, %s, 'filter_email_invalid', 'worker_invalid_guard', null, now()
+                )
+                """,
+                (item["cnpj"], item["email"]),
+            )
+            # O CNPJ identifica a empresa operacional. Remover por CNPJ evita
+            # ORs e funcoes na coluna e usa os indices existentes de envios.
+            cur.execute(
+                "delete from mei_email.envios where btrim(cnpj::text) = btrim(%s)",
+                (item["cnpj"],),
+            )
+            cur.execute(
+                "delete from mei_email.empresas where btrim(cnpj::text) = btrim(%s)",
+                (item["cnpj"],),
+            )
+        conn.commit()
+
+    if invalidos:
+        logger.warning(
+            "Lote %s: %d destinatarios com email invalido suprimidos e removidos antes do Graph.",
+            lote_id,
+            len(invalidos),
+        )
+    return len(invalidos)
 
 
 def run() -> None:
@@ -79,6 +133,7 @@ def run() -> None:
                 # Uma reposicao cara nunca deve bloquear lotes pendentes.
                 lote = pegar_proximo_lote(conn)
                 if lote is not None:
+                    _purgar_invalidos_do_lote(conn, lote["id"])
                     processar_lote(conn, lote, provider)
                     continue
 
@@ -91,6 +146,7 @@ def run() -> None:
                 if lote is None:
                     time.sleep(settings.worker_poll_interval_segundos)
                     continue
+                _purgar_invalidos_do_lote(conn, lote["id"])
                 processar_lote(conn, lote, provider)
             except Exception:
                 logger.exception("Erro processando lote ou repondo fila -- worker continua rodando")
