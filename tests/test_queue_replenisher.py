@@ -43,3 +43,30 @@ def test_legacy_daily_script_uses_continuous_replenisher():
     )
     assert "repor_fila_automatica" in script
     assert "EXPECTED_DAILY_TARGET = 9950" in script
+
+
+def test_queue_status_queries_do_not_cast_enum_to_text():
+    manager = (ROOT / "app" / "queue_manager.py").read_text(encoding="utf-8")
+    daily = (ROOT / "scripts" / "disparar_10000_mei_mg.py").read_text(
+        encoding="utf-8"
+    )
+    assert "status::text in ('pendente', 'enviando')" not in manager
+    assert "status in ('pendente', 'enviando')" in manager
+    assert "status::text in ('submitted', 'enviado')" not in daily
+    assert "status in ('submitted', 'enviado')" in daily
+
+
+def test_autoqueue_bounds_deduplication_pool_before_window_function():
+    manager = (ROOT / "app" / "queue_manager.py").read_text(encoding="utf-8")
+    assert "with preselecionadas as" in manager
+    assert "limit %s" in manager
+    assert "from preselecionadas" in manager
+    assert "AUTOQUEUE_CANDIDATE_OVERSAMPLE = 4" in manager
+
+
+def test_queue_status_index_migration_exists():
+    migration = (ROOT / "db" / "migrations" / "V026__queue_status_index.sql").read_text(
+        encoding="utf-8"
+    )
+    assert "idx_envios_status" in migration
+    assert "on mei_email.envios (status)" in migration
