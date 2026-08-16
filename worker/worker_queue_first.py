@@ -37,12 +37,12 @@ def _purgar_invalidos_do_lote(conn: psycopg.Connection, lote_id) -> int:
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
-            select distinct e.cnpj::text as cnpj, e.email
+            select distinct e.cnpj, e.email
               from mei_email.envios e
              where e.lote_id = %s
                and e.status = 'pendente'
                and not mei_email.is_valid_email_address(e.email)
-             order by e.cnpj::text
+             order by e.cnpj
             """,
             (lote_id,),
         )
@@ -58,14 +58,13 @@ def _purgar_invalidos_do_lote(conn: psycopg.Connection, lote_id) -> int:
                 """,
                 (item["cnpj"], item["email"]),
             )
-            # O CNPJ identifica a empresa operacional. Remover por CNPJ evita
-            # ORs e funcoes na coluna e usa os indices existentes de envios.
+            # Igualdade direta em CNPJ usa os indices existentes e evita scan.
             cur.execute(
-                "delete from mei_email.envios where btrim(cnpj::text) = btrim(%s)",
+                "delete from mei_email.envios where cnpj = %s",
                 (item["cnpj"],),
             )
             cur.execute(
-                "delete from mei_email.empresas where btrim(cnpj::text) = btrim(%s)",
+                "delete from mei_email.empresas where cnpj = %s",
                 (item["cnpj"],),
             )
         conn.commit()
