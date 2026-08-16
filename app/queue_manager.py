@@ -47,9 +47,6 @@ def quantidade_para_repor(pendentes: int) -> int:
     validar_config_fila()
     if pendentes > settings.queue_min_pending:
         return 0
-    # Repor milhares de uma vez cria uma consulta e uma transacao grandes demais
-    # para a VM pequena. Mil destinatarios ja representam ~100 minutos de buffer
-    # no rate atual de 10/min e permitem que o worker volte a enviar rapidamente.
     return min(
         max(settings.queue_target_pending - pendentes, 0),
         AUTOQUEUE_REFILL_BATCH_SIZE,
@@ -57,8 +54,6 @@ def quantidade_para_repor(pendentes: int) -> int:
 
 
 def contar_pendentes(conn: psycopg.Connection) -> int:
-    # A fila operacional e representada por lotes. Este contador evita varrer a
-    # tabela historica/ledger de envios apenas para decidir se precisa repor.
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -71,12 +66,7 @@ def contar_pendentes(conn: psycopg.Connection) -> int:
 
 
 def repor_fila_automatica(conn: psycopg.Connection) -> int:
-    """Mantem estoque de fila sem consumir a cota movel antes do envio.
-
-    A fila e deliberadamente separada da cota de 9.950/24h. Enfileirar nao envia.
-    O worker continua sendo a trava final e consulta a janela movel antes de cada
-    submissao ao Microsoft Graph.
-    """
+    """Repoe fila em lotes pequenos sem antecipar a cota movel de envio."""
     validar_config_fila()
     template = carregar_template_html()
 
@@ -103,10 +93,10 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             quantidade + AUTOQUEUE_CANDIDATE_MIN_EXTRA,
         )
 
-        # Primeiro use somente predicados baratos/canonicos que combinam com o
-        # indice existente idx_empresas_elegiveis_regime_uf
-        # (tipo_regime, uf, data_abertura). So depois do LIMIT aplicamos os gates
-        # caros de supressao e dedupe. Todos os gates continuam fail-closed.
+        # V029 cria um indice parcial que contem somente o universo barato de
+        # MEI/MG autorizado/verificado/ainda-nao-enviado. O LIMIT acontece nesse
+        # indice. Sintaxe de email, supressao e dedupe continuam sendo aplicados
+        # depois, sobre no maximo alguns milhares de linhas.
         cur.execute(
             """
             with base as materialized (
@@ -118,18 +108,18 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and e.opt_out = false
                    and e.provavel_terceiro = false
                    and e.email is not null
-                   and btrim(e.email::text) <> ''
                    and e.enviado = false
                    and e.marketing_autorizado = true
                    and e.mei_verificado = true
-                   and mei_email.is_valid_email_address(e.email)
-                 order by e.data_abertura desc nulls last, e.cnpj
+                 order by e.cnpj
                  limit %s
             ),
             preselecionadas as (
                 select b.cnpj, b.email, b.data_abertura
                   from base b
-                 where not mei_email.is_email_suppressed(b.email)
+                 where btrim(b.email::text) <> ''
+                   and mei_email.is_valid_email_address(b.email)
+                   and not mei_email.is_email_suppressed(b.email)
                    and not mei_email.is_cnpj_suppressed(b.cnpj::text)
                    and not exists (
                        select 1
