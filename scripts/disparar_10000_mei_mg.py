@@ -34,7 +34,7 @@ def capacidade_para_nova_fila() -> tuple[int, int, int]:
                 """
                 select count(*)
                   from mei_email.envios
-                 where status::text in ('submitted', 'enviado')
+                 where status in ('submitted', 'enviado')
                    and enviado_em >= now() - interval '24 hours'
                 """
             )
@@ -64,7 +64,7 @@ def enfileirar_meta_diaria_mei_mg() -> int:
                 """
                 select count(*)
                   from mei_email.envios
-                 where status::text in ('submitted', 'enviado')
+                 where status in ('submitted', 'enviado')
                    and enviado_em >= now() - interval '24 hours'
                 """
             )
