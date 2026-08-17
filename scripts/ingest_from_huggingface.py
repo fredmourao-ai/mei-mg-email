@@ -22,6 +22,8 @@ SITUACAO_MAP = {
     "08": "BAIXADA",
 }
 
+POLITICA_ORIGEM = "politica_importacao_operador_2026-08-13_huggingface_upsert"
+
 
 def format_date(dt_str: str | None) -> str | None:
     if not dt_str:
@@ -46,11 +48,12 @@ def situacao_cadastral(code: str | None) -> str:
 
 
 def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
-    """Insere cadastros novos e refresca apenas campos cadastrais seguros.
+    """Insere cadastros novos e refresca campos seguros.
 
-    Esta fonte nao contem o historico oficial de opcao pelo MEI. Portanto ela
-    pode classificar somente MEI_CANDIDATO; nunca define mei_verificado=true.
-    Consentimento, opt-out, verificacao MEI e historico de envio sao preservados.
+    Decisao operacional vigente: registros classificados como MEI pela regra de
+    importacao entram autorizados para campanha e verificados por override
+    auditavel do operador. Opt-out, supressoes e historico de envio continuam
+    soberanos e nunca sao reativados por esta rotina.
     """
     if not empresas:
         return
@@ -60,19 +63,59 @@ def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
                 """
                 insert into mei_email.empresas
                     (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                     uf, email, ddd_1, telefone_1, data_abertura, tipo_regime, provavel_terceiro)
+                     uf, email, ddd_1, telefone_1, data_abertura, tipo_regime,
+                     provavel_terceiro, marketing_autorizado,
+                     marketing_autorizado_em, marketing_autorizado_origem,
+                     mei_verificado, mei_verificado_em, mei_verificado_origem)
                 values
                     (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
-                     %(situacao_cadastral)s, %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
-                     %(data_abertura)s, %(tipo_regime)s, %(provavel_terceiro)s)
+                     %(situacao_cadastral)s, %(uf)s, %(email)s, %(ddd_1)s,
+                     %(telefone_1)s, %(data_abertura)s, %(tipo_regime)s,
+                     %(provavel_terceiro)s, %(marketing_autorizado)s,
+                     case when %(marketing_autorizado)s then now() else null end,
+                     %(marketing_autorizado_origem)s,
+                     %(mei_verificado)s,
+                     case when %(mei_verificado)s then now() else null end,
+                     %(mei_verificado_origem)s)
                 on conflict (cnpj) do update set
                     situacao_cadastral = excluded.situacao_cadastral,
                     tipo_regime = case
+                        when excluded.tipo_regime = 'MEI' then 'MEI'
                         when mei_email.empresas.mei_verificado then mei_email.empresas.tipo_regime
                         else excluded.tipo_regime
+                    end,
+                    marketing_autorizado = case
+                        when excluded.tipo_regime = 'MEI' then true
+                        else mei_email.empresas.marketing_autorizado
+                    end,
+                    marketing_autorizado_em = case
+                        when excluded.tipo_regime = 'MEI'
+                        then coalesce(mei_email.empresas.marketing_autorizado_em, now())
+                        else mei_email.empresas.marketing_autorizado_em
+                    end,
+                    marketing_autorizado_origem = case
+                        when excluded.tipo_regime = 'MEI'
+                        then coalesce(
+                            nullif(btrim(mei_email.empresas.marketing_autorizado_origem), ''),
+                            excluded.marketing_autorizado_origem
+                        )
+                        else mei_email.empresas.marketing_autorizado_origem
+                    end,
+                    mei_verificado = mei_email.empresas.mei_verificado or excluded.mei_verificado,
+                    mei_verificado_em = case
+                        when excluded.mei_verificado
+                        then coalesce(mei_email.empresas.mei_verificado_em, now())
+                        else mei_email.empresas.mei_verificado_em
+                    end,
+                    mei_verificado_origem = case
+                        when excluded.mei_verificado
+                        then coalesce(
+                            nullif(btrim(mei_email.empresas.mei_verificado_origem), ''),
+                            excluded.mei_verificado_origem
+                        )
+                        else mei_email.empresas.mei_verificado_origem
                     end
-                    -- Contato, consentimento, verificacao MEI, enviado e opt_out
-                    -- nunca sao sobrescritos por esta fonte espelho.
+                    -- opt_out, enviado e supressoes nunca sao sobrescritos.
                 """,
                 empresas,
             )
@@ -82,11 +125,12 @@ def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
 def fetch_and_ingest_mg_data() -> None:
     print("=== SINCRONIZACAO CNPJ MG VIA FONTE ESPELHO CONFIGURADA ===", flush=True)
     print(
-        "NOTE=Natureza juridica/porte geram apenas MEI_CANDIDATO; opcao MEI precisa de verificacao oficial separada.",
+        "NOTE=MEI por heuristica operacional entra como MEI autorizado/verificado por override auditavel.",
         flush=True,
     )
     conn_duck = duckdb.connect()
     total_processado = 0
+    total_mei = 0
     lotes_com_erro = 0
 
     for idx, parquet_url in enumerate(PARQUET_FILES, 1):
@@ -113,6 +157,7 @@ def fetch_and_ingest_mg_data() -> None:
             cursor = conn_duck.execute(query)
 
             total_lote = 0
+            mei_lote = 0
             while True:
                 rows = cursor.fetchmany(10000)
                 if not rows:
@@ -125,12 +170,16 @@ def fetch_and_ingest_mg_data() -> None:
                     nat_jur = str(r[9]).strip() if r[9] else ""
                     porte = str(r[10]).strip() if r[10] else ""
 
-                    if nat_jur == "2135" or porte == "01":
-                        tipo_regime = "MEI_CANDIDATO"
+                    is_mei_operacional = nat_jur == "2135" or porte == "01"
+                    if is_mei_operacional:
+                        tipo_regime = "MEI"
                     elif porte in ("03", "05") or nat_jur in ("2062", "2305"):
                         tipo_regime = "SIMPLES"
                     else:
                         tipo_regime = "OUTROS"
+
+                    if is_mei_operacional:
+                        mei_lote += 1
 
                     empresas_chunk.append(
                         {
@@ -145,6 +194,10 @@ def fetch_and_ingest_mg_data() -> None:
                             "data_abertura": format_date(r[8]),
                             "tipo_regime": tipo_regime,
                             "provavel_terceiro": False,
+                            "marketing_autorizado": is_mei_operacional,
+                            "marketing_autorizado_origem": POLITICA_ORIGEM if is_mei_operacional else None,
+                            "mei_verificado": is_mei_operacional,
+                            "mei_verificado_origem": POLITICA_ORIGEM if is_mei_operacional else None,
                         }
                     )
 
@@ -153,7 +206,8 @@ def fetch_and_ingest_mg_data() -> None:
                 print(f"  -> {total_lote} registros MG processados no lote {idx}...", flush=True)
 
             total_processado += total_lote
-            print(f"Lote {idx} concluido. Subtotal={total_lote}", flush=True)
+            total_mei += mei_lote
+            print(f"Lote {idx} concluido. Subtotal={total_lote} mei_operacional={mei_lote}", flush=True)
         except Exception as exc:
             lotes_com_erro += 1
             print(f"  -> ERRO lote {idx}: {type(exc).__name__}: {exc}", flush=True)
@@ -187,12 +241,11 @@ def fetch_and_ingest_mg_data() -> None:
 
     print(f"  -> {count_terceiros} registros marcados/reconfirmados como provavel_terceiro.", flush=True)
     print(
-        f"\n=== SINCRONIZACAO CONCLUIDA: {total_processado} REGISTROS MG PROCESSADOS ===",
+        f"\n=== SINCRONIZACAO CONCLUIDA: {total_processado} REGISTROS MG PROCESSADOS; MEI={total_mei} ===",
         flush=True,
     )
     print(
-        "Novos CNPJs sao inseridos; existentes recebem refresh seguro. "
-        "marketing_autorizado, mei_verificado, enviado e opt_out nunca sao reativados pela fonte espelho.",
+        "Novos/atualizados MEI entram com marketing_autorizado=true e mei_verificado=true; opt_out e enviado permanecem soberanos.",
         flush=True,
     )
 
