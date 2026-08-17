@@ -28,8 +28,18 @@ from worker.worker import (
 )
 
 
+def _tabela_cota_externa_existe(conn: psycopg.Connection) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("select to_regclass('mei_email.envios_externos_cota')")
+        return cur.fetchone()[0] is not None
+
+
 def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
-    """Conta a janela movel pelo indice parcial V030, sem cast do enum."""
+    """Conta a janela movel pelo indice parcial V030 e pelo ledger externo.
+
+    O ledger externo cobre envios comprovados no Outlook/Graph que nao foram
+    criados pelo worker, mas consomem a mesma reputacao/cota do remetente.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -39,13 +49,24 @@ def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
                and enviado_em >= now() - interval '24 hours'
             """
         )
-        return int(cur.fetchone()[0] or 0)
+        total = int(cur.fetchone()[0] or 0)
+
+        if _tabela_cota_externa_existe(conn):
+            cur.execute(
+                """
+                select count(*)
+                  from mei_email.envios_externos_cota
+                 where sent_at >= now() - interval '24 hours'
+                """
+            )
+            total += int(cur.fetchone()[0] or 0)
+        return total
 
 
 def _ja_submetido_ou_entregue_indexado(
     conn: psycopg.Connection, envio_id, email: str
 ) -> bool:
-    """Consulta primeiro a supressao compacta e cai para o indice de email."""
+    """Consulta primeiro a supressao compacta e cai para os indices de email."""
     with conn.cursor() as cur:
         cur.execute(
             "select mei_email.is_email_suppressed(%s::citext)",
@@ -64,7 +85,22 @@ def _ja_submetido_ou_entregue_indexado(
             """,
             (envio_id, email),
         )
-        return cur.fetchone() is not None
+        if cur.fetchone() is not None:
+            return True
+
+        if _tabela_cota_externa_existe(conn):
+            cur.execute(
+                """
+                select 1
+                  from mei_email.envios_externos_cota
+                 where lower(btrim(email::text)) = lower(btrim(%s))
+                 limit 1
+                """,
+                (email,),
+            )
+            if cur.fetchone() is not None:
+                return True
+        return False
 
 
 # processar_lote e uma funcao do modulo worker.worker. Substituir estes dois
