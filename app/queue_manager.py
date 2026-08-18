@@ -13,12 +13,17 @@ from app.config import settings
 
 logger = logging.getLogger("mei_mg_email.queue")
 CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID = 99502026
-TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "mei-contabilidade-melo.html"
+TEMPLATE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "templates"
+    / "mei-contabilidade-melo.html"
+)
 AUTOQUEUE_SUBJECT = "Contabilidade Melo para MEI: plano mensal e suporte fiscal"
 AUTOQUEUE_LOT_SIZE = 100
-AUTOQUEUE_REFILL_BATCH_SIZE = 1000
+AUTOQUEUE_REFILL_BATCH_SIZE = 5000
 AUTOQUEUE_CANDIDATE_OVERSAMPLE = 4
 AUTOQUEUE_CANDIDATE_MIN_EXTRA = 2000
+OPEN_ENVIO_STATUSES = ("pendente", "enviando", "pending", "processing")
 
 
 def carregar_template_html() -> str:
@@ -32,7 +37,9 @@ def carregar_template_html() -> str:
     )
     missing = [token for token in required if token.casefold() not in lower]
     if missing:
-        raise RuntimeError(f"template HTML incompleto; faltando={','.join(missing)}")
+        raise RuntimeError(
+            f"template HTML incompleto; faltando={','.join(missing)}"
+        )
     return template
 
 
@@ -40,7 +47,9 @@ def validar_config_fila() -> None:
     if settings.queue_min_pending < 1:
         raise RuntimeError("QUEUE_MIN_PENDING precisa ser pelo menos 1.")
     if settings.queue_target_pending <= settings.queue_min_pending:
-        raise RuntimeError("QUEUE_TARGET_PENDING precisa ser maior que QUEUE_MIN_PENDING.")
+        raise RuntimeError(
+            "QUEUE_TARGET_PENDING precisa ser maior que QUEUE_MIN_PENDING."
+        )
 
 
 def quantidade_para_repor(pendentes: int) -> int:
@@ -54,32 +63,39 @@ def quantidade_para_repor(pendentes: int) -> int:
 
 
 def contar_pendentes(conn: psycopg.Connection) -> int:
+    """Count actual open recipient rows, not declared lot sizes."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            select coalesce(sum(tamanho), 0)
-              from mei_email.lotes
-             where status in ('pendente', 'processando')
+            select count(*)
+              from mei_email.envios
+             where status in ('pendente', 'enviando', 'pending', 'processing')
             """
         )
         return int(cur.fetchone()[0] or 0)
 
 
 def repor_fila_automatica(conn: psycopg.Connection) -> int:
-    """Repoe fila em lotes pequenos sem antecipar a cota movel de envio."""
+    """Replenish a bounded queue without consuming the rolling send quota."""
     validar_config_fila()
     template = carregar_template_html()
 
     with conn.cursor(row_factory=dict_row) as cur:
+        # A second replenisher must never block the sender indefinitely.
         cur.execute(
-            "select pg_advisory_xact_lock(%s)",
+            "select pg_try_advisory_xact_lock(%s)",
             (CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID,),
         )
+        if not bool(cur.fetchone()[0]):
+            conn.commit()
+            logger.warning("AUTOQUEUE_SKIPPED another replenisher owns the lock")
+            return 0
+
         cur.execute(
             """
-            select coalesce(sum(tamanho), 0) as pendentes
-              from mei_email.lotes
-             where status in ('pendente', 'processando')
+            select count(*) as pendentes
+              from mei_email.envios
+             where status in ('pendente', 'enviando', 'pending', 'processing')
             """
         )
         pendentes_antes = int(cur.fetchone()["pendentes"] or 0)
@@ -93,10 +109,8 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             quantidade + AUTOQUEUE_CANDIDATE_MIN_EXTRA,
         )
 
-        # V029 cria um indice parcial que contem somente o universo barato de
-        # MEI/MG autorizado/verificado/ainda-nao-enviado. O LIMIT acontece nesse
-        # indice. Sintaxe de email, supressao e dedupe continuam sendo aplicados
-        # depois, sobre no maximo alguns milhares de linhas.
+        # V029 contains the cheap MEI/MG/authorized/verified/not-sent universe.
+        # The LIMIT is applied before syntax, suppression and global dedupe.
         cur.execute(
             """
             with base as materialized (
@@ -125,7 +139,7 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                        select 1
                          from mei_email.envios x
                         where x.cnpj = b.cnpj
-                          and x.status::text in (
+                          and x.status in (
                               'pendente', 'enviando', 'pending', 'processing',
                               'submitted', 'enviado', 'delivered', 'bounced'
                           )
@@ -133,8 +147,9 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and not exists (
                        select 1
                          from mei_email.envios x
-                        where lower(btrim(x.email::text)) = lower(btrim(b.email::text))
-                          and x.status::text in (
+                        where lower(btrim(x.email::text)) =
+                              lower(btrim(b.email::text))
+                          and x.status in (
                               'pendente', 'enviando', 'pending', 'processing',
                               'submitted', 'enviado', 'delivered', 'bounced'
                           )
@@ -160,10 +175,14 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
 
         if not empresas:
             conn.commit()
-            level = logging.CRITICAL if pendentes_antes == 0 else logging.WARNING
+            level = (
+                logging.CRITICAL
+                if pendentes_antes == 0
+                else logging.WARNING
+            )
             logger.log(
                 level,
-                "Autoqueue sem candidatos autorizados/elegiveis. pendentes=%d min=%d target=%d",
+                "Autoqueue sem candidatos elegiveis. pendentes=%d min=%d target=%d",
                 pendentes_antes,
                 settings.queue_min_pending,
                 settings.queue_target_pending,
@@ -211,7 +230,12 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                 values (%s, %s, %s, %s, 'pendente')
                 """,
                 [
-                    (campanha_id, lote_id, empresa["cnpj"], empresa["email"])
+                    (
+                        campanha_id,
+                        lote_id,
+                        empresa["cnpj"],
+                        empresa["email"],
+                    )
                     for empresa in fatia
                 ],
             )

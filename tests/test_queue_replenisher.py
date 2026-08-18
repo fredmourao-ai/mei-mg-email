@@ -21,11 +21,17 @@ def test_replenisher_refills_before_queue_reaches_zero():
     assert quantidade_para_repor(5000) == 0
 
 
-def test_worker_replenishes_before_fetching_next_lot():
-    worker = (ROOT / "worker" / "worker.py").read_text(encoding="utf-8")
-    refill = worker.index("repor_fila_automatica(conn)")
-    fetch = worker.index("lote = pegar_proximo_lote(conn)", refill)
-    assert refill < fetch
+def test_queue_first_consumes_and_recovers_before_refill():
+    worker = (ROOT / "worker" / "worker_queue_first.py").read_text(
+        encoding="utf-8"
+    )
+    consume = worker.index("_processar_se_disponivel(conn, provider)")
+    recovery = worker.index(
+        "recuperar_fila_legada_e_lotes_orfaos(conn)",
+        consume,
+    )
+    refill = worker.index("repor_fila_automatica_isolada()", recovery)
+    assert consume < recovery < refill
 
 
 def test_queue_is_separate_from_24h_send_quota_in_audit():
@@ -51,22 +57,34 @@ def test_queue_status_queries_do_not_cast_enum_to_text():
         encoding="utf-8"
     )
     assert "status::text in ('pendente', 'enviando')" not in manager
-    assert "status in ('pendente', 'enviando')" in manager
+    assert (
+        "status in ('pendente', 'enviando', 'pending', 'processing')"
+        in manager
+    )
     assert "status::text in ('submitted', 'enviado')" not in daily
     assert "status in ('submitted', 'enviado')" in daily
 
 
 def test_autoqueue_bounds_deduplication_pool_before_window_function():
     manager = (ROOT / "app" / "queue_manager.py").read_text(encoding="utf-8")
-    assert "with preselecionadas as" in manager
+    assert "base as materialized" in manager
+    assert "preselecionadas as" in manager
     assert "limit %s" in manager
     assert "from preselecionadas" in manager
     assert "AUTOQUEUE_CANDIDATE_OVERSAMPLE = 4" in manager
 
 
+def test_queue_depth_uses_actual_open_messages_and_nonblocking_lock():
+    manager = (ROOT / "app" / "queue_manager.py").read_text(encoding="utf-8")
+    assert "select count(*)" in manager
+    assert "coalesce(sum(tamanho), 0)" not in manager
+    assert "pg_try_advisory_xact_lock" in manager
+    assert "pg_advisory_xact_lock" not in manager
+
+
 def test_queue_status_index_migration_exists():
-    migration = (ROOT / "db" / "migrations" / "V026__queue_status_index.sql").read_text(
-        encoding="utf-8"
-    )
+    migration = (
+        ROOT / "db" / "migrations" / "V026__queue_status_index.sql"
+    ).read_text(encoding="utf-8")
     assert "idx_envios_status" in migration
     assert "on mei_email.envios (status)" in migration
