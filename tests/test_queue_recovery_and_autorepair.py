@@ -53,3 +53,12 @@ def test_two_hour_autorepair_never_removes_sender_block_sentinel():
     ).read_text(encoding="utf-8")
     assert "OnUnitActiveSec=2h" in timer
     assert "Persistent=true" in timer
+
+
+def test_historical_sender_block_is_telemetry_not_current_circuit_breaker():
+    source = (ROOT / "scripts" / "autocorrigir_envios_2h.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"historical_sender_blocked_24h"' in source
+    assert "if sentinel_active:" in source
+    assert 'or before["sender_blocked_24h"] > 0' not in source
