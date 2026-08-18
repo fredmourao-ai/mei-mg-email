@@ -1,0 +1,13 @@
+[Unit]
+Description=MEI email two-hour verification and auto-repair
+After=network-online.target docker.service mei-mg-email-worker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/ubuntu/mei-mg-email
+EnvironmentFile=-/home/ubuntu/mei-mg-email/.env
+ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/autocorrigir_envios_2h.py --apply
+TimeoutStartSec=10min
+Nice=5
