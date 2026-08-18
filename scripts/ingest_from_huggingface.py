@@ -28,35 +28,54 @@ POLITICA_ORIGEM = "politica_importacao_operador_2026-08-13_huggingface_upsert"
 def format_date(dt_str: str | None) -> str | None:
     if not dt_str:
         return None
-    s = str(dt_str).strip()
-    if len(s) != 8 or not s.isdigit():
+    value = str(dt_str).strip()
+    if len(value) != 8 or not value.isdigit():
         return None
-    return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
 
 
 def clean_str(val: str | None, max_len: int | None = None) -> str | None:
     if not val:
         return None
-    s = str(val).strip()
-    if not s:
+    value = str(val).strip()
+    if not value:
         return None
-    return s[:max_len] if max_len else s
+    return value[:max_len] if max_len else value
 
 
 def situacao_cadastral(code: str | None) -> str:
-    return SITUACAO_MAP.get(str(code or "").strip().zfill(2), "DESCONHECIDA")
+    return SITUACAO_MAP.get(
+        str(code or "").strip().zfill(2),
+        "DESCONHECIDA",
+    )
+
+
+def classificar_regime_espelho(
+    nat_juridica: str,
+    porte: str,
+) -> tuple[str, bool]:
+    """Return regime and whether the operator-approved MEI rule matched.
+
+    Completely ambiguous mirror rows remain candidates and are not verified.
+    Known non-MEI shapes remain SIMPLES/OUTROS. The audited operator override
+    applies only when the explicit operational MEI rule matches.
+    """
+    is_mei_operacional = nat_juridica == "2135" or porte == "01"
+    if is_mei_operacional:
+        return "MEI", True
+    if porte in {"03", "05"} or nat_juridica in {"2062", "2305"}:
+        return "SIMPLES", False
+    if not nat_juridica and not porte:
+        tipo_regime = "MEI_CANDIDATO"
+        return tipo_regime, False
+    return "OUTROS", False
 
 
 def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
-    """Insere cadastros novos e refresca campos seguros.
-
-    Decisao operacional vigente: registros classificados como MEI pela regra de
-    importacao entram autorizados para campanha e verificados por override
-    auditavel do operador. Opt-out, supressoes e historico de envio continuam
-    soberanos e nunca sao reativados por esta rotina.
-    """
+    """Insert new rows and refresh only fields allowed by operator policy."""
     if not empresas:
         return
+
     with psycopg.connect(settings.database_url) as conn:
         with conn.cursor() as cur:
             cur.executemany(
@@ -81,7 +100,8 @@ def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
                     situacao_cadastral = excluded.situacao_cadastral,
                     tipo_regime = case
                         when excluded.tipo_regime = 'MEI' then 'MEI'
-                        when mei_email.empresas.mei_verificado then mei_email.empresas.tipo_regime
+                        when mei_email.empresas.mei_verificado
+                            then mei_email.empresas.tipo_regime
                         else excluded.tipo_regime
                     end,
                     marketing_autorizado = case
@@ -90,27 +110,45 @@ def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
                     end,
                     marketing_autorizado_em = case
                         when excluded.tipo_regime = 'MEI'
-                        then coalesce(mei_email.empresas.marketing_autorizado_em, now())
+                        then coalesce(
+                            mei_email.empresas.marketing_autorizado_em,
+                            now()
+                        )
                         else mei_email.empresas.marketing_autorizado_em
                     end,
                     marketing_autorizado_origem = case
                         when excluded.tipo_regime = 'MEI'
                         then coalesce(
-                            nullif(btrim(mei_email.empresas.marketing_autorizado_origem), ''),
+                            nullif(
+                                btrim(
+                                    mei_email.empresas.marketing_autorizado_origem
+                                ),
+                                ''
+                            ),
                             excluded.marketing_autorizado_origem
                         )
                         else mei_email.empresas.marketing_autorizado_origem
                     end,
-                    mei_verificado = mei_email.empresas.mei_verificado or excluded.mei_verificado,
+                    mei_verificado =
+                        mei_email.empresas.mei_verificado
+                        or excluded.mei_verificado,
                     mei_verificado_em = case
                         when excluded.mei_verificado
-                        then coalesce(mei_email.empresas.mei_verificado_em, now())
+                        then coalesce(
+                            mei_email.empresas.mei_verificado_em,
+                            now()
+                        )
                         else mei_email.empresas.mei_verificado_em
                     end,
                     mei_verificado_origem = case
                         when excluded.mei_verificado
                         then coalesce(
-                            nullif(btrim(mei_email.empresas.mei_verificado_origem), ''),
+                            nullif(
+                                btrim(
+                                    mei_email.empresas.mei_verificado_origem
+                                ),
+                                ''
+                            ),
                             excluded.mei_verificado_origem
                         )
                         else mei_email.empresas.mei_verificado_origem
@@ -123,9 +161,13 @@ def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
 
 
 def fetch_and_ingest_mg_data() -> None:
-    print("=== SINCRONIZACAO CNPJ MG VIA FONTE ESPELHO CONFIGURADA ===", flush=True)
     print(
-        "NOTE=MEI por heuristica operacional entra como MEI autorizado/verificado por override auditavel.",
+        "=== SINCRONIZACAO CNPJ MG VIA FONTE ESPELHO CONFIGURADA ===",
+        flush=True,
+    )
+    print(
+        "NOTE=MEI por regra operacional explicita recebe override auditavel; "
+        "linhas ambiguas permanecem MEI_CANDIDATO sem verificacao.",
         flush=True,
     )
     conn_duck = duckdb.connect()
@@ -137,22 +179,24 @@ def fetch_and_ingest_mg_data() -> None:
         print(f"\n[Fonte] Lendo lote {idx}/10...", flush=True)
         try:
             query = f"""
-                SELECT
-                    lpad(cast(cnpj_base as varchar), 8, '0') || lpad(cast(ordem as varchar), 4, '0') || lpad(cast(dv as varchar), 2, '0') AS cnpj,
+                select
+                    lpad(cast(cnpj_base as varchar), 8, '0')
+                    || lpad(cast(ordem as varchar), 4, '0')
+                    || lpad(cast(dv as varchar), 2, '0') as cnpj,
                     razao_social,
-                    fantasia AS nome_fantasia,
+                    fantasia as nome_fantasia,
                     sit_cadastral,
                     uf,
                     email,
-                    ddd1 AS ddd_1,
-                    tel1 AS telefone_1,
-                    data_sit_cad AS data_abertura,
+                    ddd1 as ddd_1,
+                    tel1 as telefone_1,
+                    data_sit_cad as data_abertura,
                     nat_juridica,
                     porte
-                FROM '{parquet_url}'
-                WHERE email IS NOT NULL
-                  AND trim(email) != ''
-                  AND upper(trim(uf)) = 'MG'
+                from '{parquet_url}'
+                where email is not null
+                  and trim(email) != ''
+                  and upper(trim(uf)) = 'MG'
             """
             cursor = conn_duck.execute(query)
 
@@ -164,57 +208,71 @@ def fetch_and_ingest_mg_data() -> None:
                     break
 
                 empresas_chunk = []
-                for r in rows:
-                    cnpj = str(r[0]).strip().upper().zfill(14)
-                    email = str(r[5]).strip().lower()
-                    nat_jur = str(r[9]).strip() if r[9] else ""
-                    porte = str(r[10]).strip() if r[10] else ""
-
-                    is_mei_operacional = nat_jur == "2135" or porte == "01"
-                    if is_mei_operacional:
-                        tipo_regime = "MEI"
-                    elif porte in ("03", "05") or nat_jur in ("2062", "2305"):
-                        tipo_regime = "SIMPLES"
-                    else:
-                        tipo_regime = "OUTROS"
-
+                for row in rows:
+                    cnpj = str(row[0]).strip().upper().zfill(14)
+                    email = str(row[5]).strip().lower()
+                    nat_jur = str(row[9]).strip() if row[9] else ""
+                    porte = str(row[10]).strip() if row[10] else ""
+                    tipo_regime, is_mei_operacional = (
+                        classificar_regime_espelho(nat_jur, porte)
+                    )
                     if is_mei_operacional:
                         mei_lote += 1
 
                     empresas_chunk.append(
                         {
                             "cnpj": cnpj,
-                            "razao_social": clean_str(r[1]),
-                            "nome_fantasia": clean_str(r[2]),
-                            "situacao_cadastral": situacao_cadastral(r[3]),
+                            "razao_social": clean_str(row[1]),
+                            "nome_fantasia": clean_str(row[2]),
+                            "situacao_cadastral": situacao_cadastral(row[3]),
                             "uf": "MG",
                             "email": email,
-                            "ddd_1": clean_str(r[6], 3),
-                            "telefone_1": clean_str(r[7], 15),
-                            "data_abertura": format_date(r[8]),
+                            "ddd_1": clean_str(row[6], 3),
+                            "telefone_1": clean_str(row[7], 15),
+                            "data_abertura": format_date(row[8]),
                             "tipo_regime": tipo_regime,
                             "provavel_terceiro": False,
                             "marketing_autorizado": is_mei_operacional,
-                            "marketing_autorizado_origem": POLITICA_ORIGEM if is_mei_operacional else None,
+                            "marketing_autorizado_origem": (
+                                POLITICA_ORIGEM
+                                if is_mei_operacional
+                                else None
+                            ),
                             "mei_verificado": is_mei_operacional,
-                            "mei_verificado_origem": POLITICA_ORIGEM if is_mei_operacional else None,
+                            "mei_verificado_origem": (
+                                POLITICA_ORIGEM
+                                if is_mei_operacional
+                                else None
+                            ),
                         }
                     )
 
                 gravar_chunk_no_postgres(empresas_chunk)
                 total_lote += len(empresas_chunk)
-                print(f"  -> {total_lote} registros MG processados no lote {idx}...", flush=True)
+                print(
+                    f"  -> {total_lote} registros MG processados "
+                    f"no lote {idx}...",
+                    flush=True,
+                )
 
             total_processado += total_lote
             total_mei += mei_lote
-            print(f"Lote {idx} concluido. Subtotal={total_lote} mei_operacional={mei_lote}", flush=True)
+            print(
+                f"Lote {idx} concluido. Subtotal={total_lote} "
+                f"mei_operacional={mei_lote}",
+                flush=True,
+            )
         except Exception as exc:
             lotes_com_erro += 1
-            print(f"  -> ERRO lote {idx}: {type(exc).__name__}: {exc}", flush=True)
+            print(
+                f"  -> ERRO lote {idx}: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
 
     if lotes_com_erro:
         raise RuntimeError(
-            f"Sincronizacao incompleta: {lotes_com_erro}/10 lotes falharam. Nenhum disparo deve depender desta carga parcial."
+            f"Sincronizacao incompleta: {lotes_com_erro}/10 lotes falharam. "
+            "Nenhum disparo deve depender desta carga parcial."
         )
 
     print("\nAplicando heuristica de e-mails compartilhados...", flush=True)
@@ -233,19 +291,25 @@ def fetch_and_ingest_mg_data() -> None:
                    set provavel_terceiro = true
                  where lower(btrim(e.email::text)) in (
                     select email_normalizado from emails_terceiros
-                 );
+                 )
                 """
             )
             count_terceiros = cur.rowcount
         conn.commit()
 
-    print(f"  -> {count_terceiros} registros marcados/reconfirmados como provavel_terceiro.", flush=True)
     print(
-        f"\n=== SINCRONIZACAO CONCLUIDA: {total_processado} REGISTROS MG PROCESSADOS; MEI={total_mei} ===",
+        f"  -> {count_terceiros} registros marcados/reconfirmados "
+        "como provavel_terceiro.",
         flush=True,
     )
     print(
-        "Novos/atualizados MEI entram com marketing_autorizado=true e mei_verificado=true; opt_out e enviado permanecem soberanos.",
+        f"\n=== SINCRONIZACAO CONCLUIDA: {total_processado} REGISTROS "
+        f"MG PROCESSADOS; MEI={total_mei} ===",
+        flush=True,
+    )
+    print(
+        "MEI por regra operacional entra com override auditavel; "
+        "opt_out e enviado permanecem soberanos.",
         flush=True,
     )
 
