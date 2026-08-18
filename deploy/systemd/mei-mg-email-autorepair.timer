@@ -1,0 +1,12 @@
+[Unit]
+Description=Verify and auto-correct MEI email sending every two hours
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=2h
+AccuracySec=1min
+Persistent=true
+Unit=mei-mg-email-autorepair.service
+
+[Install]
+WantedBy=timers.target
