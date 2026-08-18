@@ -207,6 +207,7 @@ def execute(*, apply: bool) -> dict:
     queue_broken = before["legacy_open"] > 0 or before["orphan_lots"] > 0
     worker_broken = worker_before != "active"
     repair_needed = queue_broken or worker_broken or stalled
+    sentinel_active = _sentinel_active()
 
     payload = {
         "checked_at": checked_at,
@@ -224,7 +225,8 @@ def execute(*, apply: bool) -> dict:
             "worker_broken": worker_broken,
             "sending_stalled": stalled,
         },
-        "sentinel_active": _sentinel_active(),
+        "sentinel_active": sentinel_active,
+        "historical_sender_blocked_24h": before["sender_blocked_24h"],
         "actions": [],
     }
 
@@ -233,11 +235,15 @@ def execute(*, apply: bool) -> dict:
         _persist(payload)
         return payload
 
-    if _sentinel_active() or before["sender_blocked_24h"] > 0:
+    # Historical sender_blocked rows are telemetry, not a current circuit
+    # breaker. Only the canonical/legacy sentinel represents an active block.
+    # If Exchange denies a new submission, the worker recreates the sentinel
+    # immediately and fails closed again.
+    if sentinel_active:
         payload["result"] = "blocked_fail_closed"
         _persist(payload)
         raise RuntimeError(
-            "sender-block evidence present; automatic resume is forbidden"
+            "current sender-block sentinel present; automatic resume is forbidden"
         )
 
     if repair_needed:
