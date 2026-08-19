@@ -29,6 +29,10 @@ create unique index if not exists uq_email_suppressions_active_scope_value
     on mei_email.email_suppressions using btree (scope, value)
     where active = true;
 
+-- IMPORTANTE: manter a comparacao direta em CITEXT. Aplicar lower/btrim sobre
+-- s.value desabilita o uso efetivo de idx_email_suppressions_lookup e pode
+-- transformar a elegibilidade em varredura ampla. O parametro e normalizado
+-- uma unica vez; value ja e CITEXT e e gravado normalizado.
 create or replace function mei_email.is_email_suppressed(p_email public.citext)
 returns boolean
 language sql
@@ -39,9 +43,11 @@ as $function$
       from mei_email.email_suppressions s
      where s.active
        and (
-         (s.scope = 'email' and lower(btrim(s.value::text)) = lower(btrim(p_email::text)))
+         (s.scope = 'email'
+          and s.value = lower(btrim(p_email::text))::public.citext)
          or
-         (s.scope = 'domain' and lower(btrim(s.value::text)) = split_part(lower(btrim(p_email::text)), '@', 2))
+         (s.scope = 'domain'
+          and s.value = split_part(lower(btrim(p_email::text)), '@', 2)::public.citext)
        )
   );
 $function$;
