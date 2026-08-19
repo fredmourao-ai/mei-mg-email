@@ -13,6 +13,10 @@ logger = logging.getLogger("mei_mg_email.queue_recovery")
 OPEN_ENVIO_STATUSES = ("pendente", "enviando", "pending", "processing")
 LEGACY_ENVIO_STATUSES = ("pending", "processing")
 QUEUE_REPAIR_ADVISORY_LOCK_ID = 9950202602
+QUEUE_RECOVERY_BATCH_SIZE = 500
+QUEUE_RECOVERY_MAX_BATCHES = 4
+QUEUE_RECOVERY_STATEMENT_TIMEOUT_SECONDS = 30
+QUEUE_RECOVERY_LOCK_TIMEOUT_SECONDS = 3
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,56 @@ class QueueRecoveryResult:
         )
 
 
+def _run_batched_update(
+    conn: psycopg.Connection,
+    sql: str,
+    *,
+    label: str,
+) -> int:
+    """Apply a recovery update in bounded transactions without lock pileups.
+
+    Legacy cleanup previously used unbounded UPDATE statements. On a busy
+    production database one slow cleanup could hold row locks for hours, cause
+    later repairers to wait behind it and strand the sender even though the
+    worker process itself still looked active. Each batch now locks only rows
+    that are immediately available, commits promptly and defers on timeout.
+    The recovery remains idempotent, so later worker/hourly passes continue
+    where the prior bounded pass stopped.
+    """
+    total = 0
+    for _ in range(QUEUE_RECOVERY_MAX_BATCHES):
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "select set_config('statement_timeout', %s, true)",
+                    (f"{QUEUE_RECOVERY_STATEMENT_TIMEOUT_SECONDS}s",),
+                )
+                cur.execute(
+                    "select set_config('lock_timeout', %s, true)",
+                    (f"{QUEUE_RECOVERY_LOCK_TIMEOUT_SECONDS}s",),
+                )
+                cur.execute(sql, (QUEUE_RECOVERY_BATCH_SIZE,))
+                changed = int(cur.rowcount or 0)
+            conn.commit()
+        except (
+            psycopg.errors.QueryCanceled,
+            psycopg.errors.LockNotAvailable,
+        ) as exc:
+            conn.rollback()
+            logger.warning(
+                "QUEUE_RECOVERY_DEFERRED label=%s reason=%s detail=%s",
+                label,
+                type(exc).__name__,
+                str(exc)[:500],
+            )
+            break
+
+        total += changed
+        if changed < QUEUE_RECOVERY_BATCH_SIZE:
+            break
+    return total
+
+
 def recuperar_fila_legada_e_lotes_orfaos(
     conn: psycopg.Connection,
 ) -> QueueRecoveryResult:
@@ -47,41 +101,44 @@ def recuperar_fila_legada_e_lotes_orfaos(
     sender advisory lock. The hourly repair service stops the worker before
     calling it, so a current Graph submission is never moved backwards.
 
-    Legacy queues can contain thousands of rows that are no longer eligible,
-    were already suppressed/submitted, or are duplicates. Pruning those rows
-    in set-based SQL avoids spending the sender loop on one query/commit per
-    blocked recipient while preserving the exact same consent, opt-out and
-    suppression semantics enforced by the worker.
+    Recovery is deliberately bounded. Every mutation selects at most a small
+    batch with FOR UPDATE SKIP LOCKED, commits that batch and stops after a
+    finite number of batches. This prevents one cleanup pass from holding
+    transaction locks for hours while preserving the same consent, opt-out,
+    dedupe and suppression semantics enforced by the worker.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            update mei_email.envios
-               set status = 'pendente',
-                   erro = case
-                       when coalesce(erro, '') = '' then
-                           'recuperado: estado legado normalizado'
-                       else erro || ' | recuperado: estado legado normalizado'
-                   end
-             where status in ('pending', 'processing')
-            """
+    normalized_legacy = _run_batched_update(
+        conn,
+        """
+        with target as (
+            select e.id
+              from mei_email.envios e
+             where e.status in ('pending', 'processing')
+             order by e.id
+             for update of e skip locked
+             limit %s
         )
-        normalized_legacy = cur.rowcount
+        update mei_email.envios e
+           set status = 'pendente',
+               erro = case
+                   when coalesce(e.erro, '') = '' then
+                       'recuperado: estado legado normalizado'
+                   else e.erro || ' | recuperado: estado legado normalizado'
+               end
+          from target t
+         where t.id = e.id
+        """,
+        label="normalize_legacy",
+    )
 
-        cur.execute(
-            """
-            update mei_email.envios e
-               set status = (
-                       case when emp.opt_out then 'opt_out' else 'bloqueado' end
-                   )::mei_email.status_envio,
-                   erro = case
-                       when coalesce(e.erro, '') = '' then
-                           'recuperado: fila aberta tornou-se inelegivel antes do envio'
-                       else e.erro || ' | recuperado: fila aberta tornou-se inelegivel antes do envio'
-                   end
-              from mei_email.empresas emp
-             where emp.cnpj = e.cnpj
-               and e.status in ('pendente', 'enviando', 'pending', 'processing')
+    discarded_ineligible = _run_batched_update(
+        conn,
+        """
+        with target as (
+            select e.id, emp.opt_out
+              from mei_email.envios e
+              join mei_email.empresas emp on emp.cnpj = e.cnpj
+             where e.status in ('pendente', 'enviando', 'pending', 'processing')
                and (
                    emp.opt_out = true
                    or emp.situacao_cadastral <> 'ATIVA'
@@ -90,19 +147,31 @@ def recuperar_fila_legada_e_lotes_orfaos(
                    or emp.mei_verificado = false
                    or not mei_email.is_valid_email_address(e.email)
                )
-            """
+             order by e.id
+             for update of e skip locked
+             limit %s
         )
-        discarded_ineligible = cur.rowcount
+        update mei_email.envios e
+           set status = (
+                   case when t.opt_out then 'opt_out' else 'bloqueado' end
+               )::mei_email.status_envio,
+               erro = case
+                   when coalesce(e.erro, '') = '' then
+                       'recuperado: fila aberta tornou-se inelegivel antes do envio'
+                   else e.erro || ' | recuperado: fila aberta tornou-se inelegivel antes do envio'
+               end
+          from target t
+         where t.id = e.id
+        """,
+        label="discard_ineligible",
+    )
 
-        cur.execute(
-            """
-            update mei_email.envios e
-               set status = 'descartado',
-                   erro = case
-                       when coalesce(e.erro, '') = '' then
-                           'recuperado: fila redundante ja suprimida/submetida'
-                       else e.erro || ' | recuperado: fila redundante ja suprimida/submetida'
-                   end
+    discarded_already_suppressed = _run_batched_update(
+        conn,
+        """
+        with target as (
+            select e.id
+              from mei_email.envios e
              where e.status in ('pendente', 'enviando', 'pending', 'processing')
                and (
                    mei_email.is_email_suppressed(e.email)
@@ -114,41 +183,63 @@ def recuperar_fila_legada_e_lotes_orfaos(
                           and lower(btrim(h.email::text)) = lower(btrim(e.email::text))
                    )
                )
-            """
+             order by e.id
+             for update of e skip locked
+             limit %s
         )
-        discarded_already_suppressed = cur.rowcount
+        update mei_email.envios e
+           set status = 'descartado',
+               erro = case
+                   when coalesce(e.erro, '') = '' then
+                       'recuperado: fila redundante ja suprimida/submetida'
+                   else e.erro || ' | recuperado: fila redundante ja suprimida/submetida'
+               end
+          from target t
+         where t.id = e.id
+        """,
+        label="discard_suppressed_or_sent",
+    )
 
-        cur.execute(
-            """
-            with ranked as (
-                select id,
-                       row_number() over (
-                           partition by lower(btrim(email::text))
-                           order by criado_em, id
-                       ) as rn
-                  from mei_email.envios
-                 where status in ('pendente', 'enviando', 'pending', 'processing')
-            )
-            update mei_email.envios e
-               set status = 'descartado',
-                   erro = case
-                       when coalesce(e.erro, '') = '' then
-                           'recuperado: duplicata aberta de destinatario descartada'
-                       else e.erro || ' | recuperado: duplicata aberta de destinatario descartada'
-                   end
-              from ranked r
-             where r.id = e.id
-               and r.rn > 1
-            """
+    discarded_open_duplicates = _run_batched_update(
+        conn,
+        """
+        with ranked as (
+            select id,
+                   row_number() over (
+                       partition by lower(btrim(email::text))
+                       order by criado_em, id
+                   ) as rn
+              from mei_email.envios
+             where status in ('pendente', 'enviando', 'pending', 'processing')
+        ),
+        target as (
+            select e.id
+              from mei_email.envios e
+              join ranked r on r.id = e.id
+             where r.rn > 1
+             order by e.id
+             for update of e skip locked
+             limit %s
         )
-        discarded_open_duplicates = cur.rowcount
+        update mei_email.envios e
+           set status = 'descartado',
+               erro = case
+                   when coalesce(e.erro, '') = '' then
+                       'recuperado: duplicata aberta de destinatario descartada'
+                   else e.erro || ' | recuperado: duplicata aberta de destinatario descartada'
+               end
+          from target t
+         where t.id = e.id
+        """,
+        label="discard_open_duplicates",
+    )
 
-        cur.execute(
-            """
-            update mei_email.lotes l
-               set status = 'concluido',
-                   concluido_em = coalesce(l.concluido_em, now()),
-                   erro = null
+    closed_empty_lots = _run_batched_update(
+        conn,
+        """
+        with target as (
+            select l.id
+              from mei_email.lotes l
              where l.status = 'pendente'
                and not exists (
                    select 1
@@ -156,39 +247,53 @@ def recuperar_fila_legada_e_lotes_orfaos(
                     where e.lote_id = l.id
                       and e.status in ('pendente', 'enviando', 'pending', 'processing')
                )
-            """
+             order by l.id
+             for update of l skip locked
+             limit %s
         )
-        closed_empty_lots = cur.rowcount
+        update mei_email.lotes l
+           set status = 'concluido',
+               concluido_em = coalesce(l.concluido_em, now()),
+               erro = null
+          from target t
+         where t.id = l.id
+        """,
+        label="close_empty_lots",
+    )
 
-        cur.execute(
-            """
-            update mei_email.envios e
-               set status = 'pendente',
-                   erro = case
-                       when coalesce(e.erro, '') = '' then
-                           'recuperado: envio preso em processamento'
-                       else e.erro || ' | recuperado: envio preso em processamento'
-                   end
-              from mei_email.lotes l
-             where l.id = e.lote_id
-               and e.status = 'enviando'
+    recovered_stale_sending = _run_batched_update(
+        conn,
+        """
+        with target as (
+            select e.id
+              from mei_email.envios e
+              join mei_email.lotes l on l.id = e.lote_id
+             where e.status = 'enviando'
                and l.status = 'processando'
                and l.iniciado_em < now() - interval '15 minutes'
-            """
+             order by e.id
+             for update of e skip locked
+             limit %s
         )
-        recovered_stale_sending = cur.rowcount
+        update mei_email.envios e
+           set status = 'pendente',
+               erro = case
+                   when coalesce(e.erro, '') = '' then
+                       'recuperado: envio preso em processamento'
+                   else e.erro || ' | recuperado: envio preso em processamento'
+               end
+          from target t
+         where t.id = e.id
+        """,
+        label="recover_stale_sending",
+    )
 
-        cur.execute(
-            """
-            update mei_email.lotes l
-               set status = 'pendente',
-                   iniciado_em = null,
-                   concluido_em = null,
-                   erro = case
-                       when coalesce(l.erro, '') = '' then
-                           'recuperado: lote possuia envios abertos'
-                       else l.erro || ' | recuperado: lote possuia envios abertos'
-                   end
+    reopened_lots = _run_batched_update(
+        conn,
+        """
+        with target as (
+            select l.id
+              from mei_email.lotes l
              where l.status <> 'pendente'
                and exists (
                    select 1
@@ -196,10 +301,24 @@ def recuperar_fila_legada_e_lotes_orfaos(
                     where e.lote_id = l.id
                       and e.status in ('pendente', 'enviando', 'pending', 'processing')
                )
-            """
+             order by l.id
+             for update of l skip locked
+             limit %s
         )
-        reopened_lots = cur.rowcount
-    conn.commit()
+        update mei_email.lotes l
+           set status = 'pendente',
+               iniciado_em = null,
+               concluido_em = null,
+               erro = case
+                   when coalesce(l.erro, '') = '' then
+                       'recuperado: lote possuia envios abertos'
+                   else l.erro || ' | recuperado: lote possuia envios abertos'
+               end
+          from target t
+         where t.id = l.id
+        """,
+        label="reopen_orphan_lots",
+    )
 
     if (
         discarded_ineligible
