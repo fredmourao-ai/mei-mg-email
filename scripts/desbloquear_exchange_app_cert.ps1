@@ -51,12 +51,45 @@ if (-not (Test-Path -LiteralPath $PrivateKeyPath -PathType Leaf)) {
     throw "EXCHANGE_PRIVATE_KEY_MISSING: $PrivateKeyPath"
 }
 
-Import-Module ExchangeOnlineManagement -ErrorAction Stop
-$certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile($CertificatePath, $PrivateKeyPath)
-if (-not $certificate.HasPrivateKey) { throw 'EXCHANGE_CERT_PRIVATE_KEY_UNAVAILABLE' }
-
+# Capture the Exchange module before changing PSModulePath. The Oracle host has
+# both a user-scoped legacy PackageManagement and the PowerShell-bundled module.
+# ExchangeOnlineManagement can otherwise resolve both dependency trees in the
+# same fresh pwsh process and fail with a Microsoft.PackageManagement assembly
+# collision. Import the exact Exchange manifest while dependencies resolve only
+# from trusted system module roots, then restore the caller's module path.
+$originalPSModulePath = $env:PSModulePath
 $connected = $false
+$certificate = $null
 try {
+    $exchangeModule = Get-Module -ListAvailable -Name ExchangeOnlineManagement |
+        Sort-Object Version -Descending |
+        Select-Object -First 1
+    if ($null -eq $exchangeModule) {
+        throw 'EXCHANGE_MODULE_MISSING: ExchangeOnlineManagement nao encontrado.'
+    }
+    $exchangeManifest = $exchangeModule.Path
+
+    $systemModuleRoots = @(
+        (Join-Path $PSHOME 'Modules'),
+        '/usr/local/share/powershell/Modules',
+        '/usr/share/powershell/Modules'
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Container) } |
+        Select-Object -Unique
+    if (@($systemModuleRoots).Count -eq 0) {
+        throw 'EXCHANGE_SYSTEM_MODULE_PATH_MISSING: nenhum modulo de sistema encontrado.'
+    }
+
+    $env:PSModulePath = [string]::Join(
+        [IO.Path]::PathSeparator,
+        [string[]]$systemModuleRoots
+    )
+    Remove-Module -Name PackageManagement,PowerShellGet -Force -ErrorAction SilentlyContinue
+    Import-Module -Name $exchangeManifest -Force -ErrorAction Stop
+    Write-Host "EXCHANGE_MODULE_LOADED version=$($exchangeModule.Version) path=$exchangeManifest"
+
+    $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile($CertificatePath, $PrivateKeyPath)
+    if (-not $certificate.HasPrivateKey) { throw 'EXCHANGE_CERT_PRIVATE_KEY_UNAVAILABLE' }
+
     Connect-ExchangeOnline `
         -AppId $AppId `
         -Certificate $certificate `
@@ -107,4 +140,5 @@ try {
 finally {
     if ($connected) { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue }
     if ($null -ne $certificate) { $certificate.Dispose() }
+    $env:PSModulePath = $originalPSModulePath
 }
