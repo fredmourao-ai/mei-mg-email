@@ -39,15 +39,17 @@ update envios e
 
 -- Any lot left with no open recipients is complete; lots with remaining open
 -- recipients are returned to the normal queue state for queue-first processing.
+-- status is an enum, so cast the CASE result explicitly instead of relying on
+-- PostgreSQL to coerce text branches to status_lote.
 update lotes l
-   set status = case
+   set status = (case
        when exists (
            select 1 from envios e
             where e.lote_id = l.id
               and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
        ) then 'pendente'
        else 'concluido'
-   end,
+   end)::status_lote,
        iniciado_em = null,
        erro = null
  where l.status::text in ('pendente', 'processando', 'processing');
