@@ -148,6 +148,11 @@ def sync_casa_dos_dados(conn, run_id: int) -> int:
         return 3
 
     rows_before = _count_companies(conn)
+    # SELECT count(*) opens a transaction in psycopg. The ingest subprocess can
+    # take a long time, so close that read transaction before waiting on it.
+    # The session-level advisory lock remains held and still guarantees a
+    # single base-sync execution without an hours-long idle-in-transaction.
+    conn.commit()
     ingest = subprocess.run(
         [sys.executable, str(BASE_DIR / "scripts" / "ingest_casa_dos_dados_daily.py")],
         cwd=str(BASE_DIR),
@@ -239,6 +244,7 @@ def sync_huggingface_fallback(conn, run_id: int) -> int:
         return 0
 
     rows_before = _count_companies(conn)
+    conn.commit()
     ingest = subprocess.run(
         [sys.executable, str(BASE_DIR / "scripts" / "ingest_from_huggingface.py")],
         cwd=str(BASE_DIR),
