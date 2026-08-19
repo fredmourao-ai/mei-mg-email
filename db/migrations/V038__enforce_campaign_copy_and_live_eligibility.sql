@@ -51,10 +51,12 @@ create trigger trg_campaign_copy_policy
 before insert or update of corpo_template on campanhas
 for each row execute function mei_email.enforce_campaign_copy_policy();
 
--- Clear any currently-open work that does not satisfy the live contract.
+-- Clear any currently-open work that does not satisfy the live contract or
+-- whose normalized email was already submitted/delivered. This gives the DB
+-- the same global anti-replay policy as the queue-first worker.
 update envios e
    set status = 'bloqueado',
-       erro = 'V038: fila aberta inelegivel; bloqueio fail-closed'
+       erro = 'V038: fila aberta inelegivel/duplicada; bloqueio fail-closed'
   from empresas emp
  where e.cnpj = emp.cnpj
    and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
@@ -69,6 +71,13 @@ update envios e
        or not mei_email.is_valid_email_address(emp.email)
        or mei_email.is_email_suppressed(emp.email)
        or mei_email.is_cnpj_suppressed(emp.cnpj::text)
+       or exists (
+           select 1
+             from envios prior
+            where prior.id <> e.id
+              and lower(btrim(prior.email::text)) = lower(btrim(e.email::text))
+              and prior.status::text in ('submitted', 'enviado', 'delivered')
+       )
    );
 
 create or replace function mei_email.enforce_envio_live_eligibility()
@@ -77,6 +86,7 @@ language plpgsql
 as $$
 declare
   eligible boolean;
+  already_sent boolean;
 begin
   if new.status::text not in ('pendente', 'enviando', 'pending', 'processing') then
     return new;
@@ -98,9 +108,20 @@ begin
     from empresas emp
    where emp.cnpj = new.cnpj;
 
-  if coalesce(eligible, false) is false then
+  select exists (
+      select 1
+        from envios prior
+       where prior.id <> new.id
+         and lower(btrim(prior.email::text)) = lower(btrim(new.email::text))
+         and prior.status::text in ('submitted', 'enviado', 'delivered')
+  ) into already_sent;
+
+  if coalesce(eligible, false) is false or already_sent then
     new.status := 'bloqueado'::status_envio;
-    new.erro := 'V038: envio aberto inelegivel; bloqueio fail-closed';
+    new.erro := case
+      when already_sent then 'V038: destinatario ja submetido/entregue; bloqueio anti-replay'
+      else 'V038: envio aberto inelegivel; bloqueio fail-closed'
+    end;
   end if;
 
   return new;
