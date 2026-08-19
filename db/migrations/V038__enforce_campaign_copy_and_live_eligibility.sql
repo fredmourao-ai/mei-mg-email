@@ -99,7 +99,7 @@ begin
    where emp.cnpj = new.cnpj;
 
   if coalesce(eligible, false) is false then
-    new.status := 'bloqueado';
+    new.status := 'bloqueado'::status_envio;
     new.erro := 'V038: envio aberto inelegivel; bloqueio fail-closed';
   end if;
 
@@ -112,9 +112,10 @@ create trigger trg_envio_live_eligibility
 before insert or update of status, cnpj, email on envios
 for each row execute function mei_email.enforce_envio_live_eligibility();
 
--- Reconcile lot state after fail-closed cleanup.
+-- Reconcile lot state after fail-closed cleanup. status_lote is an enum, so
+-- cast the CASE result explicitly.
 update lotes l
-   set status = case
+   set status = (case
        when exists (
            select 1
              from envios e
@@ -122,7 +123,7 @@ update lotes l
               and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
        ) then 'pendente'
        else 'concluido'
-   end,
+   end)::status_lote,
        iniciado_em = null,
        erro = null
  where l.status::text in ('pendente', 'processando', 'processing');
