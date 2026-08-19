@@ -1,0 +1,19 @@
+[Unit]
+Description=MEI MG Email Microsoft Graph App-Only Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/mei-mg-email
+EnvironmentFile=-/home/ubuntu/mei-mg-email/.env
+ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python -m worker.worker_queue_first
+Restart=always
+RestartSec=15
+TimeoutStopSec=45
+KillSignal=SIGTERM
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
