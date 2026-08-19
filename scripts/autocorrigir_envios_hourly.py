@@ -9,6 +9,11 @@ sender unrestricted, a single internal Graph test is accepted, no blocking NDR
 appears during the observation window, Exchange still reports unrestricted, and
 the test is accounted in the rolling quota ledger. Any failed proof remains
 fail-closed.
+
+The daily target is an operational ceiling/goal, never a reason to invent
+consent. If the queue is empty and no independently authorized candidate exists,
+the repair reports a healthy exhausted authorized pool instead of repeatedly
+forcing public/unconsented contacts into the queue.
 """
 from __future__ import annotations
 
@@ -35,6 +40,10 @@ SENDER_RECOVERY_TIMEOUT_SECONDS = min(
     max(int(os.getenv("AUTOREPAIR_SENDER_RECOVERY_TIMEOUT_SECONDS", "540")), 180),
     600,
 )
+AUTHORIZED_CANDIDATE_CHECK_TIMEOUT_SECONDS = min(
+    max(int(os.getenv("AUTOREPAIR_AUTHORIZED_CANDIDATE_CHECK_TIMEOUT_SECONDS", "10")), 3),
+    30,
+)
 
 
 def _collect() -> dict:
@@ -47,6 +56,26 @@ def _below_target_and_empty(state: dict) -> bool:
         int(state.get("sent_24h") or 0) < core.settings.meta_envios_por_dia
         and int(state.get("open_queue") or 0) == 0
     )
+
+
+def _authorized_candidate_exists() -> bool:
+    """Return whether at least one already-authorized candidate can be queued.
+
+    The eligibility view enforces active company, MG/MEI verification,
+    marketing authorization, opt-out, third-party and suppression guards. A
+    timeout is deliberately an error rather than permission to relax those
+    guards.
+    """
+    with psycopg.connect(core.settings.database_url, connect_timeout=10) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select set_config('statement_timeout', %s, false)",
+                (f"{AUTHORIZED_CANDIDATE_CHECK_TIMEOUT_SECONDS}s",),
+            )
+            cur.execute(
+                "select exists(select 1 from mei_email.vw_empresas_elegiveis limit 1)"
+            )
+            return bool(cur.fetchone()[0])
 
 
 def _attempt_verified_stale_sender_recovery() -> None:
@@ -134,14 +163,21 @@ def execute() -> dict:
         result["worker_after"] = core._worker_state()
         result["after"] = final
 
+        authorized_candidate_available: bool | None = None
+        if _below_target_and_empty(final) and int(
+            final.get("queue_sent_24h") or 0
+        ) <= queue_sent_before:
+            authorized_candidate_available = _authorized_candidate_exists()
+            result["authorized_candidate_available"] = authorized_candidate_available
+
         if result["worker_after"] != "active":
             result["result"] = "failed_worker_inactive"
         elif final["legacy_open"] or final["orphan_lots"]:
             result["result"] = "failed_queue_invariant"
-        elif _below_target_and_empty(final) and int(
-            final.get("queue_sent_24h") or 0
-        ) <= queue_sent_before:
+        elif authorized_candidate_available is True:
             result["result"] = "failed_empty_queue_below_target"
+        elif authorized_candidate_available is False:
+            result["result"] = "healthy_authorized_pool_exhausted"
         elif (
             int(final.get("sent_24h") or 0) < core.settings.meta_envios_por_dia
             and int(final.get("open_queue") or 0) > 0

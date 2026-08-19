@@ -24,11 +24,15 @@ def test_empty_queue_guard_is_bounded_and_fail_closed():
     assert "remove(" not in source
 
 
-def test_empty_queue_guard_does_not_claim_healthy_without_progress():
+def test_empty_queue_guard_never_forces_target_without_authorized_candidates():
     source = (ROOT / "scripts" / "autocorrigir_envios_hourly.py").read_text(
         encoding="utf-8"
     )
     assert "queue_sent_before" in source
     assert "final.get(\"queue_sent_24h\")" in source
     assert "_below_target_and_empty(final)" in source
+    assert "_authorized_candidate_exists" in source
+    assert "vw_empresas_elegiveis" in source
+    assert "authorized_candidate_available" in source
+    assert "healthy_authorized_pool_exhausted" in source
     assert "healthy_or_progressing" in source
