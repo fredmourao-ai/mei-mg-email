@@ -1,10 +1,10 @@
 [Unit]
-Description=Verify and auto-correct MEI email sending every hour
+Description=Verify and auto-correct MEI email sending every 5 minutes
 
 [Timer]
-OnBootSec=5min
-OnUnitActiveSec=1h
-AccuracySec=1min
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
 Persistent=true
 Unit=mei-mg-email-autorepair.service
 
