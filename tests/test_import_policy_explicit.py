@@ -28,3 +28,17 @@ def test_v033_revokes_only_legacy_public_base_authorization():
     assert "marketing_autorizado = false" in migration
     assert "marketing_autorizado_origem = 'politica_importacao_operador_2026-08-13'" in migration
     assert "base_publica_sem_opt_in_20260819" in migration
+
+
+def test_v036_disables_legacy_auto_authorization_and_fake_mei_verification():
+    migration = (
+        ROOT / "db" / "migrations" / "V036__disable_legacy_import_auto_authorization.sql"
+    ).read_text(encoding="utf-8").casefold()
+
+    assert "drop trigger if exists empresas_aplicar_politica_importacao_operador" in migration
+    assert "alter table empresas alter column marketing_autorizado set default false" in migration
+    assert "alter table empresas alter column mei_verificado set default false" in migration
+    assert "marketing_autorizado = false" in migration
+    assert "mei_verificado = false" in migration
+    assert "mei_verificado_origem = 'politica_importacao_operador_2026-08-13'" in migration
+    assert "tipo_regime = case when tipo_regime = 'mei' then 'mei_candidato'" in migration
