@@ -8,6 +8,6 @@ Type=oneshot
 User=root
 WorkingDirectory=/home/ubuntu/mei-mg-email
 EnvironmentFile=-/home/ubuntu/mei-mg-email/.env
-ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/autocorrigir_envios_2h.py --apply
+ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/autocorrigir_envios_hourly.py
 TimeoutStartSec=10min
 Nice=5
