@@ -39,7 +39,7 @@ def test_sender_block_uses_canonical_fail_closed_path():
     assert "base_worker.SENDER_BLOCK_SENTINEL = SENDER_BLOCK_SENTINEL" in source
 
 
-def test_two_hour_autorepair_never_removes_sender_block_sentinel():
+def test_hourly_autorepair_never_removes_sender_block_sentinel():
     source = (ROOT / "scripts" / "autocorrigir_envios_2h.py").read_text(
         encoding="utf-8"
     )
@@ -51,7 +51,8 @@ def test_two_hour_autorepair_never_removes_sender_block_sentinel():
     timer = (
         ROOT / "deploy" / "systemd" / "mei-mg-email-autorepair.timer"
     ).read_text(encoding="utf-8")
-    assert "OnUnitActiveSec=2h" in timer
+    assert "OnUnitActiveSec=1h" in timer
+    assert "OnUnitActiveSec=2h" not in timer
     assert "Persistent=true" in timer
 
 
