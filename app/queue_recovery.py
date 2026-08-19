@@ -29,11 +29,17 @@ class QueueRecoveryResult:
 def recuperar_fila_legada_e_lotes_orfaos(
     conn: psycopg.Connection,
 ) -> QueueRecoveryResult:
-    """Normalize legacy queue states and reopen lots that still have work.
+    """Normalize legacy states, prune redundant open rows and reopen orphan lots.
 
     This function is idempotent. The worker calls it while holding the global
-    sender advisory lock. The two-hour repair service stops the worker before
+    sender advisory lock. The hourly repair service stops the worker before
     calling it, so a current Graph submission is never moved backwards.
+
+    Legacy queues can contain thousands of rows whose normalized email was
+    already submitted/delivered/bounced in another historical row, or repeated
+    multiple times inside the open queue. Pruning those rows in set-based SQL
+    avoids spending the sender loop on one query/commit per redundant recipient
+    and preserves the exact same global suppression semantics used by the worker.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -49,6 +55,72 @@ def recuperar_fila_legada_e_lotes_orfaos(
             """
         )
         normalized_legacy = cur.rowcount
+
+        cur.execute(
+            """
+            update mei_email.envios e
+               set status = 'descartado',
+                   erro = case
+                       when coalesce(e.erro, '') = '' then
+                           'recuperado: fila redundante ja suprimida/submetida'
+                       else e.erro || ' | recuperado: fila redundante ja suprimida/submetida'
+                   end
+             where e.status in ('pendente', 'enviando', 'pending', 'processing')
+               and (
+                   mei_email.is_email_suppressed(e.email)
+                   or exists (
+                       select 1
+                         from mei_email.envios h
+                        where h.id <> e.id
+                          and h.status in ('submitted', 'enviado', 'delivered', 'bounced')
+                          and lower(btrim(h.email::text)) = lower(btrim(e.email::text))
+                   )
+               )
+            """
+        )
+        discarded_already_suppressed = cur.rowcount
+
+        cur.execute(
+            """
+            with ranked as (
+                select id,
+                       row_number() over (
+                           partition by lower(btrim(email::text))
+                           order by criado_em, id
+                       ) as rn
+                  from mei_email.envios
+                 where status in ('pendente', 'enviando', 'pending', 'processing')
+            )
+            update mei_email.envios e
+               set status = 'descartado',
+                   erro = case
+                       when coalesce(e.erro, '') = '' then
+                           'recuperado: duplicata aberta de destinatario descartada'
+                       else e.erro || ' | recuperado: duplicata aberta de destinatario descartada'
+                   end
+              from ranked r
+             where r.id = e.id
+               and r.rn > 1
+            """
+        )
+        discarded_open_duplicates = cur.rowcount
+
+        cur.execute(
+            """
+            update mei_email.lotes l
+               set status = 'concluido',
+                   concluido_em = coalesce(l.concluido_em, now()),
+                   erro = null
+             where l.status = 'pendente'
+               and not exists (
+                   select 1
+                     from mei_email.envios e
+                    where e.lote_id = l.id
+                      and e.status in ('pendente', 'enviando', 'pending', 'processing')
+               )
+            """
+        )
+        closed_empty_lots = cur.rowcount
 
         cur.execute(
             """
@@ -90,6 +162,14 @@ def recuperar_fila_legada_e_lotes_orfaos(
         )
         reopened_lots = cur.rowcount
     conn.commit()
+
+    if discarded_already_suppressed or discarded_open_duplicates or closed_empty_lots:
+        logger.warning(
+            "QUEUE_BULK_PRUNE suppressed_or_sent=%d duplicate_open=%d empty_lots=%d",
+            discarded_already_suppressed,
+            discarded_open_duplicates,
+            closed_empty_lots,
+        )
 
     result = QueueRecoveryResult(
         normalized_legacy=normalized_legacy,
