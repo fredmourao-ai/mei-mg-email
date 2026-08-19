@@ -19,6 +19,10 @@ def test_queue_recovery_module_is_idempotent_and_refill_is_isolated():
     source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
     assert "recuperar_fila_legada_e_lotes_orfaos" in source
     assert "repor_fila_automatica_isolada" in source
+    assert "QUEUE_BULK_PRUNE" in source
+    assert "fila redundante ja suprimida/submetida" in source
+    assert "duplicata aberta de destinatario descartada" in source
+    assert "status in ('submitted', 'enviado', 'delivered', 'bounced')" in source
     assert "statement_timeout" in source
     assert "lock_timeout" in source
     assert "psycopg.connect(settings.database_url)" in source
