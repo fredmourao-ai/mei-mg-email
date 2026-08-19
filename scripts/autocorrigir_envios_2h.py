@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Two-hour fail-closed verification and repair for the MEI email sender.
+"""Hourly fail-closed verification and repair for the MEI email sender.
 
 The routine never bypasses the rolling quota and never removes a sender-block
 sentinel. It repairs only local queue invariants, restarts a stalled worker and
-persists before/after evidence for operations.
+persists before/after evidence for operations. A session advisory lock is held
+for the entire repair so overlapping timer/manual runs cannot race each other.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ import logging
 import os
 import subprocess
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -75,6 +77,34 @@ def _sentinel_active() -> bool:
     return CANONICAL_SENTINEL.is_file() or LEGACY_SENTINEL.is_file()
 
 
+@contextmanager
+def _repair_lock():
+    """Hold the global repair lock for the full execution lifetime."""
+    conn = psycopg.connect(settings.database_url)
+    acquired = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select pg_try_advisory_lock(%s)",
+                (QUEUE_REPAIR_ADVISORY_LOCK_ID,),
+            )
+            acquired = bool(cur.fetchone()[0])
+        if not acquired:
+            raise RuntimeError("another hourly repair is already active")
+        yield
+    finally:
+        if acquired:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "select pg_advisory_unlock(%s)",
+                        (QUEUE_REPAIR_ADVISORY_LOCK_ID,),
+                    )
+            except Exception:
+                logger.exception("failed to explicitly release repair advisory lock")
+        conn.close()
+
+
 def _collect(conn: psycopg.Connection) -> dict:
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
@@ -88,6 +118,10 @@ def _collect(conn: psycopg.Connection) -> dict:
                 where status in ('submitted', 'enviado')
                   and enviado_em >= now() - interval '20 minutes'
               ) as sent_20m,
+              count(*) filter (
+                where status in ('submitted', 'enviado')
+                  and enviado_em >= now() - make_interval(mins => %s)
+              ) as sent_stall_window,
               max(enviado_em) filter (
                 where status in ('submitted', 'enviado')
               ) as last_sent_at,
@@ -102,7 +136,8 @@ def _collect(conn: psycopg.Connection) -> dict:
                   and criado_em >= now() - interval '24 hours'
               ) as sender_blocked_24h
             from mei_email.envios
-            """
+            """,
+            (STALL_MINUTES,),
         )
         row = dict(cur.fetchone())
 
@@ -132,9 +167,37 @@ def _collect(conn: psycopg.Connection) -> dict:
         )
         row["orphan_lots"] = int(cur.fetchone()["orphan_lots"] or 0)
 
+        cur.execute(
+            """
+            select to_regclass('mei_email.envios_externos_cota') is not null as exists
+            """
+        )
+        external_ledger_exists = bool(cur.fetchone()["exists"])
+        external_sent_24h = 0
+        external_last_sent_at = None
+        if external_ledger_exists:
+            cur.execute(
+                """
+                select
+                  count(*) filter (
+                    where sent_at >= now() - interval '24 hours'
+                  ) as sent_24h,
+                  max(sent_at) as last_sent_at
+                from mei_email.envios_externos_cota
+                """
+            )
+            external = dict(cur.fetchone())
+            external_sent_24h = int(external.get("sent_24h") or 0)
+            external_last_sent_at = external.get("last_sent_at")
+
+    queue_sent_24h = int(row.get("sent_24h") or 0)
+    row["queue_sent_24h"] = queue_sent_24h
+    row["external_sent_24h"] = external_sent_24h
+    row["sent_24h"] = queue_sent_24h + external_sent_24h
+
     for key in (
-        "sent_24h",
         "sent_20m",
+        "sent_stall_window",
         "open_queue",
         "legacy_open",
         "sender_blocked_24h",
@@ -142,6 +205,9 @@ def _collect(conn: psycopg.Connection) -> dict:
         row[key] = int(row.get(key) or 0)
     if row.get("last_sent_at") is not None:
         row["last_sent_at"] = row["last_sent_at"].isoformat()
+    row["external_last_sent_at"] = (
+        external_last_sent_at.isoformat() if external_last_sent_at is not None else None
+    )
     return row
 
 
@@ -184,25 +250,18 @@ def _persist(payload: dict) -> None:
     tmp.replace(STATE_PATH)
 
 
-def execute(*, apply: bool) -> dict:
+def _execute_locked(*, apply: bool) -> dict:
     checked_at = datetime.now(timezone.utc).isoformat()
     worker_before = _worker_state()
 
     with psycopg.connect(settings.database_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "select pg_try_advisory_lock(%s)",
-                (QUEUE_REPAIR_ADVISORY_LOCK_ID,),
-            )
-            if not bool(cur.fetchone()[0]):
-                raise RuntimeError("another two-hour repair is already active")
         before = _collect(conn)
 
     quota_available = before["sent_24h"] < settings.meta_envios_por_dia
     stalled = (
         quota_available
         and before["open_queue"] > 0
-        and before["sent_20m"] == 0
+        and before["sent_stall_window"] == 0
     )
     queue_broken = before["legacy_open"] > 0 or before["orphan_lots"] > 0
     worker_broken = worker_before != "active"
@@ -216,6 +275,7 @@ def execute(*, apply: bool) -> dict:
             "target_24h": settings.meta_envios_por_dia,
             "hard_cap_24h": settings.max_envios_por_dia,
             "rate_per_minute": settings.rate_limit_envios_por_minuto,
+            "stall_minutes": STALL_MINUTES,
         },
         "worker_before": worker_before,
         "before": before,
@@ -289,7 +349,7 @@ def execute(*, apply: bool) -> dict:
     elif (
         after["sent_24h"] < settings.meta_envios_por_dia
         and after["open_queue"] > 0
-        and after["sent_20m"] == 0
+        and after["sent_stall_window"] == 0
     ):
         payload["result"] = "failed_still_stalled"
     else:
@@ -299,6 +359,11 @@ def execute(*, apply: bool) -> dict:
     if payload["result"].startswith("failed"):
         raise RuntimeError(payload["result"])
     return payload
+
+
+def execute(*, apply: bool) -> dict:
+    with _repair_lock():
+        return _execute_locked(apply=apply)
 
 
 def main() -> int:
