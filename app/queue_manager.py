@@ -109,8 +109,11 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             quantidade + AUTOQUEUE_CANDIDATE_MIN_EXTRA,
         )
 
-        # V029 contains the cheap MEI/MG/authorized/verified/not-sent universe.
-        # The LIMIT is applied before syntax, suppression and global dedupe.
+        # Bound the candidate pool only after excluding CNPJs/emails already
+        # present in send history. Submitted Graph rows intentionally do not
+        # set empresas.enviado, so applying LIMIT before these NOT EXISTS
+        # checks can repeatedly select the same historical prefix and starve
+        # the autoqueue even when eligible recipients exist later in the table.
         cur.execute(
             """
             with base as materialized (
@@ -125,6 +128,25 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and e.enviado = false
                    and e.marketing_autorizado = true
                    and e.mei_verificado = true
+                   and not exists (
+                       select 1
+                         from mei_email.envios x
+                        where x.cnpj = e.cnpj
+                          and x.status in (
+                              'pendente', 'enviando', 'pending', 'processing',
+                              'submitted', 'enviado', 'delivered', 'bounced'
+                          )
+                   )
+                   and not exists (
+                       select 1
+                         from mei_email.envios x
+                        where lower(btrim(x.email::text)) =
+                              lower(btrim(e.email::text))
+                          and x.status in (
+                              'pendente', 'enviando', 'pending', 'processing',
+                              'submitted', 'enviado', 'delivered', 'bounced'
+                          )
+                   )
                  order by e.cnpj
                  limit %s
             ),
