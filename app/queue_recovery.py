@@ -71,7 +71,9 @@ def recuperar_fila_legada_e_lotes_orfaos(
         cur.execute(
             """
             update mei_email.envios e
-               set status = case when emp.opt_out then 'opt_out' else 'bloqueado' end,
+               set status = (
+                       case when emp.opt_out then 'opt_out' else 'bloqueado' end
+                   )::mei_email.status_envio,
                    erro = case
                        when coalesce(e.erro, '') = '' then
                            'recuperado: fila aberta tornou-se inelegivel antes do envio'

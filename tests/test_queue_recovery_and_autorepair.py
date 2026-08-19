@@ -28,6 +28,12 @@ def test_queue_recovery_module_is_idempotent_and_refill_is_isolated():
     assert "psycopg.connect(settings.database_url)" in source
 
 
+def test_ineligible_prune_casts_case_to_status_enum():
+    source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
+    normalized = " ".join(source.split())
+    assert "case when emp.opt_out then 'opt_out' else 'bloqueado' end )::mei_email.status_envio" in normalized
+
+
 def test_queue_first_consumes_and_recovers_before_refill():
     source = (ROOT / "worker" / "worker_queue_first.py").read_text(encoding="utf-8")
     consume = source.index("_processar_se_disponivel(conn, provider)")
