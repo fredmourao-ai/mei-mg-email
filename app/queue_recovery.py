@@ -20,26 +20,38 @@ class QueueRecoveryResult:
     normalized_legacy: int
     recovered_stale_sending: int
     reopened_lots: int
+    discarded_ineligible: int = 0
+    discarded_already_suppressed: int = 0
+    discarded_open_duplicates: int = 0
+    closed_empty_lots: int = 0
 
     @property
     def changed(self) -> int:
-        return self.normalized_legacy + self.recovered_stale_sending + self.reopened_lots
+        return (
+            self.normalized_legacy
+            + self.recovered_stale_sending
+            + self.reopened_lots
+            + self.discarded_ineligible
+            + self.discarded_already_suppressed
+            + self.discarded_open_duplicates
+            + self.closed_empty_lots
+        )
 
 
 def recuperar_fila_legada_e_lotes_orfaos(
     conn: psycopg.Connection,
 ) -> QueueRecoveryResult:
-    """Normalize legacy states, prune redundant open rows and reopen orphan lots.
+    """Normalize legacy states, prune ineligible/redundant rows and reopen lots.
 
     This function is idempotent. The worker calls it while holding the global
     sender advisory lock. The hourly repair service stops the worker before
     calling it, so a current Graph submission is never moved backwards.
 
-    Legacy queues can contain thousands of rows whose normalized email was
-    already submitted/delivered/bounced in another historical row, or repeated
-    multiple times inside the open queue. Pruning those rows in set-based SQL
-    avoids spending the sender loop on one query/commit per redundant recipient
-    and preserves the exact same global suppression semantics used by the worker.
+    Legacy queues can contain thousands of rows that are no longer eligible,
+    were already suppressed/submitted, or are duplicates. Pruning those rows
+    in set-based SQL avoids spending the sender loop on one query/commit per
+    blocked recipient while preserving the exact same consent, opt-out and
+    suppression semantics enforced by the worker.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -55,6 +67,30 @@ def recuperar_fila_legada_e_lotes_orfaos(
             """
         )
         normalized_legacy = cur.rowcount
+
+        cur.execute(
+            """
+            update mei_email.envios e
+               set status = case when emp.opt_out then 'opt_out' else 'bloqueado' end,
+                   erro = case
+                       when coalesce(e.erro, '') = '' then
+                           'recuperado: fila aberta tornou-se inelegivel antes do envio'
+                       else e.erro || ' | recuperado: fila aberta tornou-se inelegivel antes do envio'
+                   end
+              from mei_email.empresas emp
+             where emp.cnpj = e.cnpj
+               and e.status in ('pendente', 'enviando', 'pending', 'processing')
+               and (
+                   emp.opt_out = true
+                   or emp.situacao_cadastral <> 'ATIVA'
+                   or emp.provavel_terceiro = true
+                   or emp.marketing_autorizado = false
+                   or emp.mei_verificado = false
+                   or not mei_email.is_valid_email_address(e.email)
+               )
+            """
+        )
+        discarded_ineligible = cur.rowcount
 
         cur.execute(
             """
@@ -163,9 +199,15 @@ def recuperar_fila_legada_e_lotes_orfaos(
         reopened_lots = cur.rowcount
     conn.commit()
 
-    if discarded_already_suppressed or discarded_open_duplicates or closed_empty_lots:
+    if (
+        discarded_ineligible
+        or discarded_already_suppressed
+        or discarded_open_duplicates
+        or closed_empty_lots
+    ):
         logger.warning(
-            "QUEUE_BULK_PRUNE suppressed_or_sent=%d duplicate_open=%d empty_lots=%d",
+            "QUEUE_BULK_PRUNE ineligible=%d suppressed_or_sent=%d duplicate_open=%d empty_lots=%d",
+            discarded_ineligible,
             discarded_already_suppressed,
             discarded_open_duplicates,
             closed_empty_lots,
@@ -175,13 +217,18 @@ def recuperar_fila_legada_e_lotes_orfaos(
         normalized_legacy=normalized_legacy,
         recovered_stale_sending=recovered_stale_sending,
         reopened_lots=reopened_lots,
+        discarded_ineligible=discarded_ineligible,
+        discarded_already_suppressed=discarded_already_suppressed,
+        discarded_open_duplicates=discarded_open_duplicates,
+        closed_empty_lots=closed_empty_lots,
     )
     if result.changed:
         logger.warning(
-            "QUEUE_RECOVERY normalized_legacy=%d stale_sending=%d reopened_lots=%d",
+            "QUEUE_RECOVERY normalized_legacy=%d stale_sending=%d reopened_lots=%d total_changes=%d",
             result.normalized_legacy,
             result.recovered_stale_sending,
             result.reopened_lots,
+            result.changed,
         )
     return result
 
