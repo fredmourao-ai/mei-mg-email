@@ -63,3 +63,27 @@ def test_historical_sender_block_is_telemetry_not_current_circuit_breaker():
     assert '"historical_sender_blocked_24h"' in source
     assert "if sentinel_active:" in source
     assert 'or before["sender_blocked_24h"] > 0' not in source
+
+
+def test_hourly_autorepair_holds_global_lock_for_entire_execution():
+    source = (ROOT / "scripts" / "autocorrigir_envios_2h.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _repair_lock():" in source
+    assert "pg_try_advisory_lock" in source
+    assert "pg_advisory_unlock" in source
+    assert "with _repair_lock():" in source
+    assert "another hourly repair is already active" in source
+
+
+def test_hourly_autorepair_uses_total_quota_but_worker_progress_for_stall():
+    source = (ROOT / "scripts" / "autocorrigir_envios_2h.py").read_text(
+        encoding="utf-8"
+    )
+    assert "envios_externos_cota" in source
+    assert 'row["queue_sent_24h"]' in source
+    assert 'row["external_sent_24h"]' in source
+    assert 'row["sent_24h"] = queue_sent_24h + external_sent_24h' in source
+    assert "make_interval(mins => %s)" in source
+    assert 'before["sent_stall_window"] == 0' in source
+    assert 'after["sent_stall_window"] == 0' in source
