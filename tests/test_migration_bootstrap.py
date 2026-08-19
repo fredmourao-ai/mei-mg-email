@@ -12,6 +12,13 @@ def test_suppression_callback_satisfies_historical_v019_dependency():
     assert "idx_email_suppressions_lookup" in callback
     assert "uq_email_suppressions_active_scope_value" in callback
 
+    # O callback roda antes de cada Flyway migrate. Ele nao pode regredir a
+    # funcao indexavel introduzida pela V027, senao a elegibilidade volta a
+    # aplicar funcoes sobre a coluna e pode exceder statement_timeout.
+    assert "lower(btrim(s.value::text))" not in callback
+    assert "s.value = lower(btrim(p_email::text))::public.citext" in callback
+    assert "s.value = split_part(lower(btrim(p_email::text)), '@', 2)::public.citext" in callback
+
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8").casefold()
     assert "./db/migrations:/flyway/sql:ro" in compose
     assert "callbacklocations" not in compose
@@ -20,6 +27,17 @@ def test_suppression_callback_satisfies_historical_v019_dependency():
         encoding="utf-8"
     ).casefold()
     assert "not mei_email.is_email_suppressed(e.email)" in v019
+
+
+def test_v039_repairs_callback_suppression_lookup_in_existing_databases():
+    migration = (
+        ROOT / "db" / "migrations" / "V039__restore_indexed_suppression_lookup_after_callback.sql"
+    ).read_text(encoding="utf-8").casefold()
+    assert "create or replace function mei_email.is_email_suppressed" in migration
+    assert "idx_email_suppressions_lookup" in migration
+    assert "lower(btrim(s.value::text))" not in migration
+    assert "s.value = lower(btrim(p_email::text))::public.citext" in migration
+    assert "s.value = split_part(lower(btrim(p_email::text)), '@', 2)::public.citext" in migration
 
 
 def test_status_enum_callback_recreates_production_v019_prerequisites():
