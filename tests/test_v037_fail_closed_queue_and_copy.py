@@ -40,7 +40,7 @@ def test_v038_prevents_legacy_copy_from_being_reintroduced():
     assert "set marketing_autorizado = true" not in sql
 
 
-def test_v038_enforces_live_eligibility_when_open_work_is_written():
+def test_v038_enforces_live_eligibility_and_global_anti_replay():
     sql = MIGRATION_V038.read_text(encoding="utf-8").casefold()
     required = (
         "enforce_envio_live_eligibility",
@@ -53,6 +53,9 @@ def test_v038_enforces_live_eligibility_when_open_work_is_written():
         "is_valid_email_address",
         "is_email_suppressed",
         "is_cnpj_suppressed",
+        "lower(btrim(prior.email::text)) = lower(btrim(new.email::text))",
+        "prior.status::text in ('submitted', 'enviado', 'delivered')",
+        "destinatario ja submetido/entregue",
         "new.status := 'bloqueado'::status_envio",
         "::status_lote",
     )
