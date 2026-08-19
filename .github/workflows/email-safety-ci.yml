@@ -100,6 +100,7 @@ jobs:
             tests/test_worker_safety.py \
             tests/test_queue_replenisher.py \
             tests/test_queue_recovery_and_autorepair.py \
+            tests/test_dispatch_replay_guard.py \
             tests/test_monitor_operacao.py \
             tests/test_sender_blocked_circuit.py \
             tests/test_ndr_guard.py \
