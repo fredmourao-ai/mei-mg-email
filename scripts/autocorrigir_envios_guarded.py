@@ -25,8 +25,7 @@ def main() -> int:
             logger.critical(
                 "autorepair ended with sender-block sentinel active; worker remains fail-closed"
             )
-            return
-        if core._worker_state() != "active":
+        elif core._worker_state() != "active":
             logger.error(
                 "autorepair left worker inactive without sender-block sentinel; restoring worker"
             )
