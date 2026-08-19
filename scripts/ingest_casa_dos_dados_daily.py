@@ -5,12 +5,12 @@ A rotina consulta apenas empresas ATIVAS, em MG, indicadas pela fonte como
 optantes MEI e com e-mail, usando uma janela sobreposta de dias para tolerar
 atrasos de publicacao.
 
-Politica operacional confirmada pelo operador em 2026-08-13: toda linha
-processada por esta importacao e gravada explicitamente com
-marketing_autorizado=true e mei_verificado=true, com origem auditavel
-`politica_importacao_operador_2026-08-13`. O opt_out continua sendo preservado
-e permanece soberano para impedir envio. Os campos enviado/enviado_em e o
-historico de envio tambem nao sao sobrescritos pelo UPSERT.
+Uma base publica de CNPJ comprova apenas a existencia do cadastro e do contato;
+ela nao comprova opt-in para comunicacao comercial. Por isso novas linhas desta
+fonte entram com ``marketing_autorizado=false``. Um UPSERT tambem nunca eleva
+essa flag: eventual autorizacao comercial existente e preservada, mas precisa
+ter sido obtida por um fluxo independente e auditavel. O opt_out permanece
+soberano e os campos enviado/enviado_em nao sao sobrescritos.
 
 Esta rotina NAO cria campanhas e NAO inicia o worker de e-mail.
 """
@@ -44,7 +44,7 @@ TIMEOUT_SECONDS = max(int(os.getenv("CASA_DOS_DADOS_TIMEOUT_SECONDS", "45")), 5)
 TZ = ZoneInfo(os.getenv("CNPJ_DAILY_TIMEZONE", "America/Sao_Paulo"))
 CNPJ_RE = re.compile(r"^[0-9A-Z]{12}[0-9]{2}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-IMPORT_POLICY_ORIGIN = "politica_importacao_operador_2026-08-13"
+PUBLIC_BASE_ORIGIN = "base_publica_sem_opt_in"
 
 
 def normalize_cnpj(value: object) -> str | None:
@@ -210,8 +210,8 @@ def upsert_companies(conn, companies: list[dict]) -> tuple[int, int]:
                 (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s, %(situacao_cadastral)s,
                  %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s, %(data_abertura)s,
                  %(tipo_regime)s, %(provavel_terceiro)s,
-                 true, now(), 'politica_importacao_operador_2026-08-13',
-                 true, now(), 'politica_importacao_operador_2026-08-13')
+                 false, null, 'base_publica_sem_opt_in',
+                 true, now(), 'casa_dos_dados_mei_verificado')
             on conflict (cnpj) do update set
                 razao_social = coalesce(excluded.razao_social, mei_email.empresas.razao_social),
                 nome_fantasia = coalesce(excluded.nome_fantasia, mei_email.empresas.nome_fantasia),
@@ -228,12 +228,12 @@ def upsert_companies(conn, companies: list[dict]) -> tuple[int, int]:
                     when mei_email.empresas.tipo_regime = 'MEI' then 'MEI'
                     else excluded.tipo_regime
                 end,
-                marketing_autorizado = true,
-                marketing_autorizado_em = coalesce(mei_email.empresas.marketing_autorizado_em, now()),
-                marketing_autorizado_origem = 'politica_importacao_operador_2026-08-13',
+                marketing_autorizado = mei_email.empresas.marketing_autorizado,
+                marketing_autorizado_em = mei_email.empresas.marketing_autorizado_em,
+                marketing_autorizado_origem = mei_email.empresas.marketing_autorizado_origem,
                 mei_verificado = true,
                 mei_verificado_em = coalesce(mei_email.empresas.mei_verificado_em, now()),
-                mei_verificado_origem = 'politica_importacao_operador_2026-08-13'
+                mei_verificado_origem = coalesce(mei_email.empresas.mei_verificado_origem, 'casa_dos_dados_mei_verificado')
             """,
             companies,
         )
@@ -287,7 +287,7 @@ def main() -> int:
         "updated": 0,
         "invalid": 0,
         "shared_email_marks": 0,
-        "marketing_policy": IMPORT_POLICY_ORIGIN,
+        "marketing_policy": PUBLIC_BASE_ORIGIN,
     }
 
     database_url = os.environ["DATABASE_URL"]
@@ -337,7 +337,7 @@ def main() -> int:
     print("CASA_DOS_DADOS_STATUS=success", flush=True)
     print("CASA_DOS_DADOS_RESULT=" + json.dumps(stats, ensure_ascii=False, sort_keys=True), flush=True)
     print(
-        "POLICY=marketing_autorizado_true,mei_verificado_true;opt_out_preservado;enviado_preservado;worker_nao_iniciado",
+        "POLICY=base_publica_nao_concede_opt_in;mei_verificado_true;opt_out_preservado;autorizacao_existente_preservada;worker_nao_iniciado",
         flush=True,
     )
     return 0
