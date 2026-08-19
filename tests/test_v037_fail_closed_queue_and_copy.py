@@ -24,6 +24,7 @@ def test_v037_blocks_open_rows_that_lost_live_eligibility():
         "is_valid_email_address",
         "is_email_suppressed",
         "is_cnpj_suppressed",
+        "::status_lote",
     )
     for token in required:
         assert token in sql
@@ -52,7 +53,8 @@ def test_v038_enforces_live_eligibility_when_open_work_is_written():
         "is_valid_email_address",
         "is_email_suppressed",
         "is_cnpj_suppressed",
-        "new.status := 'bloqueado'",
+        "new.status := 'bloqueado'::status_envio",
+        "::status_lote",
     )
     for token in required:
         assert token in sql
