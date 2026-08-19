@@ -4,6 +4,12 @@ Evita que uma consulta de reposicao lenta bloqueie milhares de envios ja
 prontos. A reposicao ocorre em outra conexao, com timeout, somente depois de
 recuperar estados legados e lotes orfaos. Enderecos com sintaxe invalida sao
 suprimidos e removidos antes de qualquer chamada ao Graph.
+
+Antes de chamar o Graph, cada envio e persistido como ``enviando``. Isso fecha
+a janela de duplicidade em que o Graph podia aceitar a mensagem e o processo
+morrer antes de gravar ``submitted``. A migration V034 trata uma recuperacao
+de ``enviando`` marcada por este worker como entrega de resultado incerto e a
+contabiliza conservadoramente como ``submitted``, em vez de reenviar.
 """
 from __future__ import annotations
 
@@ -26,12 +32,11 @@ from worker.worker import (
     _sender_blocked_pause_ativo,
     logger,
     pegar_proximo_lote,
-    processar_lote,
     recuperar_lotes_travados,
 )
 
 # One canonical circuit-breaker path is shared by the worker, monitor and
-# two-hour auto-repair service. Keep the legacy repository path read-only as a
+# hourly auto-repair service. Keep the legacy repository path read-only as a
 # second safety signal during the transition.
 SENDER_BLOCK_SENTINEL = Path(
     os.getenv(
@@ -120,8 +125,8 @@ def _ja_submetido_ou_entregue_indexado(
         return False
 
 
-# processar_lote is defined in worker.worker. Replacing these module globals
-# preserves all safety checks while using indexed paths.
+# processar_lote is defined locally below. Replacing these module globals
+# preserves all remaining safety checks while using indexed paths.
 base_worker.obter_envios_ultimas_24h = _obter_envios_ultimas_24h_indexado
 base_worker._ja_submetido_ou_entregue = _ja_submetido_ou_entregue_indexado
 
@@ -169,6 +174,232 @@ def _purgar_invalidos_do_lote(conn: psycopg.Connection, lote_id) -> int:
             len(invalidos),
         )
     return len(invalidos)
+
+
+def _marcar_envio_em_transito(conn: psycopg.Connection, envio_id) -> None:
+    """Persist a durable pre-send checkpoint before the external side effect.
+
+    A Graph ``202`` and the database commit cannot be made atomic. Persisting
+    ``enviando`` first turns a process crash into an explicit uncertain state,
+    instead of leaving a ``pendente`` row that could be sent again blindly.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update mei_email.envios
+               set status = 'enviando',
+                   erro = 'dispatch_started: aguardando resultado do Microsoft Graph'
+             where id = %s
+               and status = 'pendente'
+            """,
+            (envio_id,),
+        )
+        if cur.rowcount != 1:
+            raise RuntimeError(
+                f"envio {envio_id} deixou de estar pendente antes do checkpoint"
+            )
+    conn.commit()
+
+
+def _empresa_para_template(envio: dict) -> dict:
+    """Avoid an empty greeting without inventing company data."""
+    render = dict(envio)
+    nome = (render.get("nome_fantasia") or "").strip()
+    razao = (render.get("razao_social") or "").strip()
+    render["nome_fantasia"] = nome or razao or "empreendedor(a)"
+    render["razao_social"] = razao or nome or "empreendedor(a)"
+    return render
+
+
+def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
+    """Process a lot with a durable pre-send checkpoint and all base guards."""
+    intervalo_entre_envios = 60.0 / max(settings.rate_limit_envios_por_minuto, 1)
+    limite_24h = base_worker.limite_operacional_24h()
+
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            select e.id as envio_id, e.cnpj, e.email, e.tentativas,
+                   c.assunto, c.corpo_template,
+                   emp.razao_social, emp.nome_fantasia,
+                   emp.opt_out, emp.situacao_cadastral,
+                   emp.provavel_terceiro, emp.marketing_autorizado
+              from mei_email.envios e
+              join mei_email.campanhas c on c.id = e.campanha_id
+              join mei_email.empresas emp on emp.cnpj = e.cnpj
+             where e.lote_id = %s
+               and e.status = 'pendente'
+             order by e.criado_em
+            """,
+            (lote["id"],),
+        )
+        envios = cur.fetchall()
+
+    submetidos = 0
+    falhas = 0
+
+    for envio in envios:
+        envios_24h = _obter_envios_ultimas_24h_indexado(conn)
+        if envios_24h >= limite_24h:
+            base_worker._registrar_falhas_campanha(
+                conn, lote["campanha_id"], falhas
+            )
+            base_worker._recolocar_lote_pendente(
+                conn,
+                lote["id"],
+                f"meta movel de 24h atingida: {envios_24h}/{limite_24h}",
+            )
+            logger.warning(
+                "Meta movel de 24h atingida: %d/%d. Lote %s devolvido para a fila.",
+                envios_24h,
+                limite_24h,
+                lote["id"],
+            )
+            return
+
+        if envio["opt_out"]:
+            base_worker._atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "opt_out",
+                erro="opt-out registrado apos enfileiramento",
+            )
+            continue
+
+        if envio["situacao_cadastral"] != "ATIVA":
+            base_worker._atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "bloqueado",
+                erro="empresa deixou de estar ATIVA apos enfileiramento",
+            )
+            continue
+
+        if envio["provavel_terceiro"]:
+            base_worker._atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "bloqueado",
+                erro="contato marcado como provavel terceiro apos enfileiramento",
+            )
+            continue
+
+        if not envio["marketing_autorizado"]:
+            base_worker._atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "bloqueado",
+                erro="comunicacao comercial nao autorizada no cadastro",
+            )
+            continue
+
+        if _ja_submetido_ou_entregue_indexado(
+            conn, envio["envio_id"], envio["email"]
+        ):
+            base_worker._atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "descartado",
+                erro="supressao global: destinatario ja submitted/enviado anteriormente",
+            )
+            continue
+
+        corpo = base_worker.montar_corpo(
+            envio["corpo_template"], _empresa_para_template(envio)
+        )
+        _marcar_envio_em_transito(conn, envio["envio_id"])
+        resultado = provider.send(
+            to=envio["email"], subject=envio["assunto"], body=corpo
+        )
+
+        if resultado.success:
+            provider_status = getattr(resultado, "status", None)
+            if provider_status != "submitted":
+                raise RuntimeError(
+                    f"status Graph inesperado apos sendMail: {provider_status!r}"
+                )
+            base_worker._atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "submitted",
+                provider_message_id=resultado.message_id,
+            )
+            submetidos += 1
+        elif getattr(resultado, "status", None) == "sender_blocked":
+            base_worker._atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "sender_blocked",
+                erro=resultado.error,
+            )
+            falhas += 1
+            base_worker._registrar_falhas_campanha(
+                conn, lote["campanha_id"], falhas
+            )
+            base_worker._recolocar_lote_pendente(
+                conn,
+                lote["id"],
+                f"sender_blocked; circuito aberto: {resultado.error or 'sem detalhe'}",
+            )
+            base_worker._registrar_sender_blocked_pause(resultado.error)
+            logger.critical(
+                "SENDER_BLOCKED: circuito persistente aberto em %s. Nenhum novo envio sera tentado ate recuperacao verificada no Exchange.",
+                base_worker.SENDER_BLOCK_SENTINEL,
+            )
+            return
+        elif (
+            base_worker._erro_transitorio(resultado.error)
+            and envio["tentativas"] + 1 < base_worker.MAX_TENTATIVAS_TRANSITORIAS
+        ):
+            base_worker._atualizar_envio(
+                conn, envio["envio_id"], "pendente", erro=resultado.error
+            )
+            base_worker._registrar_falhas_campanha(
+                conn, lote["campanha_id"], falhas
+            )
+            base_worker._recolocar_lote_pendente(
+                conn,
+                lote["id"],
+                f"falha transitoria; envio sera tentado novamente: {resultado.error or 'sem detalhe'}",
+            )
+            backoff_local = max(10.0, intervalo_entre_envios * 5)
+            retry_after = getattr(resultado, "retry_after_seconds", None)
+            espera = max(backoff_local, float(retry_after or 0))
+            logger.warning(
+                "Falha transitoria no envio %s; lote %s reprogramado. Aguarda %.1fs antes de nova tentativa.",
+                envio["envio_id"],
+                lote["id"],
+                espera,
+            )
+            time.sleep(espera)
+            return
+        else:
+            base_worker._atualizar_envio(
+                conn, envio["envio_id"], "falhou", erro=resultado.error
+            )
+            falhas += 1
+
+        time.sleep(intervalo_entre_envios)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update mei_email.lotes
+               set status = 'concluido', concluido_em = now(), erro = null
+             where id = %s
+            """,
+            (lote["id"],),
+        )
+    conn.commit()
+    base_worker._registrar_falhas_campanha(conn, lote["campanha_id"], falhas)
+
+    logger.info(
+        "Lote %s (campanha %s) concluido: %d submitted, %d falhas",
+        lote["numero"],
+        lote["campanha_id"],
+        submetidos,
+        falhas,
+    )
 
 
 def _processar_se_disponivel(conn: psycopg.Connection, provider) -> bool:
