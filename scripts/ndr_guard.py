@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Circuit breaker assíncrono para NDRs de bloqueio do remetente.
+"""Circuit breaker assíncrono para NDRs do remetente e hard bounces.
 
 O Microsoft Graph sendMail pode responder HTTP 202 e o Exchange gerar um NDR
-segundos depois. Este processo observa a caixa do remetente via Graph Mail.Read
-e abre o mesmo sentinel usado pelo worker quando encontra AS(42004), 5.1.8 ou
-mensagem equivalente de bad/restricted outbound sender.
+segundos depois. Este processo observa a caixa do remetente via Graph Mail.Read.
+
+Dois comportamentos são deliberadamente separados:
+* bloqueio sistêmico do remetente (AS(42004), 5.1.8 etc.) abre o sentinel e
+  interrompe globalmente os envios;
+* falha permanente de um destinatário individual registra hard-bounce na
+  suppression list e deixa os demais destinatários autorizados seguirem.
+
+Para evitar suprimir o endereço errado, um hard-bounce só é persistido quando
+existe exatamente um endereço no NDR que já consta como suppression ativa de
+um envio anterior. O message id do NDR é preservado como source_ref.
 
 Este processo nunca envia e-mail e nunca remove a pausa automaticamente.
 """
@@ -13,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,11 +29,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
+import psycopg
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
+from app.config import settings
 from app.email_provider import MicrosoftGraphEmailProvider
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -44,10 +55,52 @@ BLOCK_MARKERS = (
     "address was not recognized as a valid sender",
 )
 
+# Keep this intentionally narrow. Generic 5.7.x policy/reputation rejections and
+# routing loops are not automatically converted into permanent recipient
+# suppressions because they can be transient or domain-wide operational issues.
+PERMANENT_RECIPIENT_MARKERS = (
+    "550 5.1.1",
+    "5.1.10",
+    "recipient address rejected: user unknown",
+    "recipient not found",
+    "mailbox not found",
+    "address not found",
+    "user unknown",
+    "no such user",
+    "recipient does not exist",
+    "email account that you tried to reach does not exist",
+    "domain does not exist",
+    "domain not found",
+    "host or domain name not found",
+)
+
+EMAIL_RE = re.compile(r"(?i)(?<![A-Z0-9._%+-])([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})(?![A-Z0-9._%+-])")
+
 
 def contains_sender_blocked_marker(text: str | None) -> bool:
     normalized = (text or "").casefold()
     return any(marker in normalized for marker in BLOCK_MARKERS)
+
+
+def is_permanent_recipient_ndr(text: str | None) -> bool:
+    normalized = (text or "").casefold()
+    if contains_sender_blocked_marker(normalized):
+        return False
+    return any(marker in normalized for marker in PERMANENT_RECIPIENT_MARKERS)
+
+
+def extract_email_addresses(text: str | None) -> list[str]:
+    """Extract normalized addresses from an NDR body without guessing targets."""
+    values = {
+        match.group(1).strip().casefold()
+        for match in EMAIL_RE.finditer(text or "")
+    }
+    return sorted(
+        value
+        for value in values
+        if not value.endswith("@invalid.local")
+        and not value.startswith("microsoftexchange")
+    )
 
 
 def looks_like_ndr(subject: str | None, preview: str | None = None) -> bool:
@@ -60,6 +113,7 @@ def looks_like_ndr(subject: str | None, preview: str | None = None) -> bool:
             "nao e possivel entregar",
             "delivery has failed",
             "delivery status notification",
+            "address not found",
             "suspected of sending spam",
         )
     )
@@ -130,6 +184,82 @@ def _full_message_text(provider: MicrosoftGraphEmailProvider, message_id: str) -
     )
 
 
+def _previously_sent_suppression_matches(
+    addresses: list[str], *, sender_address: str
+) -> list[str]:
+    normalized = sorted(
+        {
+            value.casefold()
+            for value in addresses
+            if value.casefold() != sender_address.casefold()
+        }
+    )
+    if not normalized:
+        return []
+    with psycopg.connect(settings.database_url, connect_timeout=10) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select lower(btrim(value::text))
+                  from mei_email.email_suppressions
+                 where active
+                   and scope = 'email'
+                   and lower(btrim(value::text)) = any(%s::text[])
+                """,
+                (normalized,),
+            )
+            return sorted({str(row[0]).casefold() for row in cur.fetchall()})
+
+
+def _record_permanent_recipient_suppression(
+    *,
+    provider: MicrosoftGraphEmailProvider,
+    message_id: str,
+    received_at: str | None,
+    text: str,
+) -> bool:
+    """Turn an unambiguous hard NDR into a durable technical suppression."""
+    if not is_permanent_recipient_ndr(text):
+        return False
+
+    candidates = extract_email_addresses(text)
+    matches = _previously_sent_suppression_matches(
+        candidates,
+        sender_address=provider.address,
+    )
+    if len(matches) != 1:
+        logger.warning(
+            "NDR_HARD_BOUNCE_NOT_SUPPRESSED ambiguous_match_count=%d message_id=%s",
+            len(matches),
+            message_id,
+        )
+        return False
+
+    recipient = matches[0]
+    with psycopg.connect(settings.database_url, connect_timeout=10) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select mei_email.register_operational_suppression(
+                    null,
+                    %s::public.citext,
+                    'hard_bounce',
+                    'async_ndr_graph_guard',
+                    %s,
+                    coalesce(%s::timestamptz, now())
+                )
+                """,
+                (recipient, message_id, received_at or None),
+            )
+        conn.commit()
+
+    logger.warning(
+        "NDR_HARD_BOUNCE_SUPPRESSED message_id=%s source=async_ndr_graph_guard",
+        message_id,
+    )
+    return True
+
+
 def _open_pause(*, message_id: str, received_at: str | None, detail: str) -> None:
     SENTINEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = (
@@ -150,6 +280,7 @@ def check_once(provider: MicrosoftGraphEmailProvider) -> bool:
     seen_set = set(str(value) for value in seen)
     messages = _recent_messages(provider)
     newly_seen: list[str] = []
+    hard_bounces_suppressed = int(state.get("hard_bounces_suppressed") or 0)
 
     for message in messages:
         message_id = str(message.get("id") or "")
@@ -161,32 +292,41 @@ def check_once(provider: MicrosoftGraphEmailProvider) -> bool:
         if not looks_like_ndr(subject, preview):
             continue
 
-        text = f"{subject}\n{preview}"
-        if not contains_sender_blocked_marker(text):
-            text = _full_message_text(provider, message_id)
-        if not contains_sender_blocked_marker(text):
-            continue
+        # Fetch the full NDR exactly once. Sender-block classification takes
+        # precedence over recipient-level suppression.
+        text = _full_message_text(provider, message_id)
+        if contains_sender_blocked_marker(text):
+            received_at = str(message.get("receivedDateTime") or "")
+            _open_pause(
+                message_id=message_id,
+                received_at=received_at,
+                detail="AS(42004)/5.1.8 sender restriction detected in asynchronous NDR",
+            )
+            logger.critical(
+                "NDR_GUARD_SENDER_BLOCKED sender=%s received_at=%s sentinel=%s",
+                provider.address,
+                received_at,
+                SENTINEL_PATH,
+            )
+            state["last_blocked_ndr_id"] = message_id
+            state["last_blocked_ndr_received_at"] = received_at
+            state["seen_ids"] = (newly_seen + seen)[:500]
+            state["hard_bounces_suppressed"] = hard_bounces_suppressed
+            _save_state(state)
+            return True
 
-        received_at = str(message.get("receivedDateTime") or "")
-        _open_pause(
+        if _record_permanent_recipient_suppression(
+            provider=provider,
             message_id=message_id,
-            received_at=received_at,
-            detail="AS(42004)/5.1.8 sender restriction detected in asynchronous NDR",
-        )
-        logger.critical(
-            "NDR_GUARD_SENDER_BLOCKED sender=%s received_at=%s sentinel=%s",
-            provider.address,
-            received_at,
-            SENTINEL_PATH,
-        )
-        state["last_blocked_ndr_id"] = message_id
-        state["last_blocked_ndr_received_at"] = received_at
-        state["seen_ids"] = (newly_seen + seen)[:500]
-        _save_state(state)
-        return True
+            received_at=str(message.get("receivedDateTime") or "") or None,
+            text=text,
+        ):
+            hard_bounces_suppressed += 1
+            state["last_hard_bounce_ndr_id"] = message_id
 
     if newly_seen:
         state["seen_ids"] = (newly_seen + seen)[:500]
+        state["hard_bounces_suppressed"] = hard_bounces_suppressed
         _save_state(state)
     return False
 
