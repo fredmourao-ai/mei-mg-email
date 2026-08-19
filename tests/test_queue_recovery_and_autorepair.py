@@ -28,10 +28,24 @@ def test_queue_recovery_module_is_idempotent_and_refill_is_isolated():
     assert "psycopg.connect(settings.database_url)" in source
 
 
+def test_queue_recovery_is_bounded_and_skips_locked_rows():
+    source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
+    normalized = " ".join(source.casefold().split())
+    assert "queue_recovery_batch_size = 500" in normalized
+    assert "queue_recovery_max_batches = 4" in normalized
+    assert "queue_recovery_statement_timeout_seconds = 30" in normalized
+    assert "queue_recovery_lock_timeout_seconds = 3" in normalized
+    assert "queue_recovery_deferred" in normalized
+    assert normalized.count("for update of e skip locked") >= 5
+    assert normalized.count("for update of l skip locked") >= 2
+    assert "conn.commit()" in source
+    assert "conn.rollback()" in source
+
+
 def test_ineligible_prune_casts_case_to_status_enum():
     source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
     normalized = " ".join(source.split())
-    assert "case when emp.opt_out then 'opt_out' else 'bloqueado' end )::mei_email.status_envio" in normalized
+    assert "case when t.opt_out then 'opt_out' else 'bloqueado' end )::mei_email.status_envio" in normalized
 
 
 def test_queue_first_consumes_and_recovers_before_refill():
