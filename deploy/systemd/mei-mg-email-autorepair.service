@@ -1,5 +1,5 @@
 [Unit]
-Description=MEI email two-hour verification and auto-repair
+Description=MEI email hourly verification and auto-repair
 After=network-online.target docker.service mei-mg-email-worker.service
 Wants=network-online.target
 
