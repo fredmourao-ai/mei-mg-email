@@ -74,6 +74,16 @@ def test_autoqueue_bounds_deduplication_pool_before_window_function():
     assert "AUTOQUEUE_CANDIDATE_OVERSAMPLE = 4" in manager
 
 
+def test_autoqueue_excludes_send_history_before_candidate_limit():
+    manager = (ROOT / "app" / "queue_manager.py").read_text(encoding="utf-8")
+    base_start = manager.index("with base as materialized")
+    first_limit = manager.index("limit %s", base_start)
+    first_history_guard = manager.index("and not exists (", base_start)
+    submitted_status = manager.index("'submitted', 'enviado', 'delivered', 'bounced'", base_start)
+    assert first_history_guard < first_limit
+    assert submitted_status < first_limit
+
+
 def test_queue_depth_uses_actual_open_messages_and_nonblocking_lock():
     manager = (ROOT / "app" / "queue_manager.py").read_text(encoding="utf-8")
     assert "select count(*)" in manager
