@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Hourly production repair wrapper with an explicit empty-queue guard.
+"""Hourly production repair wrapper with fail-closed sender recovery.
 
-The core repair already recovers legacy states, orphan lots, stalled workers and
-sender-block fail-closed behavior. This wrapper closes one remaining blind spot:
-when the rolling total is below target and the queue is empty, a failed/deferred
-refill must not be reported as healthy. It retries only the existing bounded,
-consent-filtered replenisher and never removes a sender-block sentinel.
+The core repair recovers legacy states, orphan lots, stalled workers and queue
+refill failures. If a sender-block sentinel is present, this wrapper may invoke
+the dedicated stale-sentinel recovery probe before taking the repair lock. That
+probe is allowed to clear only a local stale sentinel after Exchange reports the
+sender unrestricted, a single internal Graph test is accepted, no blocking NDR
+appears during the observation window, Exchange still reports unrestricted, and
+the test is accounted in the rolling quota ledger. Any failed proof remains
+fail-closed.
 """
 from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import time
+from pathlib import Path
 
 import psycopg
 
@@ -24,6 +30,10 @@ EMPTY_QUEUE_RETRIES = min(
 EMPTY_QUEUE_RETRY_SECONDS = min(
     max(int(os.getenv("AUTOREPAIR_EMPTY_QUEUE_RETRY_SECONDS", "10")), 2),
     60,
+)
+SENDER_RECOVERY_TIMEOUT_SECONDS = min(
+    max(int(os.getenv("AUTOREPAIR_SENDER_RECOVERY_TIMEOUT_SECONDS", "540")), 180),
+    600,
 )
 
 
@@ -39,6 +49,36 @@ def _below_target_and_empty(state: dict) -> bool:
     )
 
 
+def _attempt_verified_stale_sender_recovery() -> None:
+    if not core._sentinel_active():
+        return
+    script = Path(__file__).resolve().with_name(
+        "recuperar_sender_block_sentinel.py"
+    )
+    completed = subprocess.run(
+        [sys.executable, str(script)],
+        cwd=core.BASE_DIR,
+        capture_output=True,
+        text=True,
+        timeout=SENDER_RECOVERY_TIMEOUT_SECONDS,
+        check=False,
+    )
+    output = ((completed.stdout or "") + "\n" + (completed.stderr or "")).strip()
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "verified stale sender recovery failed; keeping fail-closed sentinel: "
+            + output[-1800:]
+        )
+    if core._sentinel_active():
+        raise RuntimeError(
+            "verified stale sender recovery returned success but sentinel remains active"
+        )
+    if "SENDER_BLOCK_RECOVERY_VERIFIED=true" not in output:
+        raise RuntimeError(
+            "verified stale sender recovery lacked positive live proof marker"
+        )
+
+
 def _fail_if_sender_blocked(result: dict) -> None:
     if not core._sentinel_active():
         return
@@ -51,7 +91,13 @@ def _fail_if_sender_blocked(result: dict) -> None:
 
 
 def execute() -> dict:
-    # Hold the same global repair lock across the core pass and all bounded
+    # Sender recovery is deliberately outside the queue-repair advisory lock:
+    # its controlled Graph/NDR verification can take a few minutes and should
+    # not block queue invariant maintenance in another process. A surviving
+    # sentinel still prevents every send path.
+    _attempt_verified_stale_sender_recovery()
+
+    # Hold the global queue-repair lock across the core pass and all bounded
     # empty-queue retries. A manual repair cannot race this execution.
     with core._repair_lock():
         result = core._execute_locked(apply=True)
