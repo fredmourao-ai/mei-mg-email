@@ -1,6 +1,6 @@
 [Unit]
-Description=MEI email hourly verification and auto-repair
-After=network-online.target docker.service mei-mg-email-worker.service
+Description=MEI email 15-minute nonstop availability supervisor
+After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
@@ -8,9 +8,9 @@ Type=oneshot
 User=root
 WorkingDirectory=/home/ubuntu/mei-mg-email
 EnvironmentFile=-/home/ubuntu/mei-mg-email/.env
-ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/autocorrigir_envios_guarded.py
-TimeoutStartSec=10min
+ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/nonstop_supervisor_15m.py
+TimeoutStartSec=90
 Nice=5
-# If the repair itself hangs, systemd kills it; the guarded wrapper restores
-# the worker unless a real sender-block sentinel is present.
+# Never quiesce a healthy worker for routine verification. The only global
+# stop condition handled here is a current Microsoft sender-block sentinel.
 KillMode=mixed
