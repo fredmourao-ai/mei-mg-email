@@ -1,8 +1,9 @@
 """Indexed pre-send eligibility adapter for the production worker.
 
-The final live policy is intentionally independent from tax regime: authorized
-active contacts may be sent, while operationally unsafe recipients remain
-blocked. The checks here are the last gate immediately before dispatch.
+Authorized recipients must still satisfy the full live campaign contract:
+independent opt-in, independently verified MEI status, MG/MEI targeting,
+opt-out and suppression safety, and anti-replay. These checks run immediately
+before every Graph request and use indexable suppression lookups.
 
 Startup recovery is intentionally lightweight: stale ``enviando`` rows are
 accounted conservatively as submitted, but the heavyweight legacy queue scan is
@@ -20,6 +21,12 @@ from worker import safe_entrypoint as base
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _disallowed_marketing_origin(value: Any) -> bool:
+    origin = _text(value)
+    lowered = origin.lower()
+    return origin in base.LEGACY_MARKETING_ORIGINS or "operator_authorization_true" in lowered
 
 
 @dataclass(frozen=True)
@@ -60,8 +67,13 @@ def fast_eligibility(conn, envio_id):
             select e.id, e.email, e.cnpj,
                    emp.marketing_autorizado,
                    emp.marketing_autorizado_origem,
+                   emp.mei_verificado,
+                   emp.mei_verificado_origem,
                    emp.opt_out,
                    emp.situacao_cadastral,
+                   emp.uf,
+                   emp.tipo_regime,
+                   emp.provavel_terceiro,
                    mei_email.is_valid_email_address(e.email) as email_valido,
                    position('contabil' in lower(btrim(e.email::text))) > 0 as email_contabil,
                    (
@@ -78,14 +90,7 @@ def fast_eligibility(conn, envio_id):
                           or (s.scope='domain' and s.value=split_part(lower(btrim(e.email::text)), '@', 2)::public.citext)
                           or (s.scope='cnpj' and s.value=upper(btrim(e.cnpj::text))::public.citext)
                         )
-                        and (
-                          lower(coalesce(s.reason,'')) in ('opt_out','hard_bounce','filter_email_invalid','sent')
-                          or lower(coalesce(s.reason,'')) like '%%bounce%%'
-                          or lower(coalesce(s.reason,'')) like '%%complaint%%'
-                          or lower(coalesce(s.reason,'')) like '%%spam%%'
-                          or lower(coalesce(s.reason,'')) like '%%abuse%%'
-                        )
-                   ) as protected_suppression,
+                   ) as suppressed,
                    exists (
                      select 1
                        from mei_email.envios h
@@ -105,15 +110,23 @@ def fast_eligibility(conn, envio_id):
             return False, "envio deixou de estar pendente"
 
         marketing_origin = _text(row["marketing_autorizado_origem"])
+        mei_origin = _text(row["mei_verificado_origem"])
         checks = (
             (bool(row["marketing_autorizado"]), "marketing sem autorizacao"),
             (bool(marketing_origin), "origem de autorizacao ausente"),
+            (not _disallowed_marketing_origin(marketing_origin), "origem de autorizacao legada/inferida por operador"),
+            (bool(row["mei_verificado"]), "MEI nao verificado"),
+            (bool(mei_origin), "origem de verificacao MEI ausente"),
+            (mei_origin not in base.LEGACY_MEI_ORIGINS, "origem de verificacao MEI legada"),
             (not bool(row["opt_out"]), "opt-out ativo"),
             (_text(row["situacao_cadastral"]) == "ATIVA", "empresa inativa"),
+            (_text(row["uf"]).upper() == "MG", "empresa fora de MG"),
+            (_text(row["tipo_regime"]).upper() == "MEI", "regime nao MEI"),
+            (not bool(row["provavel_terceiro"]), "contato provavel terceiro"),
             (bool(row["email_valido"]), "email invalido"),
             (not bool(row["email_contabil"]), "email contem palavra contabil"),
             (int(row["cadastros_mesmo_email"] or 0) <= 2, "email vinculado a mais de 2 cadastros"),
-            (not bool(row["protected_suppression"]), "bounce/reclamacao/opt-out/supressao protegida"),
+            (not bool(row["suppressed"]), "destinatario suprimido"),
             (not bool(row["terminal_history"]), "destinatario ja submetido/entregue"),
         )
         for ok, reason in checks:
