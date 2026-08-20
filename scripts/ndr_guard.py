@@ -11,8 +11,8 @@ Dois comportamentos são deliberadamente separados:
   suppression list e deixa os demais destinatários autorizados seguirem.
 
 Para evitar suprimir o endereço errado, um hard-bounce só é persistido quando
-existe exatamente um endereço no NDR que já consta como suppression ativa de
-um envio anterior. O message id do NDR é preservado como source_ref.
+existe exatamente um endereço no NDR que também consta no histórico terminal
+de um envio anterior. O message id do NDR é preservado como source_ref.
 
 Este processo nunca envia e-mail e nunca remove a pausa automaticamente.
 """
@@ -184,9 +184,10 @@ def _full_message_text(provider: MicrosoftGraphEmailProvider, message_id: str) -
     )
 
 
-def _previously_sent_suppression_matches(
+def _previously_sent_recipient_matches(
     addresses: list[str], *, sender_address: str
 ) -> list[str]:
+    """Return exact NDR addresses that have a terminal prior-send record."""
     normalized = sorted(
         {
             value.casefold()
@@ -200,11 +201,10 @@ def _previously_sent_suppression_matches(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select lower(btrim(value::text))
-                  from mei_email.email_suppressions
-                 where active
-                   and scope = 'email'
-                   and lower(btrim(value::text)) = any(%s::text[])
+                select distinct lower(btrim(email::text))
+                  from mei_email.envios
+                 where status::text in ('submitted','enviado','delivered','bounced')
+                   and lower(btrim(email::text)) = any(%s::text[])
                 """,
                 (normalized,),
             )
@@ -223,7 +223,7 @@ def _record_permanent_recipient_suppression(
         return False
 
     candidates = extract_email_addresses(text)
-    matches = _previously_sent_suppression_matches(
+    matches = _previously_sent_recipient_matches(
         candidates,
         sender_address=provider.address,
     )
