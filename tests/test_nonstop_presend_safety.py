@@ -28,6 +28,7 @@ def test_preflight_is_read_only_and_never_bulk_rewrites_queue():
 def test_safe_entrypoint_checks_independent_sources_replay_and_copy_before_graph():
     src = (ROOT / "worker/safe_entrypoint.py").read_text()
     assert "LEGACY_MARKETING_ORIGINS" in src
+    assert "operator_authorization_true_2026-08-20" in src
     assert "LEGACY_MEI_ORIGINS" in src
     assert "email_suppressions" in src
     assert "terminal_history" in src
