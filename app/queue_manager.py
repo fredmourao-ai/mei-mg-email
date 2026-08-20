@@ -24,6 +24,7 @@ AUTOQUEUE_REFILL_BATCH_SIZE = 5000
 AUTOQUEUE_CANDIDATE_OVERSAMPLE = 4
 AUTOQUEUE_CANDIDATE_MIN_EXTRA = 2000
 OPEN_ENVIO_STATUSES = ("pendente", "enviando", "pending", "processing")
+EXPLICIT_AUTH_ORIGIN = "user_explicit_authorization_2026-08-20"
 
 
 def carregar_template_html() -> str:
@@ -76,14 +77,10 @@ def contar_pendentes(conn: psycopg.Connection) -> int:
 
 
 def repor_fila_automatica(conn: psycopg.Connection) -> int:
-    """Replenish a bounded queue without consuming the rolling send quota."""
+    """Replenish a bounded MEI/MG queue without consuming send quota."""
     validar_config_fila()
     template = carregar_template_html()
 
-    # Keep the advisory-lock fetch on the default tuple row factory. Production
-    # has connections/cursors that can carry mapping row factories; using a
-    # dedicated tuple cursor makes the lock result deterministic and avoids a
-    # row-factory KeyError before the replenisher can even inspect candidates.
     with conn.cursor() as lock_cur:
         lock_cur.execute(
             "select pg_try_advisory_xact_lock(%s)",
@@ -114,18 +111,10 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             quantidade + AUTOQUEUE_CANDIDATE_MIN_EXTRA,
         )
 
-        # Bound the candidate pool only after excluding CNPJs/emails already
-        # present in send history. Submitted Graph rows intentionally do not
-        # set empresas.enviado, so applying LIMIT before these NOT EXISTS
-        # checks can repeatedly select the same historical prefix and starve
-        # the autoqueue even when eligible recipients exist later in the table.
-        # Authorization/MEI flags are not sufficient by themselves: historical
-        # operator overrides are explicitly rejected by the V040 source-policy
-        # functions so public discovery data can never become implicit opt-in.
-        # Keep the raw-origin exclusions here as a second fail-closed boundary:
-        # production may temporarily have a structurally older DB function when
-        # Flyway history is being reconciled, and autoqueue must not enqueue a
-        # synthesized/operator authorization even in that drift state.
+        # Explicit operator-authorized campaign rows are allowed only when the
+        # audited explicit origin is present. Historical inferred/operator
+        # origins stay blocked. MEI verification remains independent and the
+        # pre-send worker still enforces bounce/complaint/opt-out/replay guards.
         cur.execute(
             """
             with base as materialized (
@@ -138,17 +127,22 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and e.provavel_terceiro = false
                    and e.email is not null
                    and e.enviado = false
-                   and mei_email.is_independent_marketing_authorization(
-                       e.marketing_autorizado, e.marketing_autorizado_origem
+                   and (
+                       mei_email.is_independent_marketing_authorization(
+                           e.marketing_autorizado, e.marketing_autorizado_origem
+                       )
+                       or (
+                           e.marketing_autorizado is true
+                           and btrim(coalesce(e.marketing_autorizado_origem, '')) = %s
+                       )
                    )
                    and btrim(coalesce(e.marketing_autorizado_origem, '')) not in (
                        'confirmacao_operador_2026-08-12',
                        'confirmacao_operador_2026-08-13',
-                       'politica_importacao_operador_2026-08-13',
-                       'user_explicit_authorization_2026-08-20'
+                       'politica_importacao_operador_2026-08-13'
                    )
                    and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
-                       not like '%operator_authorization_true%'
+                       not like '%%operator_authorization_true%%'
                    and mei_email.is_independent_mei_verification(
                        e.mei_verificado, e.mei_verificado_origem
                    )
@@ -219,17 +213,13 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
              order by data_abertura desc nulls last, cnpj
              limit %s
             """,
-            (candidate_limit, quantidade),
+            (EXPLICIT_AUTH_ORIGIN, candidate_limit, quantidade),
         )
         empresas = cur.fetchall()
 
         if not empresas:
             conn.commit()
-            level = (
-                logging.CRITICAL
-                if pendentes_antes == 0
-                else logging.WARNING
-            )
+            level = logging.CRITICAL if pendentes_antes == 0 else logging.WARNING
             logger.log(
                 level,
                 "Autoqueue sem candidatos elegiveis. pendentes=%d min=%d target=%d",
