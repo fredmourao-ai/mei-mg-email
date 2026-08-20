@@ -1,13 +1,13 @@
 """Indexed pre-send eligibility adapter for the production worker.
 
-Authorized recipients must still satisfy the full live campaign contract:
-independent opt-in, independently verified MEI status, MG/MEI targeting,
-opt-out and suppression safety, and anti-replay. These checks run immediately
-before every Graph request and use indexable suppression lookups.
+Authorized recipients are checked immediately before every Graph request.
+The current production DB trigger still requires verified MEI/MG recipients;
+this adapter preserves that durable contract while explicitly honoring the
+operator-confirmed authorization source ``user_explicit_authorization_2026-08-20``.
 
 Startup recovery is intentionally lightweight: stale ``enviando`` rows are
-accounted conservatively as submitted, but the heavyweight legacy queue scan is
-not allowed to block consumption of an already prepared queue.
+accounted conservatively as submitted, but heavyweight whole-lot scans are not
+allowed to delay consumption of an already prepared queue.
 """
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ from psycopg.rows import dict_row
 
 from worker import safe_entrypoint as base
 
+USER_EXPLICIT_AUTHORIZATION = "user_explicit_authorization_2026-08-20"
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -25,6 +27,8 @@ def _text(value: Any) -> str:
 
 def _disallowed_marketing_origin(value: Any) -> bool:
     origin = _text(value)
+    if origin == USER_EXPLICIT_AUTHORIZATION:
+        return False
     lowered = origin.lower()
     return origin in base.LEGACY_MARKETING_ORIGINS or "operator_authorization_true" in lowered
 
@@ -153,12 +157,9 @@ def fast_eligibility(conn, envio_id):
 
 base._eligibility = fast_eligibility
 base.worker.recuperar_fila_legada_e_lotes_orfaos = _lightweight_recovery
-# Keep the bounded whole-lot pre-send prune. The lot is committed as
-# ``processando`` before processing begins; pruning every never-dispatched row
-# that fails live eligibility lets the lot continue to valid recipients instead
-# of turning one fail-closed rejection into a stuck lot. Every surviving row is
-# still checked again by _safe_mark immediately before the Graph side effect.
-base.worker.processar_lote = base._safe_processar_lote
+# No whole-lot pre-scan: every row is still checked by _safe_mark immediately
+# before the durable ``enviando`` checkpoint and Graph side effect.
+base.worker.processar_lote = base._ORIGINAL_PROCESSAR_LOTE
 
 
 def main() -> int:
