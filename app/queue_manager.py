@@ -122,6 +122,11 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and e.provavel_terceiro = false
                    and e.email is not null
                    and e.enviado = false
+                   -- Keep these raw predicates explicit so PostgreSQL can use
+                   -- idx_empresas_autoqueue_mei_mg. The independent-source
+                   -- functions below remain the authoritative safety gates.
+                   and e.marketing_autorizado = true
+                   and e.mei_verificado = true
                    and mei_email.is_independent_marketing_authorization(
                        e.marketing_autorizado, e.marketing_autorizado_origem
                    )
