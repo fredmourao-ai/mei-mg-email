@@ -1,12 +1,16 @@
 """Nonstop worker entrypoint with migration-independent pre-send safety.
 
 The database migrations remain the durable policy layer, but production can
-have schema-history drift during repair.  This entrypoint therefore enforces
-the same independent-consent, verified-MEI, suppression and replay rules in
-Python immediately before the durable ``enviando`` checkpoint.  It also treats
-stale ``enviando`` rows as uncertain submissions, never as retryable pending
-work, so a crash between Graph acceptance and database bookkeeping cannot cause
-a replay even if the historical V034 trigger is unavailable.
+have schema-history drift during repair. This entrypoint therefore enforces the
+same independent-consent, verified-MEI, suppression and replay rules in Python
+immediately before the durable ``enviando`` checkpoint. It also treats stale
+``enviando`` rows as uncertain submissions, never as retryable pending work,
+so a crash between Graph acceptance and database bookkeeping cannot cause a
+replay even if the historical V034 trigger is unavailable.
+
+Legacy public-CNPJ disclosure is normalized in the rendered message itself.
+This makes a reopened historical campaign safe to render even while durable
+V037/V038 reconciliation is still pending; it never creates authorization.
 """
 from __future__ import annotations
 
@@ -30,13 +34,27 @@ LEGACY_MEI_ORIGINS = {
     "politica_importacao_operador_2026-08-13",
 }
 
+LEGACY_COPY_PUBLIC = "Você recebeu este e-mail porque seu contato consta em base pública de CNPJ."
+LEGACY_COPY_ASCII = "Você recebeu este e-mail porque seu contato consta em base publica de CNPJ."
+SAFE_COPY = "Você recebe esta mensagem porque há uma autorização comercial registrada para este contato."
+
 _ORIGINAL_MARK = worker._marcar_envio_em_transito
 _ORIGINAL_RECOVERY = worker.recuperar_fila_legada_e_lotes_orfaos
 _ORIGINAL_PROCESSAR_LOTE = worker.processar_lote
+_ORIGINAL_RENDER = worker.base_worker.montar_corpo
 
 
 def _nonempty(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _safe_render(template: str, empresa: dict) -> str:
+    rendered = _ORIGINAL_RENDER(template, empresa)
+    rendered = rendered.replace(LEGACY_COPY_PUBLIC, SAFE_COPY)
+    rendered = rendered.replace(LEGACY_COPY_ASCII, SAFE_COPY)
+    if "base pública de CNPJ" in rendered or "base publica de CNPJ" in rendered:
+        raise RuntimeError("legacy public-CNPJ copy survived render normalization")
+    return rendered
 
 
 def _eligibility(conn: psycopg.Connection, envio_id) -> tuple[bool, str]:
@@ -187,6 +205,7 @@ def _safe_processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None
     _ORIGINAL_PROCESSAR_LOTE(conn, lote, provider)
 
 
+worker.base_worker.montar_corpo = _safe_render
 worker._marcar_envio_em_transito = _safe_mark
 worker.recuperar_fila_legada_e_lotes_orfaos = _safe_recovery
 worker.processar_lote = _safe_processar_lote
