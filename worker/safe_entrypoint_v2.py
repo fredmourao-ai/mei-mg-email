@@ -80,10 +80,10 @@ def fast_eligibility(conn, envio_id):
                         )
                         and (
                           lower(coalesce(s.reason,'')) in ('opt_out','hard_bounce','filter_email_invalid','sent')
-                          or lower(coalesce(s.reason,'')) like '%bounce%'
-                          or lower(coalesce(s.reason,'')) like '%complaint%'
-                          or lower(coalesce(s.reason,'')) like '%spam%'
-                          or lower(coalesce(s.reason,'')) like '%abuse%'
+                          or lower(coalesce(s.reason,'')) like '%%bounce%%'
+                          or lower(coalesce(s.reason,'')) like '%%complaint%%'
+                          or lower(coalesce(s.reason,'')) like '%%spam%%'
+                          or lower(coalesce(s.reason,'')) like '%%abuse%%'
                         )
                    ) as protected_suppression,
                    exists (
