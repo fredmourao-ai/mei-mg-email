@@ -17,7 +17,7 @@ update mei_email.empresas
 -- Never touch terminal history. Only remove unsafe never-terminal work from
 -- eligibility by blocking rows that are still open.
 update mei_email.envios e
-   set status = 'bloqueado'::mei_email.status_envio,
+   set status = 'bloqueado'::status_envio,
        erro = case
          when coalesce(e.erro, '') = '' then
            'V044: synthetic campaign authorization rejected; open row blocked'
@@ -117,7 +117,7 @@ begin
 
   if tg_op = 'UPDATE'
      and old.status::text in ('submitted', 'enviado', 'delivered', 'bounced', 'bounce_permanent') then
-    new.status := 'bloqueado'::mei_email.status_envio;
+    new.status := 'bloqueado'::status_envio;
     new.erro := 'V044: tentativa de reabrir envio terminal; bloqueio anti-replay';
     return new;
   end if;
@@ -166,7 +166,7 @@ begin
   ) into already_terminal;
 
   if coalesce(eligible, false) is false or already_terminal then
-    new.status := 'bloqueado'::mei_email.status_envio;
+    new.status := 'bloqueado'::status_envio;
     new.erro := case
       when already_terminal then 'V044: destinatario ja terminal; bloqueio anti-replay'
       else 'V044: consentimento/MEI/elegibilidade invalida; bloqueio fail-closed'
