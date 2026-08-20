@@ -70,7 +70,9 @@ def test_ndr_guard_registers_only_unambiguous_prior_send_hard_bounces():
     assert "async_ndr_graph_guard" in source
     assert "hard_bounce" in source
     assert "len(matches) != 1" in source
-    assert "email_suppressions" in source
+    assert "from mei_email.envios" in source
+    assert "('submitted','enviado','delivered','bounced')" in source
+    assert "_previously_sent_recipient_matches" in source
 
 
 def test_installer_moves_pause_state_outside_git_and_enables_guard():
