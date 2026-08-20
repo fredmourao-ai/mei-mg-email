@@ -92,6 +92,13 @@ def test_queue_depth_uses_actual_open_messages_and_nonblocking_lock():
     assert "pg_advisory_xact_lock" not in manager
 
 
+def test_autoqueue_reads_advisory_lock_from_dict_row_by_name():
+    manager = (ROOT / "app" / "queue_manager.py").read_text(encoding="utf-8")
+    assert "pg_try_advisory_xact_lock(%s) as acquired" in manager
+    assert 'cur.fetchone()["acquired"]' in manager
+    assert "cur.fetchone()[0]" not in manager[manager.index("def repor_fila_automatica"):manager.index("select count(*) as pendentes")]
+
+
 def test_queue_status_index_migration_exists():
     migration = (
         ROOT / "db" / "migrations" / "V026__queue_status_index.sql"
