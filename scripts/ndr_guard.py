@@ -163,7 +163,11 @@ def _recent_messages(provider: MicrosoftGraphEmailProvider) -> list[dict]:
             "$select": "id,subject,receivedDateTime,bodyPreview",
         }
     )
-    url = f"https://graph.microsoft.com/v1.0/users/{quote(provider.address)}/mailFolders/inbox/messages?{params}"
+    # NDRs can be moved out of Inbox immediately by mailbox rules (for example
+    # into a dedicated Microsoft/NDR folder). Query the mailbox-wide messages
+    # collection so hard bounces and sender restrictions remain observable
+    # regardless of which folder currently contains the report.
+    url = f"https://graph.microsoft.com/v1.0/users/{quote(provider.address)}/messages?{params}"
     payload = _graph_json(token, url)
     return list(payload.get("value") or [])
 
