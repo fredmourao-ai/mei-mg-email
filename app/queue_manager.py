@@ -114,6 +114,9 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
         # set empresas.enviado, so applying LIMIT before these NOT EXISTS
         # checks can repeatedly select the same historical prefix and starve
         # the autoqueue even when eligible recipients exist later in the table.
+        # Authorization/MEI flags are not sufficient by themselves: historical
+        # operator overrides are explicitly rejected by the V040 source-policy
+        # functions so public discovery data can never become implicit opt-in.
         cur.execute(
             """
             with base as materialized (
@@ -126,8 +129,12 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and e.provavel_terceiro = false
                    and e.email is not null
                    and e.enviado = false
-                   and e.marketing_autorizado = true
-                   and e.mei_verificado = true
+                   and mei_email.is_independent_marketing_authorization(
+                       e.marketing_autorizado, e.marketing_autorizado_origem
+                   )
+                   and mei_email.is_independent_mei_verification(
+                       e.mei_verificado, e.mei_verificado_origem
+                   )
                    and not exists (
                        select 1
                          from mei_email.envios x
