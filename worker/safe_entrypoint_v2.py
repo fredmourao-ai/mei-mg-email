@@ -2,10 +2,15 @@
 
 The final live policy is intentionally independent from tax regime: authorized
 active contacts may be sent, while operationally unsafe recipients remain
-blocked.  The checks here are the last gate immediately before dispatch.
+blocked. The checks here are the last gate immediately before dispatch.
+
+Startup recovery is intentionally lightweight: stale ``enviando`` rows are
+accounted conservatively as submitted, but the heavyweight legacy queue scan is
+not allowed to block consumption of an already prepared queue.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from psycopg.rows import dict_row
@@ -15,6 +20,37 @@ from worker import safe_entrypoint as base
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+@dataclass(frozen=True)
+class _RecoveryResult:
+    changed: int = 0
+
+
+def _lightweight_recovery(conn):
+    """Protect anti-replay without running the heavyweight legacy queue scan."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update mei_email.envios e
+               set status='submitted',
+                   enviado_em=coalesce(e.enviado_em, now()),
+                   erro=case
+                     when coalesce(e.erro,'')='' then
+                       'recovery: resultado Graph incerto; contabilizado conservadoramente como submitted'
+                     else e.erro ||
+                       ' | recovery: resultado Graph incerto; contabilizado conservadoramente como submitted'
+                   end
+              from mei_email.lotes l
+             where e.lote_id=l.id
+               and e.status::text='enviando'
+               and l.status::text='processando'
+               and l.iniciado_em < now()-interval '15 minutes'
+            """
+        )
+        changed = max(int(cur.rowcount or 0), 0)
+    conn.commit()
+    return _RecoveryResult(changed=changed)
 
 
 def fast_eligibility(conn, envio_id):
@@ -103,6 +139,7 @@ def fast_eligibility(conn, envio_id):
 
 
 base._eligibility = fast_eligibility
+base.worker.recuperar_fila_legada_e_lotes_orfaos = _lightweight_recovery
 
 
 def main() -> int:
