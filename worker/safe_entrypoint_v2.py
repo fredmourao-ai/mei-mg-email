@@ -153,9 +153,12 @@ def fast_eligibility(conn, envio_id):
 
 base._eligibility = fast_eligibility
 base.worker.recuperar_fila_legada_e_lotes_orfaos = _lightweight_recovery
-# Skip whole-lot pruning: the durable pre-send checkpoint still calls
-# fast_eligibility immediately before every Graph request.
-base.worker.processar_lote = base._ORIGINAL_PROCESSAR_LOTE
+# Keep the bounded whole-lot pre-send prune. The lot is committed as
+# ``processando`` before processing begins; pruning every never-dispatched row
+# that fails live eligibility lets the lot continue to valid recipients instead
+# of turning one fail-closed rejection into a stuck lot. Every surviving row is
+# still checked again by _safe_mark immediately before the Graph side effect.
+base.worker.processar_lote = base._safe_processar_lote
 
 
 def main() -> int:
