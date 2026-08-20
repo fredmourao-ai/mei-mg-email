@@ -83,10 +83,10 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
     with conn.cursor(row_factory=dict_row) as cur:
         # A second replenisher must never block the sender indefinitely.
         cur.execute(
-            "select pg_try_advisory_xact_lock(%s)",
+            "select pg_try_advisory_xact_lock(%s) as acquired",
             (CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID,),
         )
-        if not bool(cur.fetchone()[0]):
+        if not bool(cur.fetchone()["acquired"]):
             conn.commit()
             logger.warning("AUTOQUEUE_SKIPPED another replenisher owns the lock")
             return 0
