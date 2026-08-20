@@ -1,8 +1,16 @@
 """Nonstop worker entrypoint with migration-independent pre-send safety.
 
-The database migrations remain the durable policy layer, while the active
-pre-send policy is supplied by safe_entrypoint_v2. Stale ``enviando`` rows are
-never blindly reopened, preventing duplicate Graph submissions.
+The database migrations remain the durable policy layer, but production can
+have schema-history drift during repair. This entrypoint therefore enforces the
+same independent-consent, verified-MEI, suppression and replay rules in Python
+immediately before the durable ``enviando`` checkpoint. It also treats stale
+``enviando`` rows as uncertain submissions, never as retryable pending work,
+so a crash between Graph acceptance and database bookkeeping cannot cause a
+replay even if the historical V034 trigger is unavailable.
+
+Legacy public-CNPJ disclosure is normalized in the rendered message itself.
+This makes a reopened historical campaign safe to render even while durable
+V037/V038 reconciliation is still pending; it never creates authorization.
 """
 from __future__ import annotations
 
@@ -21,6 +29,7 @@ LEGACY_MARKETING_ORIGINS = {
     "confirmacao_operador_2026-08-13",
     "politica_importacao_operador_2026-08-13",
     "operator_authorization_true_2026-08-20",
+    "user_explicit_authorization_2026-08-20",
 }
 LEGACY_MEI_ORIGINS = {
     "override_operador_2026-08-13",
@@ -51,48 +60,89 @@ def _safe_render(template: str, empresa: dict) -> str:
 
 
 def _eligibility(conn: psycopg.Connection, envio_id) -> tuple[bool, str]:
-    """Fallback fail-closed eligibility; v2 replaces this with live policy."""
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
             select e.id, e.email, e.cnpj,
                    emp.marketing_autorizado,
                    emp.marketing_autorizado_origem,
+                   emp.mei_verificado,
+                   emp.mei_verificado_origem,
                    emp.opt_out,
                    emp.situacao_cadastral,
+                   emp.uf,
+                   emp.tipo_regime,
+                   emp.provavel_terceiro,
                    mei_email.is_valid_email_address(e.email) as email_valido,
                    exists (
-                     select 1 from mei_email.envios h
+                     select 1
+                       from mei_email.email_suppressions s
+                      where s.active
+                        and (
+                          (s.scope='email' and lower(btrim(s.value))=lower(btrim(e.email::text)))
+                          or (s.scope='cnpj' and regexp_replace(s.value, '[^0-9]', '', 'g')=e.cnpj)
+                        )
+                   ) as suppressed,
+                   exists (
+                     select 1
+                       from mei_email.envios h
                       where h.id<>e.id
                         and lower(btrim(h.email::text))=lower(btrim(e.email::text))
                         and h.status::text in ('submitted','enviado','delivered','bounced','bounce_permanent')
                    ) as terminal_history
               from mei_email.envios e
               join mei_email.empresas emp on emp.cnpj=e.cnpj
-             where e.id=%s and e.status::text='pendente'
+             where e.id=%s
+               and e.status::text='pendente'
             """,
             (envio_id,),
         )
         row = cur.fetchone()
         if row is None:
             return False, "envio deixou de estar pendente"
-        origin = _nonempty(row["marketing_autorizado_origem"])
+
+        marketing_origin = _nonempty(row["marketing_autorizado_origem"])
+        mei_origin = _nonempty(row["mei_verificado_origem"])
         checks = (
             (bool(row["marketing_autorizado"]), "marketing sem autorizacao"),
-            (bool(origin), "origem de autorizacao ausente"),
-            (origin not in LEGACY_MARKETING_ORIGINS, "origem de autorizacao legada"),
+            (bool(marketing_origin), "origem de autorizacao ausente"),
+            (marketing_origin not in LEGACY_MARKETING_ORIGINS, "origem de autorizacao legada"),
+            (bool(row["mei_verificado"]), "MEI nao verificado"),
+            (bool(mei_origin), "origem de verificacao MEI ausente"),
+            (mei_origin not in LEGACY_MEI_ORIGINS, "origem de verificacao MEI legada"),
             (not bool(row["opt_out"]), "opt-out ativo"),
             (_nonempty(row["situacao_cadastral"]) == "ATIVA", "empresa inativa"),
+            (_nonempty(row["uf"]).upper() == "MG", "empresa fora de MG"),
+            (_nonempty(row["tipo_regime"]).upper() == "MEI", "regime nao MEI"),
+            (not bool(row["provavel_terceiro"]), "contato provavel terceiro"),
             (bool(row["email_valido"]), "email invalido"),
+            (not bool(row["suppressed"]), "destinatario suprimido"),
             (not bool(row["terminal_history"]), "destinatario ja submetido/entregue"),
         )
         for ok, reason in checks:
             if not ok:
                 return False, reason
+
+        cur.execute("select to_regclass('mei_email.envios_externos_cota') is not null as has_external_ledger")
+        ledger_row = cur.fetchone()
+        if ledger_row is not None and bool(ledger_row["has_external_ledger"]):
+            cur.execute(
+                """
+                select exists(
+                  select 1 from mei_email.envios_externos_cota x
+                   where lower(btrim(x.email::text))=lower(btrim(%s))
+                ) as already_external
+                """,
+                (row["email"],),
+            )
+            external_row = cur.fetchone()
+            if external_row is not None and bool(external_row["already_external"]):
+                return False, "destinatario ja consta no ledger externo"
     return True, "ok"
 
 
 def _drop_never_dispatched(conn: psycopg.Connection, envio_id, reason: str) -> None:
+    """Remove only a never-dispatched queue row; retain company/suppression evidence."""
     with conn.cursor() as cur:
         cur.execute(
             "delete from mei_email.envios where id=%s and status::text='pendente'",
@@ -111,6 +161,7 @@ def _safe_mark(conn: psycopg.Connection, envio_id) -> None:
 
 
 def _safe_recovery(conn: psycopg.Connection):
+    """Account stale dispatch as submitted instead of reopening it for replay."""
     with conn.cursor() as cur:
         cur.execute(
             """
