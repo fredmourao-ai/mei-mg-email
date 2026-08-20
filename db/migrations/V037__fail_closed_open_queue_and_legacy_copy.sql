@@ -39,8 +39,8 @@ update envios e
 
 -- Any lot left with no open recipients is complete; lots with remaining open
 -- recipients are returned to the normal queue state for queue-first processing.
--- status is an enum, so cast the CASE result explicitly and schema-qualify the
--- enum so the statement is safe even when the caller uses a different search_path.
+-- status is an enum, so cast the CASE result explicitly instead of relying on
+-- PostgreSQL to coerce text branches to status_lote.
 update lotes l
    set status = (case
        when exists (
@@ -49,7 +49,7 @@ update lotes l
               and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
        ) then 'pendente'
        else 'concluido'
-   end)::mei_email.status_lote,
+   end)::status_lote,
        iniciado_em = null,
        erro = null
  where l.status::text in ('pendente', 'processando', 'processing');
