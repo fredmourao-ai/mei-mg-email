@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Bounded send-safety preflight for the nonstop queue-first worker.
+"""Constant-time read-only preflight for the nonstop queue-first worker.
 
-This runs as systemd ExecStartPre.  It must never perform a table-wide queue
-rewrite: production proved that doing so can keep the worker in `activating`
-for minutes and can destabilize the local PostgreSQL container.  Per-recipient
-eligibility/replay enforcement lives in ``worker.safe_entrypoint`` immediately
-before each Graph submission.
+Systemd startup must not perform bulk maintenance. Production showed that even
+small-looking campaign/queue rewrites can block behind long transactions and
+strand the sender in ``activating`` while no Microsoft sender-block exists.
 
-The preflight only verifies that the schema primitives needed by that guard
-exist and normalizes the campaign copy.  It never grants consent, creates a
-recipient, clears sender-block state, or changes provider/rate limits.
+This preflight therefore performs only schema capability checks. Independent
+consent, verified MEI source, suppressions, terminal-history replay protection
+and legacy-copy normalization are enforced per recipient immediately before
+every Graph call by ``worker.safe_entrypoint_v2``. Durable migrations remain
+the desired database policy layer, but startup availability does not depend on
+running a table-wide mutation.
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ import os
 import psycopg
 from dotenv import load_dotenv
 
-LOCK_KEY = 99502027
 REQUIRED_EMPRESA_COLUMNS = (
     "marketing_autorizado",
     "marketing_autorizado_origem",
@@ -39,14 +39,10 @@ def main() -> int:
     database_url = os.environ["DATABASE_URL"]
     out: dict[str, object] = {"runtime_sender_preflight": "ok"}
 
-    with psycopg.connect(database_url, connect_timeout=10) as conn:
+    with psycopg.connect(database_url, connect_timeout=5) as conn:
         with conn.cursor() as cur:
-            cur.execute("set statement_timeout='10s'")
-            cur.execute("set lock_timeout='2s'")
-            cur.execute("select pg_try_advisory_lock(%s)", (LOCK_KEY,))
-            if not bool(cur.fetchone()[0]):
-                raise RuntimeError("runtime sender preflight lock busy; retrying via systemd")
-
+            cur.execute("set statement_timeout='5s'")
+            cur.execute("set lock_timeout='1s'")
             cur.execute(
                 """
                 select column_name
@@ -65,51 +61,26 @@ def main() -> int:
                 )
 
             cur.execute(
-                "select to_regclass('mei_email.email_suppressions') is not null"
+                """
+                select
+                  to_regclass('mei_email.envios') is not null,
+                  to_regclass('mei_email.campanhas') is not null,
+                  to_regclass('mei_email.email_suppressions') is not null,
+                  to_regprocedure('mei_email.is_valid_email_address(citext)') is not null
+                """
             )
-            if not bool(cur.fetchone()[0]):
-                raise RuntimeError("email_suppressions is required before worker start")
-            cur.execute(
-                "select to_regprocedure('mei_email.is_valid_email_address(citext)') is not null"
+            envios_ok, campanhas_ok, suppressions_ok, valid_email_ok = cur.fetchone()
+            out.update(
+                {
+                    "envios": bool(envios_ok),
+                    "campanhas": bool(campanhas_ok),
+                    "email_suppressions": bool(suppressions_ok),
+                    "email_validator": bool(valid_email_ok),
+                }
             )
-            if not bool(cur.fetchone()[0]):
-                raise RuntimeError("is_valid_email_address(citext) is required before worker start")
 
-            # Small bounded metadata repair.  Never touch the bulk queue here.
-            cur.execute(
-                """
-                update mei_email.campanhas
-                   set corpo_template = replace(
-                         replace(
-                           corpo_template,
-                           'Você recebeu este e-mail porque seu contato consta em base pública de CNPJ.',
-                           'Você recebe esta mensagem porque há uma autorização comercial registrada para este contato.'
-                         ),
-                         'Você recebeu este e-mail porque seu contato consta em base publica de CNPJ.',
-                         'Você recebe esta mensagem porque há uma autorização comercial registrada para este contato.'
-                       )
-                 where corpo_template ilike '%base pública de CNPJ%'
-                    or corpo_template ilike '%base publica de CNPJ%'
-                """
-            )
-            out["normalized_campaigns"] = max(int(cur.rowcount or 0), 0)
-            conn.commit()
-
-            cur.execute("set statement_timeout='5s'")
-            cur.execute(
-                """
-                select count(*)
-                  from mei_email.campanhas
-                 where corpo_template ilike '%base pública de CNPJ%'
-                    or corpo_template ilike '%base publica de CNPJ%'
-                """
-            )
-            out["legacy_copy_campaigns"] = int(cur.fetchone()[0] or 0)
-            cur.execute("select pg_advisory_unlock(%s)", (LOCK_KEY,))
-        conn.commit()
-
-    if out["legacy_copy_campaigns"]:
-        raise RuntimeError("legacy public-CNPJ campaign copy remains after preflight")
+    if not all(bool(out[k]) for k in ("envios", "campanhas", "email_suppressions", "email_validator")):
+        raise RuntimeError("required send-safety schema primitive unavailable")
     print(json.dumps(out, sort_keys=True))
     return 0
 
