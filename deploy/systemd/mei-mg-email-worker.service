@@ -13,6 +13,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/mei-mg-email
 EnvironmentFile=-/home/ubuntu/mei-mg-email/.env
+ExecStartPre=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/runtime_sender_guard.py
 ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python -m worker.worker_queue_first
 Restart=always
 RestartSec=5
