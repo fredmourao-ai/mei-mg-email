@@ -34,6 +34,9 @@ def test_safe_entrypoint_checks_independent_sources_replay_and_copy_before_graph
     assert "email_suppressions" in src
     assert "terminal_history" in src
     assert "envios_externos_cota" in src
+    assert "has_external_ledger" in src
+    assert "already_external" in src
+    assert "cur.fetchone()[0]" not in src
     assert "_marcar_envio_em_transito = _safe_mark" in src
     assert "status='submitted'" in src
     assert "resultado Graph incerto" in src
@@ -50,3 +53,6 @@ def test_v2_uses_indexable_suppression_value_lookup_and_rejects_operator_inferre
     assert "lower(btrim(s.value))" not in src
     assert "operator_authorization_true" in src
     assert "_disallowed_marketing_origin" in src
+    assert "has_external_ledger" in src
+    assert "already_external" in src
+    assert "cur.fetchone()[0]" not in src
