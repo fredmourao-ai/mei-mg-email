@@ -59,7 +59,7 @@ def test_ndr_subject_detection():
 
 def test_ndr_guard_service_is_resident_and_fail_safe():
     unit = (ROOT / "deploy" / "systemd" / "mei-mg-email-ndr-guard.service").read_text(encoding="utf-8")
-    assert "ExecStart=__PYTHON__ scripts/ndr_guard.py" in unit
+    assert "ExecStart=__PYTHON__ scripts/ndr_guard_v2.py" in unit
     assert "Restart=always" in unit
     assert "/var/lib/mei-mg-email/sender_blocked.pause" in unit
 
@@ -70,9 +70,17 @@ def test_ndr_guard_registers_only_unambiguous_prior_send_hard_bounces():
     assert "async_ndr_graph_guard" in source
     assert "hard_bounce" in source
     assert "len(matches) != 1" in source
-    assert "from mei_email.envios" in source
-    assert "('submitted','enviado','delivered','bounced')" in source
     assert "_previously_sent_recipient_matches" in source
+
+
+def test_retention_aware_ndr_guard_accepts_all_audited_prior_send_stores():
+    source = (ROOT / "scripts" / "ndr_guard_v2.py").read_text(encoding="utf-8")
+    assert "from mei_email.envios" in source
+    assert "envios_externos_cota" in source
+    assert "email_suppressions" in source
+    assert "reason = 'sent'" in source
+    assert "source = 'worker_send_success'" in source
+    assert "guard._previously_sent_recipient_matches" in source
 
 
 def test_installer_moves_pause_state_outside_git_and_enables_guard():
