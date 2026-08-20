@@ -1,14 +1,13 @@
 """Indexed pre-send eligibility adapter for the production worker.
 
-Authorized MG recipients are checked immediately before every Graph request.
-Marketing authorization is independent from MEI classification: verified MEIs
-can be prioritized by the queue, while authorized non-MEIs are allowed as
-fallback. Opt-out, suppression, invalid email, ``contabil`` addresses,
-3+ source registrations and terminal replay remain hard blocks.
+Authorized recipients must still satisfy the full live campaign contract:
+independent opt-in, independently verified MEI status, MG/MEI targeting,
+opt-out and suppression safety, and anti-replay. These checks run immediately
+before every Graph request and use indexable suppression lookups.
 
 Startup recovery is intentionally lightweight: stale ``enviando`` rows are
-accounted conservatively as submitted, but heavyweight whole-lot scans are not
-allowed to delay consumption of an already prepared queue.
+accounted conservatively as submitted, but the heavyweight legacy queue scan is
+not allowed to block consumption of an already prepared queue.
 """
 from __future__ import annotations
 
@@ -19,9 +18,6 @@ from psycopg.rows import dict_row
 
 from worker import safe_entrypoint as base
 
-USER_EXPLICIT_AUTHORIZATION = "user_explicit_authorization_2026-08-20"
-USER_CAMPAIGN_AUTHORIZATION = "user_campaign_authorization_2026-08-20"
-
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -29,8 +25,6 @@ def _text(value: Any) -> str:
 
 def _disallowed_marketing_origin(value: Any) -> bool:
     origin = _text(value)
-    if origin in {USER_EXPLICIT_AUTHORIZATION, USER_CAMPAIGN_AUTHORIZATION}:
-        return False
     lowered = origin.lower()
     return origin in base.LEGACY_MARKETING_ORIGINS or "operator_authorization_true" in lowered
 
@@ -73,9 +67,12 @@ def fast_eligibility(conn, envio_id):
             select e.id, e.email, e.cnpj,
                    emp.marketing_autorizado,
                    emp.marketing_autorizado_origem,
+                   emp.mei_verificado,
+                   emp.mei_verificado_origem,
                    emp.opt_out,
                    emp.situacao_cadastral,
                    emp.uf,
+                   emp.tipo_regime,
                    emp.provavel_terceiro,
                    mei_email.is_valid_email_address(e.email) as email_valido,
                    position('contabil' in lower(btrim(e.email::text))) > 0 as email_contabil,
@@ -113,13 +110,18 @@ def fast_eligibility(conn, envio_id):
             return False, "envio deixou de estar pendente"
 
         marketing_origin = _text(row["marketing_autorizado_origem"])
+        mei_origin = _text(row["mei_verificado_origem"])
         checks = (
             (bool(row["marketing_autorizado"]), "marketing sem autorizacao"),
             (bool(marketing_origin), "origem de autorizacao ausente"),
             (not _disallowed_marketing_origin(marketing_origin), "origem de autorizacao legada/inferida por operador"),
+            (bool(row["mei_verificado"]), "MEI nao verificado"),
+            (bool(mei_origin), "origem de verificacao MEI ausente"),
+            (mei_origin not in base.LEGACY_MEI_ORIGINS, "origem de verificacao MEI legada"),
             (not bool(row["opt_out"]), "opt-out ativo"),
             (_text(row["situacao_cadastral"]).upper() == "ATIVA", "empresa inativa"),
             (_text(row["uf"]).upper() == "MG", "empresa fora de MG"),
+            (_text(row["tipo_regime"]).upper() == "MEI", "regime nao MEI"),
             (not bool(row["provavel_terceiro"]), "contato provavel terceiro"),
             (bool(row["email_valido"]), "email invalido"),
             (not bool(row["email_contabil"]), "email contem palavra contabil"),
@@ -151,9 +153,12 @@ def fast_eligibility(conn, envio_id):
 
 base._eligibility = fast_eligibility
 base.worker.recuperar_fila_legada_e_lotes_orfaos = _lightweight_recovery
-# No whole-lot pre-scan: every row is still checked by _safe_mark immediately
-# before the durable ``enviando`` checkpoint and Graph side effect.
-base.worker.processar_lote = base._ORIGINAL_PROCESSAR_LOTE
+# Keep the bounded whole-lot pre-send prune. The lot is committed as
+# ``processando`` before processing begins; pruning every never-dispatched row
+# that fails live eligibility lets the lot continue to valid recipients instead
+# of turning one fail-closed rejection into a stuck lot. Every surviving row is
+# still checked again by _safe_mark immediately before the Graph side effect.
+base.worker.processar_lote = base._safe_processar_lote
 
 
 def main() -> int:
