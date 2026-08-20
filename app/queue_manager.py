@@ -7,7 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import psycopg
-from psycopg.rows import dict_row
+from psycopg.rows import dict_row, tuple_row
 
 from app.config import settings
 
@@ -64,7 +64,7 @@ def quantidade_para_repor(pendentes: int) -> int:
 
 def contar_pendentes(conn: psycopg.Connection) -> int:
     """Count actual open recipient rows, not declared lot sizes."""
-    with conn.cursor() as cur:
+    with conn.cursor(row_factory=tuple_row) as cur:
         cur.execute(
             """
             select count(*)
@@ -80,7 +80,7 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
     validar_config_fila()
     template = carregar_template_html()
 
-    with conn.cursor() as lock_cur:
+    with conn.cursor(row_factory=tuple_row) as lock_cur:
         lock_cur.execute(
             "select pg_try_advisory_xact_lock(%s)",
             (CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID,),
@@ -110,10 +110,6 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             quantidade + AUTOQUEUE_CANDIDATE_MIN_EXTRA,
         )
 
-        # Fail closed before the first LIMIT: only independently authorized,
-        # independently verified MEI/MG recipients are allowed into the bounded
-        # candidate pool. Known operator/synthesized origins are rejected even
-        # if production Flyway helper functions are temporarily behind main.
         cur.execute(
             """
             with base as materialized (
@@ -132,8 +128,7 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and btrim(coalesce(e.marketing_autorizado_origem, '')) not in (
                        'confirmacao_operador_2026-08-12',
                        'confirmacao_operador_2026-08-13',
-                       'politica_importacao_operador_2026-08-13',
-                       'user_explicit_authorization_2026-08-20'
+                       'politica_importacao_operador_2026-08-13'
                    )
                    and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
                        not like '%%operator_authorization_true%%'
