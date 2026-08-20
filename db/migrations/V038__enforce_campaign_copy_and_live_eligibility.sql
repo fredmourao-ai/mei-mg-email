@@ -117,7 +117,7 @@ begin
   ) into already_sent;
 
   if coalesce(eligible, false) is false or already_sent then
-    new.status := 'bloqueado'::mei_email.status_envio;
+    new.status := 'bloqueado'::status_envio;
     new.erro := case
       when already_sent then 'V038: destinatario ja submetido/entregue; bloqueio anti-replay'
       else 'V038: envio aberto inelegivel; bloqueio fail-closed'
@@ -134,7 +134,7 @@ before insert or update of status, cnpj, email on envios
 for each row execute function mei_email.enforce_envio_live_eligibility();
 
 -- Reconcile lot state after fail-closed cleanup. status_lote is an enum, so
--- schema-qualify the explicit cast as well.
+-- cast the CASE result explicitly.
 update lotes l
    set status = (case
        when exists (
@@ -144,7 +144,7 @@ update lotes l
               and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
        ) then 'pendente'
        else 'concluido'
-   end)::mei_email.status_lote,
+   end)::status_lote,
        iniciado_em = null,
        erro = null
  where l.status::text in ('pendente', 'processando', 'processing');
