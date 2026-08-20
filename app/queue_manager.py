@@ -24,7 +24,6 @@ AUTOQUEUE_REFILL_BATCH_SIZE = 5000
 AUTOQUEUE_CANDIDATE_OVERSAMPLE = 4
 AUTOQUEUE_CANDIDATE_MIN_EXTRA = 2000
 OPEN_ENVIO_STATUSES = ("pendente", "enviando", "pending", "processing")
-EXPLICIT_AUTH_ORIGIN = "user_explicit_authorization_2026-08-20"
 
 
 def carregar_template_html() -> str:
@@ -77,7 +76,7 @@ def contar_pendentes(conn: psycopg.Connection) -> int:
 
 
 def repor_fila_automatica(conn: psycopg.Connection) -> int:
-    """Replenish a bounded MEI/MG queue without consuming send quota."""
+    """Replenish a bounded queue without consuming the rolling send quota."""
     validar_config_fila()
     template = carregar_template_html()
 
@@ -111,10 +110,10 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
             quantidade + AUTOQUEUE_CANDIDATE_MIN_EXTRA,
         )
 
-        # Explicit operator-authorized campaign rows are allowed only when the
-        # audited explicit origin is present. Historical inferred/operator
-        # origins stay blocked. MEI verification remains independent and the
-        # pre-send worker still enforces bounce/complaint/opt-out/replay guards.
+        # Fail closed before the first LIMIT: only independently authorized,
+        # independently verified MEI/MG recipients are allowed into the bounded
+        # candidate pool. Known operator/synthesized origins are rejected even
+        # if production Flyway helper functions are temporarily behind main.
         cur.execute(
             """
             with base as materialized (
@@ -127,19 +126,14 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and e.provavel_terceiro = false
                    and e.email is not null
                    and e.enviado = false
-                   and (
-                       mei_email.is_independent_marketing_authorization(
-                           e.marketing_autorizado, e.marketing_autorizado_origem
-                       )
-                       or (
-                           e.marketing_autorizado is true
-                           and btrim(coalesce(e.marketing_autorizado_origem, '')) = %s
-                       )
+                   and mei_email.is_independent_marketing_authorization(
+                       e.marketing_autorizado, e.marketing_autorizado_origem
                    )
                    and btrim(coalesce(e.marketing_autorizado_origem, '')) not in (
                        'confirmacao_operador_2026-08-12',
                        'confirmacao_operador_2026-08-13',
-                       'politica_importacao_operador_2026-08-13'
+                       'politica_importacao_operador_2026-08-13',
+                       'user_explicit_authorization_2026-08-20'
                    )
                    and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
                        not like '%%operator_authorization_true%%'
@@ -213,7 +207,7 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
              order by data_abertura desc nulls last, cnpj
              limit %s
             """,
-            (EXPLICIT_AUTH_ORIGIN, candidate_limit, quantidade),
+            (candidate_limit, quantidade),
         )
         empresas = cur.fetchall()
 
