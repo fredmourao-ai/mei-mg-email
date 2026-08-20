@@ -128,7 +128,8 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and btrim(coalesce(e.marketing_autorizado_origem, '')) not in (
                        'confirmacao_operador_2026-08-12',
                        'confirmacao_operador_2026-08-13',
-                       'politica_importacao_operador_2026-08-13'
+                       'politica_importacao_operador_2026-08-13',
+                       'user_explicit_authorization_2026-08-20'
                    )
                    and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
                        not like '%%operator_authorization_true%%'
