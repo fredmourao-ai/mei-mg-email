@@ -6,9 +6,12 @@ reconciles send-safety invariants independently of migration history before each
 worker start. It never grants consent, creates recipients, clears a sender-block
 sentinel, or changes provider/rate limits.
 
-Large open queues are repaired in small committed batches so a stale queue can
-never hold the systemd unit in ExecStartPre until statement_timeout repeatedly
-restarts the service.
+A stale queued row that has never been dispatched is disposable operational
+state: deleting it preserves the company/consent record and lets a future valid
+authorization be re-queued. This is intentionally different from changing an
+``envios.status`` to ``bloqueado``: production has an AFTER UPDATE retention
+trigger that purges company PII on that transition and made mass queue cleanup
+time out. Uncertain ``enviando`` rows are never deleted here.
 """
 from __future__ import annotations
 
@@ -18,7 +21,8 @@ import os
 import psycopg
 from dotenv import load_dotenv
 
-BATCH = max(100, min(int(os.getenv("RUNTIME_GUARD_BATCH_SIZE", "500")), 2000))
+BATCH = max(100, min(int(os.getenv("RUNTIME_GUARD_BATCH_SIZE", "1000")), 5000))
+QUEUED_SQL = "('pendente','pending','processing')"
 OPEN_SQL = "('pendente','enviando','pending','processing')"
 TERMINAL_SQL = "('submitted','enviado','delivered')"
 LOCK_KEY = 99502027
@@ -56,11 +60,11 @@ def _has_proc(cur, signature: str) -> bool:
     return bool(cur.fetchone()[0])
 
 
-def _batch_update(conn: psycopg.Connection, sql: str, params: tuple, *, max_batches: int = 200) -> int:
+def _batch_delete(conn: psycopg.Connection, sql: str, params: tuple, *, max_batches: int = 200) -> int:
     total = 0
     for _ in range(max_batches):
         with conn.cursor() as cur:
-            cur.execute("set statement_timeout='20s'")
+            cur.execute("set statement_timeout='15s'")
             cur.execute("set lock_timeout='3s'")
             cur.execute(sql, params)
             changed = cur.rowcount
@@ -68,43 +72,43 @@ def _batch_update(conn: psycopg.Connection, sql: str, params: tuple, *, max_batc
         total += max(changed, 0)
         if changed < BATCH:
             return total
-    raise RuntimeError(f"runtime guard exceeded {max_batches} batches")
+    raise RuntimeError(f"runtime guard exceeded {max_batches} queue-cleanup batches")
 
 
-def _block_all_open(conn: psycopg.Connection, reason: str) -> int:
-    return _batch_update(
+def _drop_all_unproven_queue(conn: psycopg.Connection) -> int:
+    """Fail closed when the eligibility contract itself is unavailable."""
+    return _batch_delete(
         conn,
         f"""
         with target as (
           select id
             from mei_email.envios
-           where status::text in {OPEN_SQL}
+           where status::text in {QUEUED_SQL}
            order by id
            for update skip locked
            limit %s
         )
-        update mei_email.envios e
-           set status='bloqueado'::mei_email.status_envio,
-               erro=%s
-          from target t
+        delete from mei_email.envios e
+         using target t
          where e.id=t.id
         """,
-        (BATCH, reason),
+        (BATCH,),
     )
 
 
-def _block_ineligible(conn: psycopg.Connection) -> int:
-    """Block rows without independently recorded, live MEI marketing eligibility."""
-    return _batch_update(
+def _drop_ineligible_queue(conn: psycopg.Connection) -> int:
+    """Drop never-dispatched rows lacking independently recorded live eligibility."""
+    return _batch_delete(
         conn,
         f"""
         with target as (
           select e.id
             from mei_email.envios e
-            join mei_email.empresas emp on emp.cnpj=e.cnpj
-           where e.status::text in {OPEN_SQL}
+            left join mei_email.empresas emp on emp.cnpj=e.cnpj
+           where e.status::text in {QUEUED_SQL}
              and (
-               emp.marketing_autorizado is not true
+               emp.cnpj is null
+               or emp.marketing_autorizado is not true
                or nullif(btrim(coalesce(emp.marketing_autorizado_origem,'')), '') is null
                or btrim(emp.marketing_autorizado_origem) = any(%s)
                or emp.mei_verificado is not true
@@ -123,26 +127,24 @@ def _block_ineligible(conn: psycopg.Connection) -> int:
            for update of e skip locked
            limit %s
         )
-        update mei_email.envios e
-           set status='bloqueado'::mei_email.status_envio,
-               erro='runtime_guard: fila aberta sem autorizacao/MEI elegivel independente'
-          from target t
+        delete from mei_email.envios e
+         using target t
          where e.id=t.id
         """,
         (list(LEGACY_MARKETING_ORIGINS), list(LEGACY_MEI_ORIGINS), BATCH),
     )
 
 
-def _block_suppressed(conn: psycopg.Connection) -> int:
-    """Use exact indexed suppression values; do not depend on a stale callback function."""
-    return _batch_update(
+def _drop_suppressed_queue(conn: psycopg.Connection) -> int:
+    """Drop queued rows already covered by durable technical/consent suppression."""
+    return _batch_delete(
         conn,
         f"""
         with target as (
           select e.id
             from mei_email.envios e
             join mei_email.empresas emp on emp.cnpj=e.cnpj
-           where e.status::text in {OPEN_SQL}
+           where e.status::text in {QUEUED_SQL}
              and exists (
                select 1
                  from mei_email.email_suppressions s
@@ -157,24 +159,23 @@ def _block_suppressed(conn: psycopg.Connection) -> int:
            for update of e skip locked
            limit %s
         )
-        update mei_email.envios e
-           set status='bloqueado'::mei_email.status_envio,
-               erro='runtime_guard: destinatario em suppression list'
-          from target t
+        delete from mei_email.envios e
+         using target t
          where e.id=t.id
         """,
         (BATCH,),
     )
 
 
-def _block_replay(conn: psycopg.Connection) -> int:
-    return _batch_update(
+def _drop_replay_queue(conn: psycopg.Connection) -> int:
+    """Remove never-dispatched duplicates while preserving the terminal evidence."""
+    return _batch_delete(
         conn,
         f"""
         with target as (
           select e.id
             from mei_email.envios e
-           where e.status::text in {OPEN_SQL}
+           where e.status::text in {QUEUED_SQL}
              and exists (
                select 1
                  from mei_email.envios prior
@@ -186,10 +187,8 @@ def _block_replay(conn: psycopg.Connection) -> int:
            for update of e skip locked
            limit %s
         )
-        update mei_email.envios e
-           set status='bloqueado'::mei_email.status_envio,
-               erro='runtime_guard: destinatario ja submetido/entregue; anti-replay'
-          from target t
+        delete from mei_email.envios e
+         using target t
          where e.id=t.id
         """,
         (BATCH,),
@@ -200,16 +199,16 @@ def main() -> int:
     load_dotenv('/home/ubuntu/mei-mg-email/.env', override=True)
     database_url = os.environ['DATABASE_URL']
     normalized_campaigns = 0
-    blocked_ineligible = 0
-    blocked_suppressed = 0
-    blocked_replay = 0
+    dropped_ineligible = 0
+    dropped_suppressed = 0
+    dropped_replay = 0
     missing: list[str] = []
 
     with psycopg.connect(database_url, connect_timeout=10) as conn:
         conn.autocommit = False
         with conn.cursor() as cur:
-            # Session-level lock survives the small commits between repair batches.
-            cur.execute("set statement_timeout='20s'")
+            # Session-level lock survives small commits between cleanup batches.
+            cur.execute("set statement_timeout='15s'")
             cur.execute("select pg_advisory_lock(%s)", (LOCK_KEY,))
             cur.execute(
                 """
@@ -242,19 +241,35 @@ def main() -> int:
         conn.rollback()
 
         if missing or not valid_email_fn:
-            detail = ','.join(missing) if missing else 'is_valid_email_address(citext)'
-            blocked_ineligible = _block_all_open(
-                conn,
-                'runtime_guard: contrato de elegibilidade indisponivel: ' + detail,
-            )
+            dropped_ineligible = _drop_all_unproven_queue(conn)
         else:
-            blocked_ineligible = _block_ineligible(conn)
+            dropped_ineligible = _drop_ineligible_queue(conn)
             if suppressions_table:
-                blocked_suppressed = _block_suppressed(conn)
-            blocked_replay = _block_replay(conn)
+                dropped_suppressed = _drop_suppressed_queue(conn)
+            dropped_replay = _drop_replay_queue(conn)
+
+        # Empty lots may safely close; this does not mutate an envio status and
+        # therefore does not invoke the PII-purge retention trigger.
+        with conn.cursor() as cur:
+            cur.execute("set statement_timeout='15s'")
+            cur.execute(
+                """
+                update mei_email.lotes l
+                   set status='concluido'::mei_email.status_lote,
+                       concluido_em=coalesce(l.concluido_em, now()),
+                       erro=null
+                 where l.status::text <> 'concluido'
+                   and not exists (
+                     select 1 from mei_email.envios e
+                      where e.lote_id=l.id
+                        and e.status::text in ('pendente','enviando','pending','processing')
+                   )
+                """
+            )
+        conn.commit()
 
         with conn.cursor() as cur:
-            cur.execute("set statement_timeout='20s'")
+            cur.execute("set statement_timeout='15s'")
             cur.execute(
                 """
                 select
@@ -263,8 +278,10 @@ def main() -> int:
                        or corpo_template ilike '%base publica de CNPJ%') legacy_copy_campaigns,
                   (select count(*) from mei_email.envios
                     where status::text in ('pendente','enviando','pending','processing')) open_queue,
+                  (select count(*) from mei_email.envios
+                    where status::text='enviando') uncertain_dispatch,
                   (select count(*) from mei_email.envios e
-                    where e.status::text in ('pendente','enviando','pending','processing')
+                    where e.status::text in ('pendente','pending','processing')
                       and exists (
                         select 1 from mei_email.envios prior
                          where prior.id<>e.id
@@ -273,7 +290,7 @@ def main() -> int:
                       )) replay_open
                 """
             )
-            legacy_copy, open_queue, replay_open = cur.fetchone()
+            legacy_copy, open_queue, uncertain_dispatch, replay_open = cur.fetchone()
             cur.execute("select pg_advisory_unlock(%s)", (LOCK_KEY,))
         conn.commit()
 
@@ -281,16 +298,17 @@ def main() -> int:
         'runtime_sender_guard': 'ok',
         'batch_size': BATCH,
         'normalized_campaigns': int(normalized_campaigns),
-        'blocked_ineligible': int(blocked_ineligible),
-        'blocked_suppressed': int(blocked_suppressed),
-        'blocked_replay': int(blocked_replay),
+        'dropped_ineligible_queue': int(dropped_ineligible),
+        'dropped_suppressed_queue': int(dropped_suppressed),
+        'dropped_replay_queue': int(dropped_replay),
         'legacy_copy_campaigns': int(legacy_copy or 0),
         'open_queue': int(open_queue or 0),
+        'uncertain_dispatch': int(uncertain_dispatch or 0),
         'replay_open': int(replay_open or 0),
         'missing_eligibility_columns': missing,
     }
     print(json.dumps(result, sort_keys=True))
-    if result['legacy_copy_campaigns'] or result['replay_open']:
+    if result['legacy_copy_campaigns'] or result['replay_open'] or result['uncertain_dispatch']:
         raise SystemExit('runtime sender guard invariants failed')
     return 0
 
