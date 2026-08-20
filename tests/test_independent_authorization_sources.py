@@ -59,3 +59,23 @@ def test_v040_never_grants_authorization():
     assert "new.mei_verificado := true" not in migration
     assert "set marketing_autorizado = true" not in migration
     assert "set mei_verificado = true" not in migration
+
+
+def test_v042_rejects_synthesized_recovery_authorization_before_autoqueue():
+    migration = (
+        ROOT
+        / "db"
+        / "migrations"
+        / "V042__reject_synthesized_authorization_origins.sql"
+    ).read_text(encoding="utf-8").casefold()
+
+    assert "user_explicit_authorization_2026-08-20" in migration
+    assert "operator_authorization_true" in migration
+    assert "is_independent_marketing_authorization" in migration
+    assert "create or replace view mei_email.vw_empresas_elegiveis" in migration
+    assert "synthesized_authorization_rejected_20260820" in migration
+    assert "status = 'bloqueado'" in migration
+    assert "submitted" in migration
+    assert "enviado" in migration
+    assert "delivered" in migration
+    assert "set marketing_autorizado = true" not in migration
