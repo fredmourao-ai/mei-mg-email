@@ -123,18 +123,20 @@ def _eligibility(conn: psycopg.Connection, envio_id) -> tuple[bool, str]:
             if not ok:
                 return False, reason
 
-        cur.execute("select to_regclass('mei_email.envios_externos_cota') is not null")
-        if bool(cur.fetchone()[0]):
+        cur.execute("select to_regclass('mei_email.envios_externos_cota') is not null as has_external_ledger")
+        ledger_row = cur.fetchone()
+        if ledger_row is not None and bool(ledger_row["has_external_ledger"]):
             cur.execute(
                 """
                 select exists(
                   select 1 from mei_email.envios_externos_cota x
                    where lower(btrim(x.email::text))=lower(btrim(%s))
-                )
+                ) as already_external
                 """,
                 (row["email"],),
             )
-            if bool(cur.fetchone()[0]):
+            external_row = cur.fetchone()
+            if external_row is not None and bool(external_row["already_external"]):
                 return False, "destinatario ja consta no ledger externo"
     return True, "ok"
 
