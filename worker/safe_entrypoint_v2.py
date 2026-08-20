@@ -140,6 +140,9 @@ def fast_eligibility(conn, envio_id):
 
 base._eligibility = fast_eligibility
 base.worker.recuperar_fila_legada_e_lotes_orfaos = _lightweight_recovery
+# Skip whole-lot pruning: the durable pre-send checkpoint still calls
+# fast_eligibility immediately before every Graph request.
+base.worker.processar_lote = base._ORIGINAL_PROCESSAR_LOTE
 
 
 def main() -> int:
