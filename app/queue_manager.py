@@ -124,6 +124,38 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                          then 0 else 1
                        end as prioridade
                   from mei_email.vw_empresas_elegiveis e
+                 where mei_email.is_independent_marketing_authorization(
+                           e.marketing_autorizado, e.marketing_autorizado_origem
+                       )
+                   and btrim(coalesce(e.marketing_autorizado_origem, '')) not in (
+                       'confirmacao_operador_2026-08-12',
+                       'confirmacao_operador_2026-08-13',
+                       'politica_importacao_operador_2026-08-13',
+                       'user_explicit_authorization_2026-08-20'
+                   )
+                   and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
+                       not like '%%operator_authorization_true%%'
+                   and not exists (
+                       select 1
+                         from mei_email.envios x
+                        where x.cnpj = e.cnpj
+                          and x.status in (
+                              'pendente', 'enviando', 'pending', 'processing',
+                              'submitted', 'enviado', 'delivered', 'bounced',
+                              'bounce_permanent'
+                          )
+                   )
+                   and not exists (
+                       select 1
+                         from mei_email.envios x
+                        where lower(btrim(x.email::text)) =
+                              lower(btrim(e.email::text))
+                          and x.status in (
+                              'pendente', 'enviando', 'pending', 'processing',
+                              'submitted', 'enviado', 'delivered', 'bounced',
+                              'bounce_permanent'
+                          )
+                   )
                  order by prioridade,
                           e.data_abertura desc nulls last,
                           e.cnpj
