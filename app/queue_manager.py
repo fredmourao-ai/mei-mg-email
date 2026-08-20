@@ -80,17 +80,22 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
     validar_config_fila()
     template = carregar_template_html()
 
-    with conn.cursor(row_factory=dict_row) as cur:
-        # A second replenisher must never block the sender indefinitely.
-        cur.execute(
-            "select pg_try_advisory_xact_lock(%s) as acquired",
+    # Keep the advisory-lock fetch on the default tuple row factory. Production
+    # has connections/cursors that can carry mapping row factories; using a
+    # dedicated tuple cursor makes the lock result deterministic and avoids a
+    # row-factory KeyError before the replenisher can even inspect candidates.
+    with conn.cursor() as lock_cur:
+        lock_cur.execute(
+            "select pg_try_advisory_xact_lock(%s)",
             (CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID,),
         )
-        if not bool(cur.fetchone()["acquired"]):
+        lock_row = lock_cur.fetchone()
+        if lock_row is None or not bool(lock_row[0]):
             conn.commit()
             logger.warning("AUTOQUEUE_SKIPPED another replenisher owns the lock")
             return 0
 
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
             select count(*) as pendentes
