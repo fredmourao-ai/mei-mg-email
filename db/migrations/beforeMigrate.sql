@@ -4,6 +4,39 @@
 -- da V019 e nao podem ser introduzidos alterando migrations versionadas ja
 -- aplicadas. Como este callback fica na location padrao de migrations, Flyway
 -- 10.x o descobre sem depender de callbackLocations separado.
+--
+-- Fail closed para historico Flyway divergente: se artefatos inequivocamente
+-- posteriores ja existem, mas o schema history diz que a versao ainda nao foi
+-- aplicada, nao podemos deixar o Flyway reproduzir migrations historicas de
+-- autorizacao (V021-V023). A reconciliacao precisa ser explicita e auditada.
+do $flyway_history_guard$
+declare
+  v_max integer;
+begin
+  if to_regclass('mei_email.flyway_schema_history') is not null then
+    select max(
+      case when version ~ '^[0-9]+$' then version::integer else null end
+    )
+      into v_max
+      from mei_email.flyway_schema_history
+     where success;
+
+    if v_max is not null and (
+         (v_max < 31 and to_regclass('mei_email.envios_externos_cota') is not null)
+         or
+         (v_max < 34 and to_regprocedure('mei_email.guard_uncertain_graph_dispatch_replay()') is not null)
+       )
+    then
+      raise exception using
+        errcode = 'P0001',
+        message = format(
+          'FLYWAY_HISTORY_DIVERGENCE: max_history=%s but later migration artifacts already exist; refusing to replay V021-V023 authorization migrations',
+          v_max
+        );
+    end if;
+  end if;
+end
+$flyway_history_guard$;
 
 create table if not exists mei_email.email_suppressions (
     id uuid default gen_random_uuid() not null,

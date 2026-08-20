@@ -29,6 +29,19 @@ def test_suppression_callback_satisfies_historical_v019_dependency():
     assert "not mei_email.is_email_suppressed(e.email)" in v019
 
 
+def test_before_migrate_fails_closed_on_divergent_legacy_history():
+    callback = (ROOT / "db" / "migrations" / "beforeMigrate.sql").read_text(
+        encoding="utf-8"
+    ).casefold()
+    assert "flyway_history_divergence" in callback
+    assert "mei_email.flyway_schema_history" in callback
+    assert "v_max < 31" in callback
+    assert "mei_email.envios_externos_cota" in callback
+    assert "v_max < 34" in callback
+    assert "guard_uncertain_graph_dispatch_replay" in callback
+    assert "refusing to replay v021-v023 authorization migrations" in callback
+
+
 def test_v039_repairs_callback_suppression_lookup_in_existing_databases():
     migration = (
         ROOT / "db" / "migrations" / "V039__restore_indexed_suppression_lookup_after_callback.sql"
