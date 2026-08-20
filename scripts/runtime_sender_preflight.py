@@ -11,6 +11,12 @@ and legacy-copy normalization are enforced per recipient immediately before
 every Graph call by ``worker.safe_entrypoint_v2``. Durable migrations remain
 the desired database policy layer, but startup availability does not depend on
 running a table-wide mutation.
+
+A transient database connection outage is not a sender block. In that case the
+preflight deliberately returns success with a ``deferred`` marker so systemd
+can start the worker process; the safe entrypoint then remains alive and retries
+the database connection. No Graph send can occur until the DB is reachable and
+per-recipient safety checks succeed.
 """
 from __future__ import annotations
 
@@ -39,45 +45,58 @@ def main() -> int:
     database_url = os.environ["DATABASE_URL"]
     out: dict[str, object] = {"runtime_sender_preflight": "ok"}
 
-    with psycopg.connect(database_url, connect_timeout=5) as conn:
-        with conn.cursor() as cur:
-            cur.execute("set statement_timeout='5s'")
-            cur.execute("set lock_timeout='1s'")
-            cur.execute(
-                """
-                select column_name
-                  from information_schema.columns
-                 where table_schema='mei_email'
-                   and table_name='empresas'
-                   and column_name = any(%s::text[])
-                """,
-                (list(REQUIRED_EMPRESA_COLUMNS),),
-            )
-            present = {str(row[0]) for row in cur.fetchall()}
-            missing = sorted(set(REQUIRED_EMPRESA_COLUMNS) - present)
-            if missing:
-                raise RuntimeError(
-                    "send-safety columns unavailable: " + ",".join(missing)
+    try:
+        with psycopg.connect(database_url, connect_timeout=5) as conn:
+            with conn.cursor() as cur:
+                cur.execute("set statement_timeout='5s'")
+                cur.execute("set lock_timeout='1s'")
+                cur.execute(
+                    """
+                    select column_name
+                      from information_schema.columns
+                     where table_schema='mei_email'
+                       and table_name='empresas'
+                       and column_name = any(%s::text[])
+                    """,
+                    (list(REQUIRED_EMPRESA_COLUMNS),),
                 )
+                present = {str(row[0]) for row in cur.fetchall()}
+                missing = sorted(set(REQUIRED_EMPRESA_COLUMNS) - present)
+                if missing:
+                    raise RuntimeError(
+                        "send-safety columns unavailable: " + ",".join(missing)
+                    )
 
-            cur.execute(
-                """
-                select
-                  to_regclass('mei_email.envios') is not null,
-                  to_regclass('mei_email.campanhas') is not null,
-                  to_regclass('mei_email.email_suppressions') is not null,
-                  to_regprocedure('mei_email.is_valid_email_address(citext)') is not null
-                """
-            )
-            envios_ok, campanhas_ok, suppressions_ok, valid_email_ok = cur.fetchone()
-            out.update(
+                cur.execute(
+                    """
+                    select
+                      to_regclass('mei_email.envios') is not null,
+                      to_regclass('mei_email.campanhas') is not null,
+                      to_regclass('mei_email.email_suppressions') is not null,
+                      to_regprocedure('mei_email.is_valid_email_address(citext)') is not null
+                    """
+                )
+                envios_ok, campanhas_ok, suppressions_ok, valid_email_ok = cur.fetchone()
+                out.update(
+                    {
+                        "envios": bool(envios_ok),
+                        "campanhas": bool(campanhas_ok),
+                        "email_suppressions": bool(suppressions_ok),
+                        "email_validator": bool(valid_email_ok),
+                    }
+                )
+    except psycopg.OperationalError as exc:
+        print(
+            json.dumps(
                 {
-                    "envios": bool(envios_ok),
-                    "campanhas": bool(campanhas_ok),
-                    "email_suppressions": bool(suppressions_ok),
-                    "email_validator": bool(valid_email_ok),
-                }
+                    "runtime_sender_preflight": "deferred",
+                    "reason": "database_unavailable",
+                    "error_type": type(exc).__name__,
+                },
+                sort_keys=True,
             )
+        )
+        return 0
 
     if not all(bool(out[k]) for k in ("envios", "campanhas", "email_suppressions", "email_validator")):
         raise RuntimeError("required send-safety schema primitive unavailable")
