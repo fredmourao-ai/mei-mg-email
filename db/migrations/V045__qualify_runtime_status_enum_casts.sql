@@ -3,10 +3,46 @@
 -- this function by OID/name, so CREATE OR REPLACE updates the live behavior in
 -- place while the worker remains available.
 --
--- This migration does not grant consent, create recipients, reopen terminal
--- sends, remove suppressions/opt-outs, change provider limits, or clear a
--- Microsoft sender-block sentinel.
+-- This migration also makes the independent-authorization helper reject every
+-- known synthesized/operator origin and revokes only those synthetic grants,
+-- preserving their origin text as audit evidence. It does not grant consent,
+-- create recipients, reopen terminal sends, remove suppressions/opt-outs,
+-- change provider limits, or clear a Microsoft sender-block sentinel.
 set search_path = mei_email, public;
+
+create or replace function mei_email.is_independent_marketing_authorization(
+    p_authorized boolean,
+    p_origin text
+)
+returns boolean
+language sql
+immutable
+parallel safe
+as $function$
+  select coalesce(p_authorized, false)
+     and nullif(btrim(coalesce(p_origin, '')), '') is not null
+     and btrim(p_origin) not in (
+       'confirmacao_operador_2026-08-12',
+       'confirmacao_operador_2026-08-13',
+       'politica_importacao_operador_2026-08-13',
+       'user_explicit_authorization_2026-08-20',
+       'user_campaign_authorization_2026-08-20'
+     )
+     and lower(btrim(p_origin)) not like '%operator_authorization_true%';
+$function$;
+
+update mei_email.empresas
+   set marketing_autorizado = false,
+       marketing_autorizado_em = null,
+       atualizado_em = now()
+ where marketing_autorizado is true
+   and (
+       btrim(coalesce(marketing_autorizado_origem, '')) in (
+         'user_explicit_authorization_2026-08-20',
+         'user_campaign_authorization_2026-08-20'
+       )
+       or lower(btrim(coalesce(marketing_autorizado_origem, ''))) like '%operator_authorization_true%'
+   );
 
 create or replace function mei_email.enforce_envio_live_eligibility()
 returns trigger
@@ -31,7 +67,6 @@ begin
       mei_email.is_independent_marketing_authorization(
           emp.marketing_autorizado, emp.marketing_autorizado_origem
       )
-      and emp.marketing_autorizado_origem <> 'user_campaign_authorization_2026-08-20'
       and upper(coalesce(emp.tipo_regime, '')) = 'MEI'
       and mei_email.is_independent_mei_verification(
           emp.mei_verificado, emp.mei_verificado_origem
@@ -82,5 +117,7 @@ begin
 end
 $function$;
 
+comment on function mei_email.is_independent_marketing_authorization(boolean, text) is
+  'True only for non-empty independent authorization sources; synthetic/operator origins are rejected by V045.';
 comment on function mei_email.enforce_envio_live_eligibility() is
   'Live MEI eligibility and anti-replay guard with schema-qualified enum casts; V045.';
