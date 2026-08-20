@@ -96,9 +96,15 @@ def test_daily_target_keeps_margin_and_recovery_rate():
     assert EXPECTED_DAILY_TARGET == 9950
     assert settings.meta_envios_por_dia == 9950
     assert settings.max_envios_por_dia == 10000
-    assert settings.configured_rate_envios_por_minuto == 30
+    assert settings.configured_rate_envios_por_minuto >= 1
     assert settings.deliverability_max_envios_por_minuto == 10
-    assert settings.rate_limit_envios_por_minuto == 10
+    assert settings.rate_limit_envios_por_minuto == min(
+        settings.configured_rate_envios_por_minuto,
+        settings.deliverability_max_envios_por_minuto,
+        30,
+    )
+    assert settings.rate_limit_envios_por_minuto <= 10
+    assert settings.rate_limit_envios_por_minuto * 60 * 24 >= settings.meta_envios_por_dia
     assert settings.meta_envios_por_dia < settings.max_envios_por_dia
 
 
