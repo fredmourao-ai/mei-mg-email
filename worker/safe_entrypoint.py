@@ -28,6 +28,7 @@ LEGACY_MARKETING_ORIGINS = {
     "confirmacao_operador_2026-08-12",
     "confirmacao_operador_2026-08-13",
     "politica_importacao_operador_2026-08-13",
+    "operator_authorization_true_2026-08-20",
 }
 LEGACY_MEI_ORIGINS = {
     "override_operador_2026-08-13",
