@@ -43,7 +43,9 @@ def test_safe_entrypoint_checks_independent_sources_replay_and_copy_before_graph
     assert "status='pendente'" not in recovery
 
 
-def test_v2_uses_indexable_suppression_value_lookup():
+def test_v2_uses_indexable_suppression_value_lookup_and_rejects_operator_inferred_auth():
     src = (ROOT / "worker/safe_entrypoint_v2.py").read_text()
     assert "s.value=lower(btrim(e.email::text))::public.citext" in src
     assert "lower(btrim(s.value))" not in src
+    assert "operator_authorization_true" in src
+    assert "_disallowed_marketing_origin" in src
