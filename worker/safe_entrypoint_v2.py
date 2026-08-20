@@ -18,6 +18,12 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _disallowed_marketing_origin(value: Any) -> bool:
+    origin = _text(value)
+    lowered = origin.lower()
+    return origin in base.LEGACY_MARKETING_ORIGINS or "operator_authorization_true" in lowered
+
+
 def fast_eligibility(conn, envio_id):
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
@@ -66,7 +72,7 @@ def fast_eligibility(conn, envio_id):
         checks = (
             (bool(row["marketing_autorizado"]), "marketing sem autorizacao"),
             (bool(marketing_origin), "origem de autorizacao ausente"),
-            (marketing_origin not in base.LEGACY_MARKETING_ORIGINS, "origem de autorizacao legada"),
+            (not _disallowed_marketing_origin(marketing_origin), "origem de autorizacao legada/inferida por operador"),
             (bool(row["mei_verificado"]), "MEI nao verificado"),
             (bool(mei_origin), "origem de verificacao MEI ausente"),
             (mei_origin not in base.LEGACY_MEI_ORIGINS, "origem de verificacao MEI legada"),
