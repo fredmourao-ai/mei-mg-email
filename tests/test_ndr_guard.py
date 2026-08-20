@@ -57,6 +57,12 @@ def test_ndr_subject_detection():
     assert not looks_like_ndr("Contabilidade Melo para MEI")
 
 
+def test_ndr_guard_scans_mailbox_wide_not_only_inbox():
+    source = (ROOT / "scripts" / "ndr_guard.py").read_text(encoding="utf-8")
+    assert '/messages?{params}' in source
+    assert '/mailFolders/inbox/messages?' not in source
+
+
 def test_ndr_guard_service_is_resident_and_fail_safe():
     unit = (ROOT / "deploy" / "systemd" / "mei-mg-email-ndr-guard.service").read_text(encoding="utf-8")
     assert "ExecStart=__PYTHON__ scripts/ndr_guard_v2.py" in unit
