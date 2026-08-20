@@ -122,6 +122,10 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
         # Authorization/MEI flags are not sufficient by themselves: historical
         # operator overrides are explicitly rejected by the V040 source-policy
         # functions so public discovery data can never become implicit opt-in.
+        # Keep the raw-origin exclusions here as a second fail-closed boundary:
+        # production may temporarily have a structurally older DB function when
+        # Flyway history is being reconciled, and autoqueue must not enqueue a
+        # synthesized/operator authorization even in that drift state.
         cur.execute(
             """
             with base as materialized (
@@ -137,8 +141,20 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and mei_email.is_independent_marketing_authorization(
                        e.marketing_autorizado, e.marketing_autorizado_origem
                    )
+                   and btrim(coalesce(e.marketing_autorizado_origem, '')) not in (
+                       'confirmacao_operador_2026-08-12',
+                       'confirmacao_operador_2026-08-13',
+                       'politica_importacao_operador_2026-08-13',
+                       'user_explicit_authorization_2026-08-20'
+                   )
+                   and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
+                       not like '%operator_authorization_true%'
                    and mei_email.is_independent_mei_verification(
                        e.mei_verificado, e.mei_verificado_origem
+                   )
+                   and btrim(coalesce(e.mei_verificado_origem, '')) not in (
+                       'override_operador_2026-08-13',
+                       'politica_importacao_operador_2026-08-13'
                    )
                    and not exists (
                        select 1

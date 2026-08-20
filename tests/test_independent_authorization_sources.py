@@ -48,6 +48,18 @@ def test_autoqueue_requires_independent_sources_before_first_limit():
     assert "bounced" in base
 
 
+def test_autoqueue_raw_origin_guard_survives_stale_db_function_before_limit():
+    source = (ROOT / "app" / "queue_manager.py").read_text(encoding="utf-8").casefold()
+    base_start = source.index("with base as materialized")
+    first_limit = source.index("limit %s", base_start)
+    base = source[base_start:first_limit]
+
+    assert "user_explicit_authorization_2026-08-20" in base
+    assert "operator_authorization_true" in base
+    for origin in LEGACY_MARKETING_ORIGINS + LEGACY_MEI_ORIGINS:
+        assert origin.casefold() in base
+
+
 def test_v040_never_grants_authorization():
     migration = (
         ROOT
