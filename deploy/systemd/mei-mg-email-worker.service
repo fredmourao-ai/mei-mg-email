@@ -2,6 +2,11 @@
 Description=MEI MG Email Microsoft Graph App-Only Worker
 After=network-online.target
 Wants=network-online.target
+# Non-stop policy: the sender worker must not remain stopped unless the
+# application creates the current Microsoft/sender-block sentinel. Disable
+# systemd start-rate limiting so repeated transient recipient/network failures
+# cannot leave the unit permanently inactive without that sentinel.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -10,7 +15,7 @@ WorkingDirectory=/home/ubuntu/mei-mg-email
 EnvironmentFile=-/home/ubuntu/mei-mg-email/.env
 ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python -m worker.worker_queue_first
 Restart=always
-RestartSec=15
+RestartSec=5
 TimeoutStopSec=45
 KillSignal=SIGTERM
 NoNewPrivileges=true
