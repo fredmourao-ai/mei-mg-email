@@ -139,6 +139,10 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    )
                    and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
                        not like '%%operator_authorization_true%%'
+                   and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
+                       not like 'politica_importacao_operador%%'
+                   and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
+                       not like 'base_publica%%'
                    and mei_email.is_independent_mei_verification(
                        e.mei_verificado, e.mei_verificado_origem
                    )
@@ -146,6 +150,12 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                        'override_operador_2026-08-13',
                        'politica_importacao_operador_2026-08-13'
                    )
+                   and lower(btrim(coalesce(e.mei_verificado_origem, '')))
+                       not like 'politica_importacao_operador%%'
+                   and lower(btrim(coalesce(e.mei_verificado_origem, '')))
+                       not like 'nao_verificado%%'
+                   and lower(btrim(coalesce(e.mei_verificado_origem, '')))
+                       not like 'legacy_operator_verification_rejected%%'
                    and not exists (
                        select 1
                          from mei_email.envios x
