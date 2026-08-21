@@ -29,6 +29,18 @@ def _disallowed_marketing_origin(value: Any) -> bool:
     return origin in base.LEGACY_MARKETING_ORIGINS or "operator_authorization_true" in lowered
 
 
+def _legacy_numeric_branch_cnpj(value: Any) -> bool:
+    """Return True for an old numeric CNPJ that is unequivocally a branch.
+
+    For the legacy numeric format, positions 9-12 identify the establishment
+    order and a matrix uses 0001. A MEI cannot have a branch. We deliberately
+    do not infer matrix/branch from the new alphanumeric establishment order,
+    because post-2026 CNPJ assignment is not safely reducible to ``0001``.
+    """
+    cnpj = _text(value).replace(".", "").replace("/", "").replace("-", "")
+    return len(cnpj) == 14 and cnpj.isdigit() and cnpj[8:12] != "0001"
+
+
 @dataclass(frozen=True)
 class _RecoveryResult:
     changed: int = 0
@@ -118,6 +130,7 @@ def fast_eligibility(conn, envio_id):
             (bool(row["mei_verificado"]), "MEI nao verificado"),
             (bool(mei_origin), "origem de verificacao MEI ausente"),
             (mei_origin not in base.LEGACY_MEI_ORIGINS, "origem de verificacao MEI legada"),
+            (not _legacy_numeric_branch_cnpj(row["cnpj"]), "CNPJ numerico de filial incompativel com MEI"),
             (not bool(row["opt_out"]), "opt-out ativo"),
             (_text(row["situacao_cadastral"]).upper() == "ATIVA", "empresa inativa"),
             (_text(row["uf"]).upper() == "MG", "empresa fora de MG"),
