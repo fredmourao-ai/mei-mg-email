@@ -18,6 +18,12 @@ from psycopg.rows import dict_row
 
 from worker import safe_entrypoint as base
 
+# MEI status is a legal/tax classification, not a marketing inference.  The
+# official Receita/Simples OPCAO_PELO_MEI feed is the only verification source
+# currently implemented and audited in this repository.  Fail closed for any
+# other source even when a legacy row already has mei_verificado=true.
+OFFICIAL_MEI_VERIFICATION_ORIGINS = frozenset({"receita_simples_opcao_mei"})
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -38,7 +44,8 @@ def _disallowed_mei_origin(value: Any) -> bool:
     origin = _text(value)
     lowered = origin.lower()
     return (
-        origin in base.LEGACY_MEI_ORIGINS
+        lowered not in OFFICIAL_MEI_VERIFICATION_ORIGINS
+        or origin in base.LEGACY_MEI_ORIGINS
         or lowered.startswith("politica_importacao_operador")
         or lowered.startswith("nao_verificado")
         or lowered.startswith("legacy_operator_verification_rejected")
@@ -145,7 +152,7 @@ def fast_eligibility(conn, envio_id):
             (not _disallowed_marketing_origin(marketing_origin), "origem de autorizacao publica/legada/inferida por operador"),
             (bool(row["mei_verificado"]), "MEI nao verificado"),
             (bool(mei_origin), "origem de verificacao MEI ausente"),
-            (not _disallowed_mei_origin(mei_origin), "origem de verificacao MEI legada/inferida por operador"),
+            (not _disallowed_mei_origin(mei_origin), "origem de verificacao MEI nao oficial/legada/inferida por operador"),
             (not _legacy_numeric_branch_cnpj(row["cnpj"]), "CNPJ numerico de filial incompativel com MEI"),
             (not bool(row["opt_out"]), "opt-out ativo"),
             (_text(row["situacao_cadastral"]).upper() == "ATIVA", "empresa inativa"),

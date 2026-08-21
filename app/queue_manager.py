@@ -146,6 +146,11 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
                    and mei_email.is_independent_mei_verification(
                        e.mei_verificado, e.mei_verificado_origem
                    )
+                   -- Fail closed on MEI classification.  The official
+                   -- Receita/Simples OPCAO_PELO_MEI import is the only
+                   -- verification source implemented/audited in this repo.
+                   and lower(btrim(coalesce(e.mei_verificado_origem, '')))
+                       = 'receita_simples_opcao_mei'
                    and btrim(coalesce(e.mei_verificado_origem, '')) not in (
                        'override_operador_2026-08-13',
                        'politica_importacao_operador_2026-08-13'

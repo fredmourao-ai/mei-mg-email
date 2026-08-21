@@ -105,4 +105,5 @@ jobs:
             tests/test_sender_blocked_circuit.py \
             tests/test_ndr_guard.py \
             tests/test_import_policy.py \
-            tests/test_import_policy_explicit.py
+            tests/test_import_policy_explicit.py \
+            tests/test_public_mirror_origin_guard.py
