@@ -7,6 +7,13 @@
 -- that historical helper. It introduces a new policy helper and makes every
 -- durable live-send gate use it explicitly.
 --
+-- ONLINE-SAFETY: this migration deliberately does not rewrite every historical
+-- empresa row. On the production corpus that full-table UPDATE can exceed the
+-- bounded statement timeout and delay installation of the actual live-send
+-- guards. Existing synthesized origins remain audit evidence but are rejected
+-- immediately by the view, queue predicates and live trigger below. Historical
+-- physical cleanup, when desired, must be done separately in bounded batches.
+--
 -- This migration never grants consent, never creates recipients, never reopens
 -- terminal sends and never clears opt-outs, suppressions or sender-block state.
 set search_path = mei_email, public;
@@ -32,23 +39,12 @@ as $function$
      and lower(btrim(p_origin)) not like '%operator_authorization_true%';
 $function$;
 
--- Revoke only synthesized grants. Preserve the source string as audit evidence.
-update mei_email.empresas
-   set marketing_autorizado = false,
-       marketing_autorizado_em = null,
-       atualizado_em = now()
- where marketing_autorizado is true
-   and not mei_email.is_allowed_marketing_authorization_source(
-       marketing_autorizado, marketing_autorizado_origem
-   );
-
 create or replace function mei_email.enforce_independent_empresa_sources()
 returns trigger
 language plpgsql
 set search_path = mei_email, public
 as $function$
 declare
-  marketing_origin text := btrim(coalesce(new.marketing_autorizado_origem, ''));
   mei_origin text := btrim(coalesce(new.mei_verificado_origem, ''));
 begin
   if new.marketing_autorizado is true
@@ -100,6 +96,8 @@ end
 $do$;
 
 -- Only still-open unsafe rows are blocked. Terminal evidence is untouched.
+-- OPEN_TOTAL is normally small; unlike the historical empresas table this is
+-- a bounded operational set and therefore safe to normalize during migration.
 update mei_email.envios e
    set status = 'bloqueado'::mei_email.status_envio,
        erro = 'V046: origem de autorizacao sintetizada/invalida; bloqueio fail-closed'
