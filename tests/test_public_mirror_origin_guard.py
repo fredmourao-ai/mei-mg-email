@@ -31,4 +31,7 @@ def test_v048_closes_prefix_loophole_before_autoqueue_limit_helpers():
     assert "not like 'politica_importacao_operador%'" in sql
     assert "not like 'base_publica%'" in sql
     assert "e.status::text in ('pendente', 'enviando', 'pending', 'processing')" in sql
-    assert "terminal" not in sql.lower().split("update mei_email.envios", 1)[1].split("comment on function", 1)[0]
+    open_filter = sql.split("e.status::text in", 1)[1].split(");", 1)[0]
+    assert "submitted" not in open_filter
+    assert "enviado" not in open_filter
+    assert "delivered" not in open_filter
