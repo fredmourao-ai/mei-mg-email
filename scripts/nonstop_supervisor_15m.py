@@ -9,9 +9,10 @@ suppression, replay and quota guards as the worker.
 
 It also treats the PostgreSQL runtime as part of sender availability. If the DB
 container is unavailable while there is no Microsoft sender-block sentinel, the
-supervisor performs one idempotent ``docker compose up -d db`` recovery and
-waits for PostgreSQL before evaluating throughput. It never stops a healthy
-worker merely for diagnostics.
+supervisor first restarts the existing DB container without recreating it. Only
+if the container is absent or cannot be started does it fall back to
+``docker compose up -d db``. This avoids leaving PostgreSQL stopped if a compose
+recreate is interrupted. It never stops a healthy worker merely for diagnostics.
 
 It never clears the Microsoft sender-block sentinel, never grants consent,
 never relaxes eligibility and never sends mail directly.
@@ -39,6 +40,7 @@ CANONICAL_SENTINEL = Path(
 )
 LEGACY_SENTINEL = BASE_DIR / "runtime" / "sender_blocked.pause"
 WORKER_UNIT = "mei-mg-email-worker.service"
+DB_CONTAINER = os.getenv("MEI_DB_CONTAINER", "mei-mg-email-db")
 STATE_PATH = Path(
     os.getenv(
         "THROUGHPUT_SUPERVISOR_STATE_PATH",
@@ -78,6 +80,33 @@ def _db_probe() -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {str(exc)[:400]}"
 
 
+def _run_process(args: list[str], *, timeout: int, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _wait_for_db(result: dict[str, object], label: str, attempts: int = 10) -> bool:
+    detail = "not_probed"
+    for attempt in range(1, attempts + 1):
+        time.sleep(2)
+        available, detail = _db_probe()
+        if available:
+            result["actions"].append("db_recovered")
+            result.setdefault("db_recovery", {}).update(
+                {"success": True, "method": label, "ready_attempt": attempt}
+            )
+            result["db_after"] = {"available": True, "detail": detail}
+            return True
+    result["db_after"] = {"available": False, "detail": detail}
+    return False
+
+
 def _ensure_db_available(result: dict[str, object]) -> bool:
     available, detail = _db_probe()
     result["db_before"] = {"available": available, "detail": detail}
@@ -86,46 +115,71 @@ def _ensure_db_available(result: dict[str, object]) -> bool:
         return True
 
     result["actions"].append("db_unavailable_detected")
+    result["db_recovery"] = {"attempted": True}
+
+    # Prefer restarting the existing container. ``docker compose up`` can
+    # recreate a container when local compose configuration drifts; if that
+    # operation is cancelled between stop/start, PostgreSQL remains exited.
     try:
-        cp = subprocess.run(
+        inspect = _run_process(
+            ["docker", "inspect", DB_CONTAINER],
+            timeout=10,
+        )
+        result["db_recovery"]["container_present"] = inspect.returncode == 0
+        if inspect.returncode == 0:
+            _run_process(
+                ["docker", "update", "--restart", "unless-stopped", DB_CONTAINER],
+                timeout=10,
+            )
+            start = _run_process(["docker", "start", DB_CONTAINER], timeout=20)
+            result["db_recovery"].update(
+                {
+                    "docker_start_rc": start.returncode,
+                    "docker_start_stdout": (start.stdout or "")[-500:],
+                    "docker_start_stderr": (start.stderr or "")[-500:],
+                }
+            )
+            if start.returncode == 0 and _wait_for_db(result, "docker_start", attempts=10):
+                return True
+    except Exception as exc:
+        result["db_recovery"]["docker_start_error"] = (
+            f"{type(exc).__name__}: {str(exc)[:500]}"
+        )
+
+    # Fallback only when a simple start could not recover the DB. This path may
+    # create/reconcile the container and therefore is intentionally second.
+    try:
+        compose = _run_process(
             ["docker", "compose", "up", "-d", "db"],
             cwd=BASE_DIR,
-            text=True,
-            capture_output=True,
             timeout=45,
-            check=False,
+        )
+        result["db_recovery"].update(
+            {
+                "compose_rc": compose.returncode,
+                "compose_stdout": (compose.stdout or "")[-800:],
+                "compose_stderr": (compose.stderr or "")[-800:],
+            }
         )
     except Exception as exc:
-        result["db_recovery"] = {
-            "attempted": True,
-            "success": False,
-            "error": f"{type(exc).__name__}: {str(exc)[:500]}",
-        }
+        result["db_recovery"].update(
+            {
+                "success": False,
+                "compose_error": f"{type(exc).__name__}: {str(exc)[:500]}",
+            }
+        )
         result["db_after"] = {"available": False, "detail": "compose_start_exception"}
         return False
 
-    result["db_recovery"] = {
-        "attempted": True,
-        "compose_rc": cp.returncode,
-        "stdout": (cp.stdout or "")[-800:],
-        "stderr": (cp.stderr or "")[-800:],
-    }
-    if cp.returncode != 0:
+    if compose.returncode != 0:
         result["db_recovery"]["success"] = False
         result["db_after"] = {"available": False, "detail": "compose_start_failed"}
         return False
 
-    for attempt in range(1, 16):
-        time.sleep(2)
-        available, detail = _db_probe()
-        if available:
-            result["actions"].append("db_recovered")
-            result["db_recovery"].update({"success": True, "ready_attempt": attempt})
-            result["db_after"] = {"available": True, "detail": detail}
-            return True
+    if _wait_for_db(result, "docker_compose_up", attempts=15):
+        return True
 
     result["db_recovery"]["success"] = False
-    result["db_after"] = {"available": False, "detail": detail}
     return False
 
 
