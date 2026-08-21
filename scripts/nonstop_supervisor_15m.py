@@ -7,6 +7,12 @@ When a campaign is active, below target, with zero recent sends and an empty
 queue, it performs one bounded autoqueue refill using the same consent,
 suppression, replay and quota guards as the worker.
 
+It also treats the PostgreSQL runtime as part of sender availability. If the DB
+container is unavailable while there is no Microsoft sender-block sentinel, the
+supervisor performs one idempotent ``docker compose up -d db`` recovery and
+waits for PostgreSQL before evaluating throughput. It never stops a healthy
+worker merely for diagnostics.
+
 It never clears the Microsoft sender-block sentinel, never grants consent,
 never relaxes eligibility and never sends mail directly.
 """
@@ -58,6 +64,69 @@ def _state() -> str:
 
 def _sentinel() -> bool:
     return CANONICAL_SENTINEL.is_file() or LEGACY_SENTINEL.is_file()
+
+
+def _db_probe() -> tuple[bool, str]:
+    try:
+        with psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=4) as conn:
+            with conn.cursor() as cur:
+                cur.execute("select 1")
+                if cur.fetchone()[0] == 1:
+                    return True, "ok"
+        return False, "probe_returned_no_row"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {str(exc)[:400]}"
+
+
+def _ensure_db_available(result: dict[str, object]) -> bool:
+    available, detail = _db_probe()
+    result["db_before"] = {"available": available, "detail": detail}
+    if available:
+        result["db_after"] = result["db_before"]
+        return True
+
+    result["actions"].append("db_unavailable_detected")
+    try:
+        cp = subprocess.run(
+            ["docker", "compose", "up", "-d", "db"],
+            cwd=BASE_DIR,
+            text=True,
+            capture_output=True,
+            timeout=45,
+            check=False,
+        )
+    except Exception as exc:
+        result["db_recovery"] = {
+            "attempted": True,
+            "success": False,
+            "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+        }
+        result["db_after"] = {"available": False, "detail": "compose_start_exception"}
+        return False
+
+    result["db_recovery"] = {
+        "attempted": True,
+        "compose_rc": cp.returncode,
+        "stdout": (cp.stdout or "")[-800:],
+        "stderr": (cp.stderr or "")[-800:],
+    }
+    if cp.returncode != 0:
+        result["db_recovery"]["success"] = False
+        result["db_after"] = {"available": False, "detail": "compose_start_failed"}
+        return False
+
+    for attempt in range(1, 16):
+        time.sleep(2)
+        available, detail = _db_probe()
+        if available:
+            result["actions"].append("db_recovered")
+            result["db_recovery"].update({"success": True, "ready_attempt": attempt})
+            result["db_after"] = {"available": True, "detail": detail}
+            return True
+
+    result["db_recovery"]["success"] = False
+    result["db_after"] = {"available": False, "detail": detail}
+    return False
 
 
 def _ensure_worker_active(result: dict[str, object]) -> None:
@@ -185,6 +254,13 @@ def main() -> int:
         _persist(result)
         print(json.dumps(result, sort_keys=True))
         return 0
+
+    if not _ensure_db_available(result):
+        result["worker_after"] = _state()
+        result["result"] = "degraded_db_unavailable"
+        _persist(result)
+        print(json.dumps(result, sort_keys=True))
+        return 1
 
     _ensure_worker_active(result)
     before = _collect()
