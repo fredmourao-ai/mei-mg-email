@@ -26,7 +26,23 @@ def _text(value: Any) -> str:
 def _disallowed_marketing_origin(value: Any) -> bool:
     origin = _text(value)
     lowered = origin.lower()
-    return origin in base.LEGACY_MARKETING_ORIGINS or "operator_authorization_true" in lowered
+    return (
+        origin in base.LEGACY_MARKETING_ORIGINS
+        or "operator_authorization_true" in lowered
+        or lowered.startswith("politica_importacao_operador")
+        or lowered.startswith("base_publica")
+    )
+
+
+def _disallowed_mei_origin(value: Any) -> bool:
+    origin = _text(value)
+    lowered = origin.lower()
+    return (
+        origin in base.LEGACY_MEI_ORIGINS
+        or lowered.startswith("politica_importacao_operador")
+        or lowered.startswith("nao_verificado")
+        or lowered.startswith("legacy_operator_verification_rejected")
+    )
 
 
 def _legacy_numeric_branch_cnpj(value: Any) -> bool:
@@ -126,10 +142,10 @@ def fast_eligibility(conn, envio_id):
         checks = (
             (bool(row["marketing_autorizado"]), "marketing sem autorizacao"),
             (bool(marketing_origin), "origem de autorizacao ausente"),
-            (not _disallowed_marketing_origin(marketing_origin), "origem de autorizacao legada/inferida por operador"),
+            (not _disallowed_marketing_origin(marketing_origin), "origem de autorizacao publica/legada/inferida por operador"),
             (bool(row["mei_verificado"]), "MEI nao verificado"),
             (bool(mei_origin), "origem de verificacao MEI ausente"),
-            (mei_origin not in base.LEGACY_MEI_ORIGINS, "origem de verificacao MEI legada"),
+            (not _disallowed_mei_origin(mei_origin), "origem de verificacao MEI legada/inferida por operador"),
             (not _legacy_numeric_branch_cnpj(row["cnpj"]), "CNPJ numerico de filial incompativel com MEI"),
             (not bool(row["opt_out"]), "opt-out ativo"),
             (_text(row["situacao_cadastral"]).upper() == "ATIVA", "empresa inativa"),
