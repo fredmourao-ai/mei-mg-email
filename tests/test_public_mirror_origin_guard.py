@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from worker.safe_entrypoint_v2 import (
+    OFFICIAL_MEI_VERIFICATION_ORIGINS,
     _disallowed_marketing_origin,
     _disallowed_mei_origin,
 )
@@ -21,8 +22,13 @@ def test_public_base_is_never_marketing_opt_in():
     assert _disallowed_marketing_origin("base_publica_sem_opt_in_20260819")
 
 
-def test_known_official_mei_verification_source_is_not_rejected():
+def test_only_official_mei_verification_source_is_allowed_pre_send():
+    assert OFFICIAL_MEI_VERIFICATION_ORIGINS == {"receita_simples_opcao_mei"}
     assert not _disallowed_mei_origin("receita_simples_opcao_mei")
+    assert not _disallowed_mei_origin(" Receita_Simples_Opcao_Mei ")
+    assert _disallowed_mei_origin("manual_review_mei")
+    assert _disallowed_mei_origin("legacy_import_verified")
+    assert _disallowed_mei_origin("")
 
 
 def test_v048_closes_prefix_loophole_before_autoqueue_limit_helpers():
@@ -38,7 +44,7 @@ def test_v048_closes_prefix_loophole_before_autoqueue_limit_helpers():
     assert "delivered" not in open_filter
 
 
-def test_autoqueue_rejects_public_operator_prefixes_before_first_limit_even_with_stale_db_helpers():
+def test_autoqueue_rejects_public_operator_prefixes_and_requires_official_mei_before_first_limit():
     source = QUEUE_MANAGER.read_text(encoding="utf-8").casefold()
     base_start = source.index("with base as materialized")
     first_limit = source.index("limit %s", base_start)
@@ -48,6 +54,7 @@ def test_autoqueue_rejects_public_operator_prefixes_before_first_limit_even_with
     assert "not like 'base_publica%%'" in base
     assert "not like 'nao_verificado%%'" in base
     assert "not like 'legacy_operator_verification_rejected%%'" in base
+    assert "= 'receita_simples_opcao_mei'" in base
     assert "submitted" in base
     assert "enviado" in base
     assert "delivered" in base
