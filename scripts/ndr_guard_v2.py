@@ -14,6 +14,14 @@ import psycopg
 from app.config import settings
 from scripts import ndr_guard as guard
 
+# Google can return 550 5.2.1 for an account that is explicitly inactive.
+# This is a permanent recipient condition, not a sender restriction and not a
+# transient mailbox-full response. Keep the marker phrase-specific instead of
+# classifying every 5.2.1 response as permanent.
+guard.PERMANENT_RECIPIENT_MARKERS = guard.PERMANENT_RECIPIENT_MARKERS + (
+    "email account that you tried to reach is inactive",
+)
+
 
 def _retention_aware_prior_send_matches(
     addresses: list[str], *, sender_address: str
