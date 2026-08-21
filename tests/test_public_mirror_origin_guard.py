@@ -7,6 +7,7 @@ from worker.safe_entrypoint_v2 import (
 
 
 MIGRATION = Path("db/migrations/V048__reject_public_mirror_operator_origins.sql")
+QUEUE_MANAGER = Path("app/queue_manager.py")
 
 
 def test_historical_huggingface_operator_origin_is_rejected_pre_send():
@@ -35,3 +36,18 @@ def test_v048_closes_prefix_loophole_before_autoqueue_limit_helpers():
     assert "submitted" not in open_filter
     assert "enviado" not in open_filter
     assert "delivered" not in open_filter
+
+
+def test_autoqueue_rejects_public_operator_prefixes_before_first_limit_even_with_stale_db_helpers():
+    source = QUEUE_MANAGER.read_text(encoding="utf-8").casefold()
+    base_start = source.index("with base as materialized")
+    first_limit = source.index("limit %s", base_start)
+    base = source[base_start:first_limit]
+
+    assert "not like 'politica_importacao_operador%%'" in base
+    assert "not like 'base_publica%%'" in base
+    assert "not like 'nao_verificado%%'" in base
+    assert "not like 'legacy_operator_verification_rejected%%'" in base
+    assert "submitted" in base
+    assert "enviado" in base
+    assert "delivered" in base
