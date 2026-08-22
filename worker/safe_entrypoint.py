@@ -18,6 +18,8 @@ def _eligibility(conn: psycopg.Connection, envio_id) -> tuple[bool, str]:
                    emp.opt_out,
                    emp.situacao_cadastral,
                    mei_email.is_valid_email_address(e.email) as email_valido,
+                   mei_email.is_email_suppressed(e.email) as email_suppressed,
+                   mei_email.is_cnpj_suppressed(e.cnpj::text) as cnpj_suppressed,
                    position('contabil' in lower(btrim(e.email::text))) > 0 as email_contabil,
                    (select count(distinct c2.cnpj)
                       from mei_email.empresas c2
@@ -39,6 +41,8 @@ def _eligibility(conn: psycopg.Connection, envio_id) -> tuple[bool, str]:
             (not bool(row['opt_out']), 'opt-out ativo'),
             (str(row['situacao_cadastral'] or '').upper()=='ATIVA', 'empresa inativa'),
             (bool(row['email_valido']), 'email invalido'),
+            (not bool(row['email_suppressed']), 'email suprimido'),
+            (not bool(row['cnpj_suppressed']), 'cnpj suprimido'),
             (not bool(row['email_contabil']), 'email contem palavra contabil'),
             (int(row['cadastros_mesmo_email'] or 0)<=2, 'email vinculado a mais de 2 cadastros'),
             (not bool(row['terminal_history']), 'destinatario ja submetido/entregue'),
@@ -46,6 +50,18 @@ def _eligibility(conn: psycopg.Connection, envio_id) -> tuple[bool, str]:
         for ok, reason in checks:
             if not ok:
                 return False, reason
+        cur.execute("select to_regclass('mei_email.envios_externos_cota') is not null as has_external")
+        has_external = cur.fetchone()
+        if has_external and bool(has_external['has_external']):
+            cur.execute("""
+                select exists(
+                    select 1 from mei_email.envios_externos_cota x
+                     where lower(btrim(x.email::text))=lower(btrim(%s))
+                ) as already_external
+            """, (row['email'],))
+            external = cur.fetchone()
+            if external and bool(external['already_external']):
+                return False, 'destinatario ja consta no ledger externo'
     return True, 'ok'
 
 

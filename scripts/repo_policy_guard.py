@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+MAX_ACTIVE_MIGRATION = 20
 TEXT_SUFFIXES = {'.py', '.sql', '.sh', '.md', '.yml', '.yaml', '.service', '.timer'}
 
 PROTECTED_PREFIXES = (
@@ -93,6 +94,12 @@ def scan_file(path: str, changed: set[str]) -> list[str]:
 def main() -> int:
     changed = changed_paths()
     violations: list[str] = []
+    for path in (ROOT / 'db' / 'migrations').glob('V[0-9]*__*.sql'):
+        match = re.match(r'V(\d+)__', path.name)
+        if match and int(match.group(1)) > MAX_ACTIVE_MIGRATION:
+            violations.append(
+                f'{path.relative_to(ROOT)}: active migration above canonical ceiling V{MAX_ACTIVE_MIGRATION:03d}'
+            )
     for path in repo_files():
         violations.extend(scan_file(path, changed))
 
