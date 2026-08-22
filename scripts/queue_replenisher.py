@@ -71,40 +71,60 @@ def fetch_page(cur, cursor: str):
 def filter_candidates_batch(cur, rows, needed: int):
     if not rows or needed <= 0:
         return []
-    ordered = sorted(rows, key=lambda r: (0 if str(r[2] or '').upper() == 'MG' else 1, str(r[0])))
-    selected = []
-    seen = set()
+    cnpjs = [str(row[0]) for row in rows]
+    emails = [str(row[1] or '').strip() for row in rows]
+    ufs = [str(row[2] or '').strip() for row in rows]
     statuses = list(ACTIVE_STATUSES)
-    for cnpj, email, _uf in ordered:
-        raw = str(email or '').strip()
-        norm = raw.lower()
-        if not norm or norm in seen or 'contabil' in norm:
-            continue
-        seen.add(norm)
-        cur.execute("select mei_email.is_valid_email_address(%s::citext)", (raw,))
-        if not bool(cur.fetchone()[0]):
-            continue
-        cur.execute("select coalesce(opt_out,false) from mei_email.empresas where cnpj=%s", (cnpj,))
-        row = cur.fetchone()
-        if not row or bool(row[0]):
-            continue
-        cur.execute("select mei_email.is_email_suppressed(%s::citext), mei_email.is_cnpj_suppressed(%s)", (raw, str(cnpj)))
-        suppressed = cur.fetchone()
-        if suppressed and (bool(suppressed[0]) or bool(suppressed[1])):
-            continue
-        cur.execute("select 1 from mei_email.envios where cnpj=%s and status=any(%s::mei_email.status_envio[]) limit 1", (cnpj, statuses))
-        if cur.fetchone():
-            continue
-        cur.execute("select 1 from mei_email.envios where email=%s::citext and status=any(%s::mei_email.status_envio[]) limit 1", (raw, statuses))
-        if cur.fetchone():
-            continue
-        cur.execute("select count(*) from (select 1 from mei_email.empresas where email=%s::citext limit 3) q", (raw,))
-        if int(cur.fetchone()[0] or 0) > 2:
-            continue
-        selected.append((str(cnpj), raw))
-        if len(selected) >= needed:
-            break
-    return selected
+    cur.execute("""
+        with page as (
+            select *
+              from unnest(%s::text[], %s::text[], %s::text[])
+                   as p(cnpj,email,uf)
+        ), ranked as (
+            select p.*,
+                   row_number() over (
+                       partition by lower(btrim(p.email))
+                       order by case when upper(coalesce(p.uf,''))='MG' then 0 else 1 end,
+                                p.cnpj
+                   ) as rn
+              from page p
+             where btrim(p.email) <> ''
+               and position('contabil' in lower(btrim(p.email))) = 0
+        )
+        select r.cnpj, r.email
+          from ranked r
+          join mei_email.empresas e on e.cnpj = r.cnpj
+         where r.rn = 1
+           and e.situacao_cadastral = 'ATIVA'
+           and coalesce(e.opt_out,false)=false
+           and e.email is not null
+           and lower(btrim(e.email::text)) = lower(btrim(r.email))
+           and mei_email.is_valid_email_address(e.email)
+           and position('contabil' in lower(btrim(e.email::text))) = 0
+           and not mei_email.is_email_suppressed(e.email)
+           and not mei_email.is_cnpj_suppressed(e.cnpj::text)
+           and (
+               select count(*) from (
+                   select 1
+                     from mei_email.empresas e2
+                    where lower(btrim(e2.email::text)) = lower(btrim(e.email::text))
+                    limit 3
+               ) shared
+           ) <= 2
+           and not exists (
+               select 1
+                 from mei_email.envios x
+                where (
+                    x.cnpj = e.cnpj
+                    or lower(btrim(x.email::text)) = lower(btrim(e.email::text))
+                )
+                  and x.status = any(%s::mei_email.status_envio[])
+           )
+         order by case when upper(coalesce(r.uf,''))='MG' then 0 else 1 end,
+                  r.cnpj
+         limit %s
+    """, (cnpjs, emails, ufs, statuses, needed))
+    return [(str(cnpj), str(email).strip()) for cnpj, email in cur.fetchall()]
 
 def collect_candidates(cur, needed: int, state: dict):
     selected = []
