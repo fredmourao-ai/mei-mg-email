@@ -19,7 +19,10 @@ def test_supervisor_measures_real_throughput_and_keeps_safety_guards():
     assert "sent_24h" in src
     assert "sent_10m" in src
     assert "open_queue" in src
-    assert "vw_empresas_elegiveis" in src
+    assert "situacao_cadastral='ATIVA'" in src
+    assert "is_valid_email_address" in src
+    assert "position('contabil'" in src
+    assert "vw_empresas_elegiveis" not in src
     assert "pg_locks" in src
     assert "pg_stat_activity" in src
     assert "repor_fila_automatica_isolada" in src

@@ -54,15 +54,8 @@ def criar_campanha(payload: CampanhaCreate):
                     ),
                 )
 
-            filtros = ["1 = 1"]
+            filtros = ["situacao_cadastral = 'ATIVA'", "email is not null", "btrim(email::text) <> ''", "mei_email.is_valid_email_address(email)", "position('contabil' in lower(btrim(email::text))) = 0"]
             params: list[object] = []
-            if payload.filtro_tipo_regime:
-                filtros.append("tipo_regime = %s")
-                params.append(payload.filtro_tipo_regime)
-            if payload.filtro_uf:
-                filtros.append("uf = %s")
-                params.append(payload.filtro_uf.upper())
-
             where_clause = " and ".join(filtros)
             requested_limit = payload.limite_empresas if payload.limite_empresas is not None else restante
             effective_limit = min(requested_limit, restante)
@@ -76,12 +69,27 @@ def criar_campanha(payload: CampanhaCreate):
                                partition by lower(btrim(email::text))
                                order by data_abertura desc nulls last, cnpj
                            ) as posicao_do_email
-                      from mei_email.vw_empresas_elegiveis
+                      from mei_email.empresas
                      where {where_clause}
                 )
                 select cnpj, email
-                  from candidatas
+                  from candidatas c
                  where posicao_do_email = 1
+                   and (
+                       select count(distinct e2.cnpj)
+                         from mei_email.empresas e2
+                        where lower(btrim(e2.email::text)) = lower(btrim(c.email::text))
+                   ) <= 2
+                   and not exists (
+                       select 1 from mei_email.envios x
+                        where x.cnpj = c.cnpj
+                          and x.status::text in ('pendente','enviando','pending','processing','submitted','enviado','delivered','bounced','bounce_permanent')
+                   )
+                   and not exists (
+                       select 1 from mei_email.envios x
+                        where lower(btrim(x.email::text)) = lower(btrim(c.email::text))
+                          and x.status::text in ('pendente','enviando','pending','processing','submitted','enviado','delivered','bounced','bounce_permanent')
+                   )
                  order by data_abertura desc nulls last, cnpj
                  limit %s
                 """,
@@ -93,16 +101,16 @@ def criar_campanha(payload: CampanhaCreate):
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "Nenhuma empresa elegivel encontrada com esses filtros "
-                        "(ativa, autorizada, sem opt-out/terceiro e nunca enfileirada/contatada)."
+                        "Nenhuma empresa elegivel encontrada (ativa, email valido/nao contabil, "
+                        "ate 2 cadastros por email e nunca enfileirada/contatada)."
                     ),
                 )
 
             cur.execute(
                 """
                 insert into mei_email.campanhas
-                    (nome, assunto, corpo_template, filtro_tipo_regime, filtro_uf, tamanho_lote, status, total_empresas)
-                values (%s, %s, %s, %s, %s, %s, 'enfileirada', %s)
+                    (nome, assunto, corpo_template, tamanho_lote, status, total_empresas)
+                values (%s, %s, %s, %s, 'enfileirada', %s)
                 returning id, nome, status, total_empresas, total_enviados,
                           total_falhas, criado_em, iniciado_em, concluido_em
                 """,
@@ -110,8 +118,6 @@ def criar_campanha(payload: CampanhaCreate):
                     payload.nome,
                     payload.assunto,
                     payload.corpo_template,
-                    payload.filtro_tipo_regime,
-                    payload.filtro_uf.upper() if payload.filtro_uf else None,
                     payload.tamanho_lote,
                     len(empresas),
                 ),

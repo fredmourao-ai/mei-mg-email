@@ -162,7 +162,7 @@ def gravar_chunk_no_postgres(empresas: list[dict]) -> None:
 
 def fetch_and_ingest_mg_data() -> None:
     print(
-        "=== SINCRONIZACAO CNPJ MG VIA FONTE ESPELHO CONFIGURADA ===",
+        "=== SINCRONIZACAO CNPJ VIA FONTE ESPELHO CONFIGURADA ===",
         flush=True,
     )
     print(
@@ -196,7 +196,6 @@ def fetch_and_ingest_mg_data() -> None:
                 from '{parquet_url}'
                 where email is not null
                   and trim(email) != ''
-                  and upper(trim(uf)) = 'MG'
             """
             cursor = conn_duck.execute(query)
 
@@ -225,7 +224,7 @@ def fetch_and_ingest_mg_data() -> None:
                             "razao_social": clean_str(row[1]),
                             "nome_fantasia": clean_str(row[2]),
                             "situacao_cadastral": situacao_cadastral(row[3]),
-                            "uf": "MG",
+                            "uf": clean_str(row[4], 2),
                             "email": email,
                             "ddd_1": clean_str(row[6], 3),
                             "telefone_1": clean_str(row[7], 15),
@@ -250,7 +249,7 @@ def fetch_and_ingest_mg_data() -> None:
                 gravar_chunk_no_postgres(empresas_chunk)
                 total_lote += len(empresas_chunk)
                 print(
-                    f"  -> {total_lote} registros MG processados "
+                    f"  -> {total_lote} registros processados "
                     f"no lote {idx}...",
                     flush=True,
                 )
@@ -304,7 +303,7 @@ def fetch_and_ingest_mg_data() -> None:
     )
     print(
         f"\n=== SINCRONIZACAO CONCLUIDA: {total_processado} REGISTROS "
-        f"MG PROCESSADOS; MEI={total_mei} ===",
+        f"PROCESSADOS; MEI={total_mei} ===",
         flush=True,
     )
     print(

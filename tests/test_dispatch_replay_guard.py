@@ -18,7 +18,7 @@ def test_recovery_never_replays_explicit_uncertain_graph_checkpoint():
     migration = (
         ROOT
         / "db"
-        / "migrations"
+        / "migrations_archived_post_v020_20260821"
         / "V034__guard_uncertain_graph_dispatch_against_replay.sql"
     ).read_text(encoding="utf-8")
     normalized = " ".join(migration.split())

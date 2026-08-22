@@ -244,8 +244,18 @@ def _strict_eligible_probe() -> dict[str, object]:
     try:
         with psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=5) as conn:
             with conn.cursor() as cur:
-                cur.execute("set statement_timeout='8s'")
-                cur.execute("select exists(select 1 from mei_email.vw_empresas_elegiveis limit 1)")
+                cur.execute("set statement_timeout='5s'")
+                cur.execute("""
+                    select exists(
+                      select 1 from mei_email.empresas e
+                       where e.situacao_cadastral='ATIVA'
+                         and e.email is not null
+                         and btrim(e.email::text)<>''
+                         and mei_email.is_valid_email_address(e.email)
+                         and position('contabil' in lower(btrim(e.email::text)))=0
+                       limit 1
+                    )
+                """)
                 return {"state": "ok", "available": bool(cur.fetchone()[0])}
     except (psycopg.errors.QueryCanceled, psycopg.OperationalError) as exc:
         return {"state": "query_error", "error": f"{type(exc).__name__}: {str(exc)[:300]}"}

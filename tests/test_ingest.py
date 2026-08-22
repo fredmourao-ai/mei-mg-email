@@ -31,9 +31,9 @@ def _carregar(filtrar_mei: bool):
     return {e["cnpj"]: e for e in empresas}
 
 
-def test_filtra_fora_de_mg():
+def test_nao_filtra_fora_de_mg():
     empresas = _carregar(filtrar_mei=False)
-    assert "10000013000117" not in empresas  # SP
+    assert "10000013000117" in empresas  # SP continua elegivel; MG e prioridade operacional
 
 
 def test_filtra_situacao_nao_ativa():

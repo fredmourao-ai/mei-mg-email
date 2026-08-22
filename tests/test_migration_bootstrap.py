@@ -44,7 +44,7 @@ def test_before_migrate_fails_closed_on_divergent_legacy_history():
 
 def test_v039_repairs_callback_suppression_lookup_in_existing_databases():
     migration = (
-        ROOT / "db" / "migrations" / "V039__restore_indexed_suppression_lookup_after_callback.sql"
+        ROOT / "db" / "migrations_archived_post_v020_20260821" / "V039__restore_indexed_suppression_lookup_after_callback.sql"
     ).read_text(encoding="utf-8").casefold()
     assert "create or replace function mei_email.is_email_suppressed" in migration
     assert "idx_email_suppressions_lookup" in migration

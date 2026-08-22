@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Constant-time read-only preflight for the nonstop queue-first worker.
-
-Systemd startup must not perform bulk maintenance. Production showed that even
-small-looking campaign/queue rewrites can block behind long transactions and
-strand the sender in ``activating`` while no Microsoft sender-block exists.
-
-This preflight therefore performs only schema capability checks. Independent
-consent, verified MEI source, suppressions, terminal-history replay protection
-and legacy-copy normalization are enforced per recipient immediately before
-every Graph call by ``worker.safe_entrypoint_v2``. Durable migrations remain
-the desired database policy layer, but startup availability does not depend on
-running a table-wide mutation.
-"""
+"""Read-only startup preflight for the first-send worker."""
 from __future__ import annotations
 
 import json
@@ -21,16 +9,9 @@ import psycopg
 from dotenv import load_dotenv
 
 REQUIRED_EMPRESA_COLUMNS = (
-    "marketing_autorizado",
-    "marketing_autorizado_origem",
-    "mei_verificado",
-    "mei_verificado_origem",
+    "email",
     "opt_out",
     "situacao_cadastral",
-    "uf",
-    "tipo_regime",
-    "provavel_terceiro",
-    "email",
 )
 
 
@@ -56,31 +37,27 @@ def main() -> int:
             present = {str(row[0]) for row in cur.fetchall()}
             missing = sorted(set(REQUIRED_EMPRESA_COLUMNS) - present)
             if missing:
-                raise RuntimeError(
-                    "send-safety columns unavailable: " + ",".join(missing)
-                )
+                raise RuntimeError("required empresa columns unavailable: " + ",".join(missing))
 
             cur.execute(
                 """
                 select
                   to_regclass('mei_email.envios') is not null,
                   to_regclass('mei_email.campanhas') is not null,
-                  to_regclass('mei_email.email_suppressions') is not null,
                   to_regprocedure('mei_email.is_valid_email_address(citext)') is not null
                 """
             )
-            envios_ok, campanhas_ok, suppressions_ok, valid_email_ok = cur.fetchone()
+            envios_ok, campanhas_ok, validator_ok = cur.fetchone()
             out.update(
                 {
                     "envios": bool(envios_ok),
                     "campanhas": bool(campanhas_ok),
-                    "email_suppressions": bool(suppressions_ok),
-                    "email_validator": bool(valid_email_ok),
+                    "email_validator": bool(validator_ok),
                 }
             )
 
-    if not all(bool(out[k]) for k in ("envios", "campanhas", "email_suppressions", "email_validator")):
-        raise RuntimeError("required send-safety schema primitive unavailable")
+    if not all(bool(out[k]) for k in ("envios", "campanhas", "email_validator")):
+        raise RuntimeError("required send schema primitive unavailable")
     print(json.dumps(out, sort_keys=True))
     return 0
 

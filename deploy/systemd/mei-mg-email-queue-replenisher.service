@@ -1,8 +1,7 @@
 [Unit]
-Description=MEI MG Email Microsoft Graph App-Only Worker
-After=network-online.target
+Description=MEI MG Email canonical queue replenisher
+After=network-online.target docker.service
 Wants=network-online.target
-StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -10,13 +9,10 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/mei-mg-email
 EnvironmentFile=-/home/ubuntu/mei-mg-email/.env
 ExecStartPre=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/runtime_policy_guard.py
-ExecStartPre=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/runtime_sender_preflight.py
-ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python -m worker.safe_entrypoint_v2
+ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/queue_replenisher.py
 Restart=always
 RestartSec=5
 TimeoutStartSec=30
-TimeoutStopSec=45
-KillSignal=SIGTERM
 NoNewPrivileges=true
 
 [Install]

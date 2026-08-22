@@ -21,6 +21,7 @@ services:
       - mei-mg-email
 
   flyway:
+    profiles: ["manual-migrations"]
     image: flyway/flyway:10-alpine
     container_name: mei-mg-email-flyway
     depends_on:

@@ -57,7 +57,8 @@ def _sender_pause_ativo_em_qualquer_caminho() -> bool:
 def _tabela_cota_externa_existe(conn: psycopg.Connection) -> bool:
     with conn.cursor() as cur:
         cur.execute("select to_regclass('mei_email.envios_externos_cota')")
-        return cur.fetchone()[0] is not None
+        row = cur.fetchone()
+        return (row[0] if not isinstance(row, dict) else next(iter(row.values()))) is not None
 
 
 def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
@@ -71,7 +72,8 @@ def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
                and enviado_em >= now() - interval '24 hours'
             """
         )
-        total = int(cur.fetchone()[0] or 0)
+        row = cur.fetchone()
+        total = int((row[0] if not isinstance(row, dict) else next(iter(row.values()))) or 0)
 
         if _tabela_cota_externa_existe(conn):
             cur.execute(
@@ -81,21 +83,16 @@ def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
                  where sent_at >= now() - interval '24 hours'
                 """
             )
-            total += int(cur.fetchone()[0] or 0)
+            row = cur.fetchone()
+            total += int((row[0] if not isinstance(row, dict) else next(iter(row.values()))) or 0)
         return total
 
 
 def _ja_submetido_ou_entregue_indexado(
     conn: psycopg.Connection, envio_id, email: str
 ) -> bool:
-    """Consult compact suppression first and then indexed email history."""
+    """Consult indexed email history for anti-replay."""
     with conn.cursor() as cur:
-        cur.execute(
-            "select mei_email.is_email_suppressed(%s::citext)",
-            (email,),
-        )
-        if bool(cur.fetchone()[0]):
-            return True
         cur.execute(
             """
             select 1
@@ -132,48 +129,28 @@ base_worker._ja_submetido_ou_entregue = _ja_submetido_ou_entregue_indexado
 
 
 def _purgar_invalidos_do_lote(conn: psycopg.Connection, lote_id) -> int:
-    """Suppress and remove invalid recipients before any Graph request."""
-    with conn.cursor(row_factory=dict_row) as cur:
+    """Mark invalid recipients without deleting queue or company data."""
+    with conn.cursor() as cur:
         cur.execute(
             """
-            select distinct e.cnpj, e.email
-              from mei_email.envios e
-             where e.lote_id = %s
-               and e.status in ('pendente', 'pending')
-               and not mei_email.is_valid_email_address(e.email)
-             order by e.cnpj
+            update mei_email.envios
+               set status = 'bloqueado',
+                   erro = 'FIRSTSEND: email invalido; bloqueio operacional'
+             where lote_id = %s
+               and status in ('pendente', 'pending')
+               and not mei_email.is_valid_email_address(email)
             """,
             (lote_id,),
         )
-        invalidos = cur.fetchall()
-
-    for item in invalidos:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                select mei_email.register_operational_suppression(
-                    %s, %s, 'filter_email_invalid', 'worker_invalid_guard', null, now()
-                )
-                """,
-                (item["cnpj"], item["email"]),
-            )
-            cur.execute(
-                "delete from mei_email.envios where cnpj = %s",
-                (item["cnpj"],),
-            )
-            cur.execute(
-                "delete from mei_email.empresas where cnpj = %s",
-                (item["cnpj"],),
-            )
-        conn.commit()
-
+        invalidos = cur.rowcount
+    conn.commit()
     if invalidos:
         logger.warning(
-            "Lote %s: %d destinatarios invalidos removidos antes do Graph.",
+            "Lote %s: %d destinatarios invalidos bloqueados sem exclusao de dados.",
             lote_id,
-            len(invalidos),
+            invalidos,
         )
-    return len(invalidos)
+    return invalidos
 
 
 def _marcar_envio_em_transito(conn: psycopg.Connection, envio_id) -> None:
@@ -195,10 +172,29 @@ def _marcar_envio_em_transito(conn: psycopg.Connection, envio_id) -> None:
             (envio_id,),
         )
         if cur.rowcount != 1:
+            conn.rollback()
             raise RuntimeError(
                 f"envio {envio_id} deixou de estar pendente antes do checkpoint"
             )
+        cur.execute(
+            "select status::text, coalesce(erro, '') from mei_email.envios where id = %s",
+            (envio_id,),
+        )
+        persisted = cur.fetchone()
     conn.commit()
+    if persisted is None:
+        status = "ausente"
+        detalhe = "linha removida"
+    elif isinstance(persisted, dict):
+        status = persisted.get("status")
+        detalhe = persisted.get("coalesce") or persisted.get("erro") or ""
+    else:
+        status = persisted[0]
+        detalhe = persisted[1]
+    if status != "enviando":
+        raise RuntimeError(
+            f"pre-send eligibility rejected: envio {envio_id} persistiu como {status}: {detalhe}"
+        )
 
 
 def _empresa_para_template(envio: dict) -> dict:
@@ -222,8 +218,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             select e.id as envio_id, e.cnpj, e.email, e.tentativas,
                    c.assunto, c.corpo_template,
                    emp.razao_social, emp.nome_fantasia,
-                   emp.opt_out, emp.situacao_cadastral,
-                   emp.provavel_terceiro, emp.marketing_autorizado
+                   emp.situacao_cadastral
               from mei_email.envios e
               join mei_email.campanhas c on c.id = e.campanha_id
               join mei_email.empresas emp on emp.cnpj = e.cnpj
@@ -234,6 +229,30 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             (lote["id"],),
         )
         envios = cur.fetchall()
+        cur.execute("select count(*) from mei_email.envios where lote_id = %s", (lote["id"],))
+        expected_db_total = int(cur.fetchone()["count"] or 0)
+
+    if not envios:
+        with conn.cursor() as cur:
+            cur.execute(
+                """update mei_email.lotes
+                       set status = 'falhou', concluido_em = null,
+                           erro = 'lote sem envios pendentes para processar'
+                     where id = %s""",
+                (lote["id"],),
+            )
+        conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("""
+                update mei_email.lotes
+                   set status='concluido',
+                       concluido_em=now(),
+                       erro='AUTO: lote sem envios pendentes; fechado pelo worker'
+                 where id=%s
+            """, (lote["id"],))
+        conn.commit()
+        logger.warning("Lote %s sem envios pendentes; fechado e ignorado", lote["id"])
+        return
 
     submetidos = 0
     falhas = 0
@@ -257,39 +276,12 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             )
             return
 
-        if envio["opt_out"]:
-            base_worker._atualizar_envio(
-                conn,
-                envio["envio_id"],
-                "opt_out",
-                erro="opt-out registrado apos enfileiramento",
-            )
-            continue
-
         if envio["situacao_cadastral"] != "ATIVA":
             base_worker._atualizar_envio(
                 conn,
                 envio["envio_id"],
                 "bloqueado",
                 erro="empresa deixou de estar ATIVA apos enfileiramento",
-            )
-            continue
-
-        if envio["provavel_terceiro"]:
-            base_worker._atualizar_envio(
-                conn,
-                envio["envio_id"],
-                "bloqueado",
-                erro="contato marcado como provavel terceiro apos enfileiramento",
-            )
-            continue
-
-        if not envio["marketing_autorizado"]:
-            base_worker._atualizar_envio(
-                conn,
-                envio["envio_id"],
-                "bloqueado",
-                erro="comunicacao comercial nao autorizada no cadastro",
             )
             continue
 
@@ -307,7 +299,13 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
         corpo = base_worker.montar_corpo(
             envio["corpo_template"], _empresa_para_template(envio)
         )
-        _marcar_envio_em_transito(conn, envio["envio_id"])
+        try:
+            _marcar_envio_em_transito(conn, envio["envio_id"])
+        except RuntimeError as e:
+            if "pre-send eligibility rejected" in str(e):
+                logger.warning("PULANDO ENVIO INVALIDO NO LOTE: %s", e)
+                continue
+            raise
         resultado = provider.send(
             to=envio["email"], subject=envio["assunto"], body=corpo
         )
@@ -384,29 +382,68 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
-            update mei_email.lotes
-               set status = 'concluido', concluido_em = now(), erro = null
-             where id = %s
+            select
+                count(*) as total_db,
+                count(*) filter (where status = 'submitted'
+                    and provider_message_id is not null
+                    and enviado_em is not null
+                    and submitted_at is not null) as submitted_provados,
+                count(*) filter (where status in ('pendente','pending','enviando','processing')) as abertos,
+                count(*) filter (where status = 'submitted' and (
+                    provider_message_id is null or enviado_em is null or submitted_at is null
+                )) as submitted_sem_prova,
+                count(*) filter (where status = 'falhou') as falhas_db,
+                count(*) filter (where status in ('bloqueado','descartado','sender_blocked')) as bloqueados_db
+              from mei_email.envios
+             where lote_id = %s
             """,
             (lote["id"],),
         )
+        validation_row = cur.fetchone()
+        if isinstance(validation_row, dict):
+            total_db = validation_row.get('total_db')
+            submitted_db = validation_row.get('submitted_provados')
+            abertos = validation_row.get('abertos')
+            sem_prova = validation_row.get('submitted_sem_prova')
+            falhas_db = validation_row.get('falhas_db')
+            bloqueados_db = validation_row.get('bloqueados_db')
+        else:
+            total_db, submitted_db, abertos, sem_prova, falhas_db, bloqueados_db = validation_row
+        if total_db != expected_db_total or total_db == 0 or abertos or sem_prova:
+            cur.execute(
+                """update mei_email.lotes
+                       set status = 'falhou', concluido_em = null,
+                           erro = %s
+                     where id = %s""",
+                (f"lote inconsistente: total_db={total_db} expected={expected_db_total} abertos={abertos} submitted_sem_prova={sem_prova}", lote["id"]),
+            )
+            conn.commit()
+            raise RuntimeError(
+                f"lote {lote['id']} inconsistente: total_db={total_db} expected={expected_db_total} abertos={abertos} submitted_sem_prova={sem_prova}"
+            )
+        cur.execute(
+            """update mei_email.lotes
+                   set status = 'concluido', concluido_em = now(), erro = null
+                 where id = %s""",
+            (lote["id"],),
+        )
     conn.commit()
+    falhas = int(falhas_db or 0)
+    submetidos = int(submitted_db or 0)
     base_worker._registrar_falhas_campanha(conn, lote["campanha_id"], falhas)
-
     logger.info(
-        "Lote %s (campanha %s) concluido: %d submitted, %d falhas",
-        lote["numero"],
-        lote["campanha_id"],
-        submetidos,
-        falhas,
+        "Lote %s (campanha %s) concluido: %d submitted COM PROVA DB, %d falhas",
+        lote["numero"], lote["campanha_id"], submetidos, falhas,
     )
 
 
 def _processar_se_disponivel(conn: psycopg.Connection, provider) -> bool:
+    if _sender_pause_ativo_em_qualquer_caminho():
+        logger.warning('SENDER_PAUSED: worker nao pegara lote enquanto existir sentinel de pausa.')
+        return False
     lote = pegar_proximo_lote(conn)
     if lote is None:
         return False
-    _purgar_invalidos_do_lote(conn, lote["id"])
     processar_lote(conn, lote, provider)
     return True
 
@@ -477,13 +514,7 @@ def run() -> None:
                 if recovery.changed and _processar_se_disponivel(conn, provider):
                     continue
 
-                adicionados = repor_fila_automatica_isolada()
-                if adicionados:
-                    logger.warning(
-                        "AUTOQUEUE_ISOLATED added=%d; retomando consumo.",
-                        adicionados,
-                    )
-
+                # Queue replenishment runs in a separate lightweight service.
                 if not _processar_se_disponivel(conn, provider):
                     time.sleep(settings.worker_poll_interval_segundos)
             except Exception:

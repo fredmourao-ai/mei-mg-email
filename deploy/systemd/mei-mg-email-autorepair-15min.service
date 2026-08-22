@@ -1,0 +1,15 @@
+[Unit]
+Description=MEI MG Email 15-Minute Auto-Repair and Health Validation
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+ExecStartPre=/usr/bin/python3 /home/ubuntu/mei-mg-email/scripts/runtime_policy_guard.py
+Type=oneshot
+User=__RUN_USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=-__APP_DIR__/.env
+ExecStart=__PYTHON__ __APP_DIR__/scripts/validar_e_reparar_envios_15min.py
+TimeoutStartSec=180
+StandardOutput=journal
+StandardError=journal
