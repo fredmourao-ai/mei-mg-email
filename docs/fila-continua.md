@@ -1,16 +1,20 @@
-# Fila continua MEI/MG
+# Fila continua
 
 A fila de destinatarios e um buffer operacional independente da cota de envio.
 
-- `META_ENVIOS_POR_DIA=9950` limita somente submissões `submitted/enviado` na janela movel de 24 horas.
-- `MAX_ENVIOS_POR_DIA=10000` permanece como teto tecnico local.
-- `QUEUE_MIN_PENDING=1000` e o gatilho de reposicao.
-- `QUEUE_TARGET_PENDING=5000` e o estoque desejado depois da reposicao.
-- O proprio `worker/worker.py` chama `repor_fila_automatica()` antes de buscar o proximo lote.
-- Quando a fila cai para 1.000 ou menos, o worker seleciona novos MEIs/MG elegiveis e autorizados e repoe ate 5.000 pendentes.
-- Enfileirar nao consome a cota de 24 horas. Antes de cada envio real, o worker consulta novamente `submitted/enviado` das ultimas 24 horas e para em 9.950.
-- Ao atingir a cota, os lotes permanecem pendentes; a fila fica pronta para retomar automaticamente conforme a janela movel libera capacidade.
+- `META_ENVIOS_POR_DIA=9950` limita submissões na janela movel de 24 horas.
+- `MAX_ENVIOS_POR_DIA=10000` e o teto tecnico local.
+- A fila operacional trabalha entre 14.800 e 15.000 registros abertos.
+- Cada reposicao adiciona no maximo 200 destinatarios ate retornar ao alvo de 15.000.
+- Enfileirar nao consome a cota de envio; a cota e conferida imediatamente antes do Graph.
 
-A reposicao usa a mesma advisory lock da criacao de campanhas para evitar concorrencia e a view `vw_empresas_elegiveis`, que preserva situacao ATIVA, opt-out, autorizacao de marketing, verificacao MEI e deduplicacao global por e-mail.
+## Contrato canonico de elegibilidade
+Nao entram na fila ou no envio:
+- empresa diferente de `ATIVA`;
+- email invalido, com opt-out/supressao tecnica, ou contendo `contabil`;
+- email compartilhado por mais de 2 cadastros;
+- email/CNPJ que ja esteja enfileirado ou possua historico terminal de envio.
 
-Se nao houver mais registros elegiveis/autorizados, nenhum sistema pode fabricar destinatarios: o worker registra alerta critico para que a base autorizada seja reabastecida. Fora essa condicao de exaustao da base, a fila nao deve chegar a zero.
+`MG` e apenas prioridade de ordenacao. Nunca e filtro de elegibilidade.
+Nao usar campos legados de autorizacao/classificacao ou views legadas de elegibilidade como gate operacional.
+A politica obrigatoria tambem esta registrada em `AGENTS.md` e protegida por `scripts/repo_policy_guard.py`.

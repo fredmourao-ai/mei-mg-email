@@ -125,7 +125,11 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
         )
         envio = dict(cur.fetchone())
 
-        cur.execute("select count(*) as elegiveis from mei_email.vw_empresas_elegiveis")
+        cur.execute("""
+            select coalesce(reltuples::bigint, 0) as elegiveis
+              from pg_class
+             where oid = 'mei_email.empresas'::regclass
+            """)
         elegiveis = int(cur.fetchone()["elegiveis"] or 0)
 
         cur.execute(

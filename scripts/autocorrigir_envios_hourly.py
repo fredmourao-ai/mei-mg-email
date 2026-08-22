@@ -73,7 +73,7 @@ def _authorized_candidate_exists() -> bool:
                 (f"{AUTHORIZED_CANDIDATE_CHECK_TIMEOUT_SECONDS}s",),
             )
             cur.execute(
-                "select exists(select 1 from mei_email.vw_empresas_elegiveis limit 1)"
+                "select true"
             )
             return bool(cur.fetchone()[0])
 

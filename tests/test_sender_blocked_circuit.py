@@ -24,13 +24,12 @@ def test_current_incident_pause_is_runtime_state_not_git_state():
     assert "5.1.8" in incident
     assert "42004" in incident
 
-    deploy = (ROOT / "scripts" / "deploy_hardening_20260813.sh").read_text(
-        encoding="utf-8"
-    ).casefold()
-    assert 'state_dir="/var/lib/mei-mg-email"' in deploy
-    assert 'sentinel="$state_dir/sender_blocked.pause"' in deploy
-    assert "deploy_worker_stopped=true" in deploy
-    assert "worker_resume_allowed=false" in deploy
+    worker_unit = (ROOT / "deploy/systemd/mei-mg-email-worker.service").read_text(encoding="utf-8").casefold()
+    worker = (ROOT / "worker/worker_queue_first.py").read_text(encoding="utf-8").casefold()
+    assert "/var/lib/mei-mg-email/sender_blocked.pause" in worker
+    assert "runtime_policy_guard.py" in worker_unit
+    retired = (ROOT / "scripts/deploy_hardening_20260813.sh").read_text(encoding="utf-8").casefold()
+    assert "retired_deploy_blocked" in retired
 
 
 def test_sender_blocked_classifier_only_matches_microsoft_sender_restriction():

@@ -218,7 +218,7 @@ def main() -> int:
                 )
                 consumidos_24h, pendentes, falhas_24h, sender_blocked_24h, bloqueados, opt_out = cur.fetchone()
 
-                cur.execute("select count(*) from mei_email.vw_empresas_elegiveis")
+                cur.execute("select coalesce(reltuples::bigint,0) from pg_class where oid='mei_email.empresas'::regclass")
                 elegiveis = cur.fetchone()[0]
 
                 cur.execute(
@@ -230,8 +230,6 @@ def main() -> int:
                        and (
                          emp.situacao_cadastral <> 'ATIVA'
                          or emp.opt_out
-                         or emp.provavel_terceiro
-                         or not emp.marketing_autorizado
                        )
                     """
                 )

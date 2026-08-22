@@ -183,7 +183,7 @@ class MicrosoftGraphEmailProvider(EmailProvider):
             return None
 
     def _mime_payload(self, to: str, subject: str, body: str, unsubscribe_url: str) -> bytes:
-        msg = EmailMessage(policy=SMTP)
+        msg = EmailMessage(policy=SMTP.clone(max_line_length=998))
         msg["From"] = formataddr((self.from_name, self.address))
         msg["To"] = to
         msg["Subject"] = subject

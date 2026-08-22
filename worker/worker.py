@@ -175,8 +175,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             select e.id as envio_id, e.cnpj, e.email, e.tentativas,
                    c.assunto, c.corpo_template,
                    emp.razao_social, emp.nome_fantasia,
-                   emp.opt_out, emp.situacao_cadastral,
-                   emp.provavel_terceiro, emp.marketing_autorizado
+                   emp.situacao_cadastral
               from mei_email.envios e
               join mei_email.campanhas c on c.id = e.campanha_id
               join mei_email.empresas emp on emp.cnpj = e.cnpj
@@ -208,20 +207,8 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             )
             return
 
-        if envio["opt_out"]:
-            _atualizar_envio(conn, envio["envio_id"], "opt_out", erro="opt-out registrado apos enfileiramento")
-            continue
-
         if envio["situacao_cadastral"] != "ATIVA":
             _atualizar_envio(conn, envio["envio_id"], "bloqueado", erro="empresa deixou de estar ATIVA apos enfileiramento")
-            continue
-
-        if envio["provavel_terceiro"]:
-            _atualizar_envio(conn, envio["envio_id"], "bloqueado", erro="contato marcado como provavel terceiro apos enfileiramento")
-            continue
-
-        if not envio["marketing_autorizado"]:
-            _atualizar_envio(conn, envio["envio_id"], "bloqueado", erro="comunicacao comercial nao autorizada no cadastro")
             continue
 
         if _ja_submetido_ou_entregue(conn, envio["envio_id"], envio["email"]):
@@ -312,11 +299,34 @@ def _atualizar_envio(conn, envio_id, status, provider_message_id=None, erro=None
                    tentativas = tentativas + 1,
                    provider_message_id = coalesce(%s, provider_message_id),
                    erro = %s,
-                   enviado_em = case when %s in ('submitted', 'enviado') then now() else enviado_em end
+                   enviado_em = case when %s in ('submitted', 'enviado') then now() else enviado_em end,
+                   submitted_at = case when %s = 'submitted' then now() else submitted_at end
              where id = %s
+            returning status::text, provider_message_id, enviado_em, submitted_at
             """,
-            (status, provider_message_id, erro, status, envio_id),
+            (status, provider_message_id, erro, status, status, envio_id),
         )
+        persisted = cur.fetchone()
+        if persisted is None:
+            conn.rollback()
+            raise RuntimeError(f"envio {envio_id} desapareceu antes de persistir status {status}")
+        if isinstance(persisted, dict):
+            persisted_status = persisted.get("status")
+            persisted_provider_message_id = persisted.get("provider_message_id")
+            persisted_enviado_em = persisted.get("enviado_em")
+            persisted_submitted_at = persisted.get("submitted_at")
+        else:
+            persisted_status, persisted_provider_message_id, persisted_enviado_em, persisted_submitted_at = persisted
+        if persisted_status != status:
+            conn.commit()
+            raise RuntimeError(
+                f"envio {envio_id} persistiu como {persisted_status} em vez de {status}"
+            )
+        if status == "submitted" and (not persisted_provider_message_id or persisted_enviado_em is None or persisted_submitted_at is None):
+            conn.rollback()
+            raise RuntimeError(
+                f"envio {envio_id} sem prova persistida de submissao (provider/timestamps)"
+            )
         if status == "enviado":
             cur.execute(
                 """

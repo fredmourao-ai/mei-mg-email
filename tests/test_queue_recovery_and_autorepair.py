@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_v032_normalizes_legacy_queue_and_reopens_orphan_lots():
     migration = (
-        ROOT / "db" / "migrations" / "V032__recover_legacy_queue_and_orphan_lots.sql"
+        ROOT / "db" / "migrations_archived_post_v020_20260821" / "V032__recover_legacy_queue_and_orphan_lots.sql"
     ).read_text(encoding="utf-8")
     normalized = " ".join(migration.casefold().split())
     assert "status in ('pending', 'processing')" in normalized
@@ -48,12 +48,14 @@ def test_ineligible_prune_casts_case_to_status_enum():
     assert "case when t.opt_out then 'opt_out' else 'bloqueado' end )::mei_email.status_envio" in normalized
 
 
-def test_queue_first_consumes_and_recovers_before_refill():
+def test_queue_first_consumes_and_recovers_without_inline_refill():
     source = (ROOT / "worker" / "worker_queue_first.py").read_text(encoding="utf-8")
-    consume = source.index("_processar_se_disponivel(conn, provider)")
-    recover = source.index("recuperar_fila_legada_e_lotes_orfaos(conn)", consume)
-    refill = source.index("repor_fila_automatica_isolada()", recover)
-    assert consume < recover < refill
+    loop = source[source.index("while True:"):]
+    consume = loop.index("_processar_se_disponivel(conn, provider)")
+    recover = loop.index("recuperar_fila_legada_e_lotes_orfaos(conn)", consume)
+    assert consume < recover
+    assert "repor_fila_automatica_isolada()" not in loop
+    assert "Queue replenishment runs in a separate lightweight service" in loop
 
 
 def test_sender_block_uses_canonical_fail_closed_path():

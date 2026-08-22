@@ -17,17 +17,6 @@ class CampanhaCreate(BaseModel):
             "da campanha se nao incluir (exigencia de anti-spam/LGPD)."
         ),
     )
-    filtro_tipo_regime: str | None = Field(
-        default="MEI",
-        description="Filtra empresas por regime: MEI, SIMPLES ou OUTROS. Se None, seleciona todas.",
-    )
-    filtro_uf: str | None = Field(
-        default="MG",
-        description=(
-            "Filtra empresas por estado. Default 'MG'. Use outra UF ou null "
-            "explicitamente quando quiser alterar esse escopo."
-        ),
-    )
     tamanho_lote: int = Field(default=100, ge=1, le=1000)
     limite_empresas: int | None = Field(
         default=None,

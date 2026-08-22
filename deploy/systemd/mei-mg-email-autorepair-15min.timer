@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer para validacao e autocorrecao dos envios a cada 15 minutos
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+AccuracySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

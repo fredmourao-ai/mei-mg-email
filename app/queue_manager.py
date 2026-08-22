@@ -113,119 +113,38 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
         cur.execute(
             """
             with base as materialized (
-                select e.cnpj, e.email, e.data_abertura
+                select e.cnpj, e.email, e.data_abertura, e.uf
                   from mei_email.empresas e
-                 where e.tipo_regime = 'MEI'
-                   and e.uf = 'MG'
-                   and e.situacao_cadastral = 'ATIVA'
-                   and e.opt_out = false
-                   and e.provavel_terceiro = false
+                 where e.situacao_cadastral = 'ATIVA'
                    and e.email is not null
-                   and e.enviado = false
-                   -- Keep these raw predicates explicit so PostgreSQL can use
-                   -- idx_empresas_autoqueue_mei_mg. The independent-source
-                   -- functions below remain the authoritative safety gates.
-                   and e.marketing_autorizado = true
-                   and e.mei_verificado = true
-                   and mei_email.is_independent_marketing_authorization(
-                       e.marketing_autorizado, e.marketing_autorizado_origem
-                   )
-                   and btrim(coalesce(e.marketing_autorizado_origem, '')) not in (
-                       'confirmacao_operador_2026-08-12',
-                       'confirmacao_operador_2026-08-13',
-                       'politica_importacao_operador_2026-08-13',
-                       'user_explicit_authorization_2026-08-20',
-                       'user_campaign_authorization_2026-08-20'
-                   )
-                   and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
-                       not like '%%operator_authorization_true%%'
-                   and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
-                       not like 'politica_importacao_operador%%'
-                   and lower(btrim(coalesce(e.marketing_autorizado_origem, '')))
-                       not like 'base_publica%%'
-                   and mei_email.is_independent_mei_verification(
-                       e.mei_verificado, e.mei_verificado_origem
-                   )
-                   -- Fail closed on MEI classification.  The official
-                   -- Receita/Simples OPCAO_PELO_MEI import is the only
-                   -- verification source implemented/audited in this repo.
-                   and lower(btrim(coalesce(e.mei_verificado_origem, '')))
-                       = 'receita_simples_opcao_mei'
-                   and btrim(coalesce(e.mei_verificado_origem, '')) not in (
-                       'override_operador_2026-08-13',
-                       'politica_importacao_operador_2026-08-13'
-                   )
-                   and lower(btrim(coalesce(e.mei_verificado_origem, '')))
-                       not like 'politica_importacao_operador%%'
-                   and lower(btrim(coalesce(e.mei_verificado_origem, '')))
-                       not like 'nao_verificado%%'
-                   and lower(btrim(coalesce(e.mei_verificado_origem, '')))
-                       not like 'legacy_operator_verification_rejected%%'
+                   and btrim(e.email::text) <> ''
+                   and mei_email.is_valid_email_address(e.email)
+                   and position('contabil' in lower(btrim(e.email::text))) = 0
                    and not exists (
-                       select 1
-                         from mei_email.envios x
+                       select 1 from mei_email.envios x
                         where x.cnpj = e.cnpj
-                          and x.status in (
-                              'pendente', 'enviando', 'pending', 'processing',
-                              'submitted', 'enviado', 'delivered', 'bounced',
-                              'bounce_permanent'
-                          )
+                          and x.status in ('pendente','enviando','pending','processing','submitted','enviado','delivered','bounced','bounce_permanent')
                    )
                    and not exists (
-                       select 1
-                         from mei_email.envios x
-                        where lower(btrim(x.email::text)) =
-                              lower(btrim(e.email::text))
-                          and x.status in (
-                              'pendente', 'enviando', 'pending', 'processing',
-                              'submitted', 'enviado', 'delivered', 'bounced',
-                              'bounce_permanent'
-                          )
+                       select 1 from mei_email.envios x
+                        where lower(btrim(x.email::text)) = lower(btrim(e.email::text))
+                          and x.status in ('pendente','enviando','pending','processing','submitted','enviado','delivered','bounced','bounce_permanent')
                    )
-                 order by e.cnpj
+                 order by case when upper(coalesce(e.uf::text,''))='MG' then 0 else 1 end, e.cnpj
                  limit %s
             ),
-            preselecionadas as (
-                select b.cnpj, b.email, b.data_abertura
-                  from base b
-                 where btrim(b.email::text) <> ''
-                   and mei_email.is_valid_email_address(b.email)
-                   and not mei_email.is_email_suppressed(b.email)
-                   and not mei_email.is_cnpj_suppressed(b.cnpj::text)
-                   and not exists (
-                       select 1
-                         from mei_email.envios x
-                        where x.cnpj = b.cnpj
-                          and x.status in (
-                              'pendente', 'enviando', 'pending', 'processing',
-                              'submitted', 'enviado', 'delivered', 'bounced',
-                              'bounce_permanent'
-                          )
-                   )
-                   and not exists (
-                       select 1
-                         from mei_email.envios x
-                        where lower(btrim(x.email::text)) =
-                              lower(btrim(b.email::text))
-                          and x.status in (
-                              'pendente', 'enviando', 'pending', 'processing',
-                              'submitted', 'enviado', 'delivered', 'bounced',
-                              'bounce_permanent'
-                          )
-                   )
-            ),
-            candidatas as (
-                select cnpj, email, data_abertura,
-                       row_number() over (
-                           partition by lower(btrim(email::text))
-                           order by data_abertura desc nulls last, cnpj
-                       ) as posicao_do_email
-                  from preselecionadas
+            email_counts as materialized (
+                select lower(btrim(emp.email::text)) as email_norm, count(distinct emp.cnpj) as shared_cnpjs
+                  from mei_email.empresas emp
+                  join (select distinct lower(btrim(email::text)) email_norm from base) b
+                    on lower(btrim(emp.email::text))=b.email_norm
+                 group by lower(btrim(emp.email::text))
             )
-            select cnpj, email
-              from candidatas
-             where posicao_do_email = 1
-             order by data_abertura desc nulls last, cnpj
+            select b.cnpj, b.email
+              from base b
+              join email_counts ec on ec.email_norm=lower(btrim(b.email::text))
+             where ec.shared_cnpjs <= 2
+             order by case when upper(coalesce(b.uf::text,''))='MG' then 0 else 1 end, b.data_abertura desc nulls last, b.cnpj
              limit %s
             """,
             (candidate_limit, quantidade),
@@ -248,13 +167,12 @@ def repor_fila_automatica(conn: psycopg.Connection) -> int:
         cur.execute(
             """
             insert into mei_email.campanhas
-                (nome, assunto, corpo_template, filtro_tipo_regime, filtro_uf,
-                 tamanho_lote, status, total_empresas)
-            values (%s, %s, %s, 'MEI', 'MG', %s, 'enfileirada', %s)
+                (nome, assunto, corpo_template, tamanho_lote, status, total_empresas)
+            values (%s, %s, %s, %s, 'enfileirada', %s)
             returning id
             """,
             (
-                f"MEI MG Autoqueue {agora_sp:%Y-%m-%d %H:%M:%S}",
+                f"First-send Autoqueue {agora_sp:%Y-%m-%d %H:%M:%S}",
                 AUTOQUEUE_SUBJECT,
                 template,
                 AUTOQUEUE_LOT_SIZE,

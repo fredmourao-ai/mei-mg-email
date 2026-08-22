@@ -62,7 +62,6 @@ def ingerir_estabelecimentos(
 ) -> list[dict]:
     empresas: list[dict] = []
     total_linhas = 0
-    descartadas_uf = 0
     descartadas_situacao = 0
     descartadas_mei = 0
     descartadas_email = 0
@@ -78,9 +77,6 @@ def ingerir_estabelecimentos(
             cnpj = f"{cnpj_basico}{cnpj_ordem}{cnpj_dv}"
 
             uf = campo[19].upper()
-            if uf != "MG":
-                descartadas_uf += 1
-                continue
 
             situacao_codigo = campo[5]
             situacao = SITUACAO_CADASTRAL.get(situacao_codigo, situacao_codigo)
@@ -116,7 +112,6 @@ def ingerir_estabelecimentos(
             )
 
     print(f"[ingest] linhas lidas: {total_linhas}")
-    print(f"[ingest] descartadas (UF != MG): {descartadas_uf}")
     print(f"[ingest] descartadas (situacao != ATIVA): {descartadas_situacao}")
     if filtrar_mei:
         print(f"[ingest] descartadas (nao optante MEI): {descartadas_mei}")

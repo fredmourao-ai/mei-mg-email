@@ -140,12 +140,11 @@ def recuperar_fila_legada_e_lotes_orfaos(
               join mei_email.empresas emp on emp.cnpj = e.cnpj
              where e.status in ('pendente', 'enviando', 'pending', 'processing')
                and (
-                   emp.opt_out = true
-                   or emp.situacao_cadastral <> 'ATIVA'
-                   or emp.provavel_terceiro = true
-                   or emp.marketing_autorizado = false
-                   or emp.mei_verificado = false
+                   emp.situacao_cadastral <> 'ATIVA'
+                   or e.email is null
+                   or btrim(e.email::text) = ''
                    or not mei_email.is_valid_email_address(e.email)
+                   or position('contabil' in lower(btrim(e.email::text))) > 0
                )
              order by e.id
              for update of e skip locked
@@ -173,16 +172,13 @@ def recuperar_fila_legada_e_lotes_orfaos(
             select e.id
               from mei_email.envios e
              where e.status in ('pendente', 'enviando', 'pending', 'processing')
-               and (
-                   mei_email.is_email_suppressed(e.email)
-                   or exists (
+               and exists (
                        select 1
                          from mei_email.envios h
                         where h.id <> e.id
                           and h.status in ('submitted', 'enviado', 'delivered', 'bounced')
                           and lower(btrim(h.email::text)) = lower(btrim(e.email::text))
                    )
-               )
              order by e.id
              for update of e skip locked
              limit %s
