@@ -20,7 +20,7 @@ def test_fetch_page_only_uses_cheap_scan_predicates():
 def test_batch_filter_matches_canonical_live_guard():
     body = section('def filter_candidates_batch', 'def collect_candidates')
     for token in (
-        'is_valid_email_address', "'contabil' in norm",
+        'is_valid_email_address', "position('contabil'",
         'is_email_suppressed', 'is_cnpj_suppressed',
         'limit 3', 'ACTIVE_STATUSES', 'mei_email.status_envio[]',
     ):
