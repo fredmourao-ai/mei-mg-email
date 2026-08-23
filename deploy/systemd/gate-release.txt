@@ -1,8 +1,23 @@
-Auto Gate hardening + Exchange recovery release
-Date: 2026-08-13
-Purpose: stop production safely, apply V022/V023/V024, install asynchronous NDR guard, persist sender-block state outside Git, configure deliverability headers and remove AS(42004) through Exchange Online certificate auth.
-Required VM command after checkout/update: bash scripts/deploy_hardening_20260813.sh
-Mandatory success markers: DEPLOY_WORKER_STOPPED_CONFIRMED=true, DEPLOY_EXCHANGE_UNBLOCK_CONFIRMED=true, DEPLOY_HARDENING_OK.
-Mandatory runtime marker: WORKER_RESUME_ALLOWED=false.
-Required final state: worker stopped; /var/lib/mei-mg-email/sender_blocked.pause exists; mei-mg-email-ndr-guard.service active; monitor active; base-sync timer active; Graph Mail.Read preflight passed; V022/V023/V024 applied; Get-BlockedSenderAddress no longer returns naoresponda@dev.shopvivaliz.com.br.
-Do NOT resume the worker in this release. A separate controlled-test/resume release is required after mailbox verification shows no new AS(42004).
+RETIRED HISTORICAL RELEASE - DO NOT EXECUTE
+
+This file previously described the August 2026 hardening release and is kept only to prevent old automation from treating it as current instructions.
+
+Current operational sources of truth:
+- AGENTS.md
+- db/policy/canonical_operational_policy.sql
+- docs/fila-continua.md
+- docs/contabilidade-melo-disparo.md
+- ops/README.md
+
+Do not execute the old hardening deploy or restore archived eligibility gates from this file.
+
+Current mandatory invariants:
+- canonical first-contact policy from AGENTS.md;
+- MG is ordering priority, not an eligibility filter;
+- queue buffer 14,800-15,000 with replenishment batches capped at 200;
+- effective local Exchange recipient target 9,000/24h, hard ceiling 10,000, safety reserve at least 1,000;
+- HTTP 202 from Graph means submitted, not confirmed delivery;
+- NDR `5.1.90` / `AS:46601` is a systemic recipient-limit circuit-breaker;
+- `mei-mg-email-ndr-guard.service` may be declared active only after `scripts/auditar_graph_mail_read.py` passes with Graph `Mail.Read`;
+- if Mail.Read preflight returns 403, leave the NDR guard disabled and retain the local safety reserve;
+- never remove technical suppressions, anti-replay history, or the sender-block sentinel automatically.
