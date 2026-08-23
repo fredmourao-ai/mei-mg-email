@@ -22,10 +22,6 @@ class Settings:
 
     email_provider: str = os.getenv("EMAIL_PROVIDER", "dryrun")
 
-    # Exchange permits up to 30/min in this project, but deliverability recovery
-    # deliberately runs slower. The effective rate is the lower value, so an
-    # old production .env still set to 30/min cannot accidentally bypass the
-    # reputation-recovery cap after deploy.
     configured_rate_envios_por_minuto: int = _positive_int_env(
         "RATE_LIMIT_ENVIOS_POR_MINUTO", 30
     )
@@ -38,21 +34,26 @@ class Settings:
         30,
     )
 
-    # Hard local ceiling for a rolling 24-hour window. This remains separate
-    # from the operational target so there is always explicit safety margin.
+    # Exchange Online applies a hard 10,000-recipient limit in a sliding 24h
+    # window. Local DB accounting can lag mailbox-wide activity, so always keep
+    # explicit headroom even if an old .env still asks for 9,950/day.
+    exchange_recipient_safety_reserve: int = _positive_int_env(
+        "EXCHANGE_RECIPIENT_SAFETY_RESERVE", 1000
+    )
+    configured_meta_envios_por_dia: int = _positive_int_env(
+        "META_ENVIOS_POR_DIA", 9000
+    )
+    meta_envios_por_dia: int = min(
+        configured_meta_envios_por_dia,
+        max(1, 10000 - exchange_recipient_safety_reserve),
+    )
     max_envios_por_dia: int = int(
         os.getenv("MAX_ENVIOS_POR_DIA", "10000")
-    )
-    meta_envios_por_dia: int = int(
-        os.getenv("META_ENVIOS_POR_DIA", "9950")
     )
     worker_poll_interval_segundos: int = int(
         os.getenv("WORKER_POLL_INTERVAL_SEGUNDOS", "5")
     )
 
-    # Continuous queue buffer. Queue depth is intentionally independent from
-    # the rolling 24-hour send quota: enqueuing does not send. The worker is
-    # the final quota gate before every Graph submission.
     queue_min_pending: int = int(os.getenv("QUEUE_MIN_PENDING", "14800"))
     queue_target_pending: int = int(os.getenv("QUEUE_TARGET_PENDING", "15000"))
 
