@@ -24,7 +24,7 @@ from app.queue_manager import (
     repor_fila_automatica,
 )
 
-EXPECTED_DAILY_TARGET = 9950
+EXPECTED_DAILY_TARGET = 9000
 
 
 def capacidade_para_nova_fila() -> tuple[int, int, int]:

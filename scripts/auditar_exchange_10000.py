@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Auditoria fail-closed para a meta operacional de 9.950 destinatarios/24h.
+"""Auditoria fail-closed para a meta operacional de 9.000 destinatarios/24h.
 
 Executar no mesmo ambiente do worker, com o .env e banco de producao. O script
 NAO envia e-mail. Valida DNS, autenticacao Microsoft Graph app-only, remetente,
@@ -117,8 +117,8 @@ def main() -> int:
 
     if settings.max_envios_por_dia != 10000:
         errors.append(f"MAX_ENVIOS_POR_DIA_deve_ser_10000={settings.max_envios_por_dia}")
-    if settings.meta_envios_por_dia != 9950:
-        errors.append(f"META_ENVIOS_POR_DIA_deve_ser_9950={settings.meta_envios_por_dia}")
+    if settings.meta_envios_por_dia != 9000:
+        errors.append(f"META_ENVIOS_POR_DIA_deve_ser_9000={settings.meta_envios_por_dia}")
     if settings.meta_envios_por_dia >= settings.max_envios_por_dia:
         errors.append("meta_sem_margem_abaixo_do_teto")
     if settings.rate_limit_envios_por_minuto <= 0 or settings.rate_limit_envios_por_minuto > 30:
@@ -287,7 +287,7 @@ def main() -> int:
                 )
                 workers_idle_transaction = cur.fetchone()[0]
     except Exception as exc:
-        print("EXCHANGE_9950_AUDIT")
+        print("EXCHANGE_9000_AUDIT")
         print("NOT_READY")
         print(f"database_audit_failed={type(exc).__name__}:{exc}")
         return 1
@@ -331,7 +331,7 @@ def main() -> int:
             f"elegiveis_autorizados_insuficientes_para_target={elegiveis}/{necessario_para_target}"
         )
 
-    print("EXCHANGE_9950_AUDIT")
+    print("EXCHANGE_9000_AUDIT")
     print(f"provider={settings.email_provider}")
     print(f"sender={sender}")
     print(f"sender_domain={sender_domain}")

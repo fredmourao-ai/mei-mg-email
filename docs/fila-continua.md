@@ -2,7 +2,7 @@
 
 A fila de destinatarios e um buffer operacional independente da cota de envio.
 
-- `META_ENVIOS_POR_DIA=9950` limita submissões na janela movel de 24 horas.
+- `META_ENVIOS_POR_DIA=9000` limita submissões locais e preserva 1.000 destinatarios de margem para o limite Exchange de 10.000/24h.
 - `MAX_ENVIOS_POR_DIA=10000` e o teto tecnico local.
 - A fila operacional trabalha entre 14.800 e 15.000 registros abertos.
 - Cada reposicao adiciona no maximo 200 destinatarios ate retornar ao alvo de 15.000.

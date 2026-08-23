@@ -11,7 +11,7 @@ HTTP 202 do Graph significa apenas `submitted`: nunca deve ser tratado como entr
 
 ## Incidente AS(42004) e fail-closed
 
-Quando aparecer `550 5.1.8 Access denied, bad outbound sender AS(42004)`:
+Quando aparecer `550 5.1.8 ... AS(42004)` ou `550 5.1.90 ... AS:46601`:
 
 1. parar o worker;
 2. manter `/var/lib/mei-mg-email/sender_blocked.pause` presente;
@@ -26,23 +26,15 @@ O deploy de hardening esta em `scripts/deploy_hardening_20260813.sh` e termina o
 ## Limites
 
 - `MAX_ENVIOS_POR_DIA=10000`: teto tecnico local em janela movel de 24h.
-- `META_ENVIOS_POR_DIA=9950`: meta operacional.
+- `META_ENVIOS_POR_DIA=9000`: meta operacional com reserva de 1.000 destinatarios abaixo do limite Exchange de 10.000/24h.
 - `RATE_LIMIT_ENVIOS_POR_MINUTO=30`: valor configuravel legado/teto local.
 - `DELIVERABILITY_MAX_ENVIOS_POR_MINUTO=10`: cap de recuperacao de reputacao.
 - Taxa efetiva: menor valor entre os dois limites acima e 30/min; com os defaults atuais, **10/min**.
 - Somente um worker pode possuir a advisory lock global de envio.
 
-## Politica de importacao
+## Politica de elegibilidade
 
-Por decisao operacional registrada em 2026-08-13:
-
-- V022 marca o estoque existente `marketing_autorizado=true` e `mei_verificado=true`, com origem auditavel de override do operador;
-- V023 aplica a mesma politica a novos INSERTs no banco;
-- `scripts/ingest_casa_dos_dados_daily.py` tambem grava os dois flags explicitamente em INSERT e UPDATE;
-- `opt_out` continua soberano e nunca e reativado pela importacao;
-- `enviado/enviado_em` e historico de envio sao preservados.
-
-A origem `politica_importacao_operador_2026-08-13` identifica a decisao operacional e nao deve ser confundida com verificacao oficial da Receita/Simples.
+A fonte de verdade e `AGENTS.md`. O fluxo de primeiro contato considera apenas a politica canonica atual; gates legados aposentados nao podem ser reintroduzidos por importacao, migration, trigger, guard ou supervisor. `opt_out` e suppressions tecnicas continuam soberanos, e o historico de envio deve ser preservado.
 
 ## Deliverability
 
@@ -63,7 +55,8 @@ MICROSOFT_GRAPH_CERT_PATH=/home/ubuntu/.shopvivaliz/m365/graph-auth.crt
 MICROSOFT_GRAPH_KEY_PATH=/home/ubuntu/.shopvivaliz/m365/graph-auth.key
 MAIL_FROM=Contabilidade Melo <naoresponda@dev.shopvivaliz.com.br>
 MAX_ENVIOS_POR_DIA=10000
-META_ENVIOS_POR_DIA=9950
+META_ENVIOS_POR_DIA=9000
+EXCHANGE_RECIPIENT_SAFETY_RESERVE=1000
 RATE_LIMIT_ENVIOS_POR_MINUTO=30
 DELIVERABILITY_MAX_ENVIOS_POR_MINUTO=10
 SENDER_BLOCK_SENTINEL_PATH=/var/lib/mei-mg-email/sender_blocked.pause

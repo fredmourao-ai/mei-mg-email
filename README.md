@@ -9,26 +9,21 @@ Sistema de fila, envio e monitoramento de e-mails para a operação MEI/MG da Co
 - HTTP 202 do Graph é registrado como `submitted`; não representa entrega confirmada.
 - SMTP/Gmail/Brevo e autenticação Graph interativa/delegada não são suportados em produção.
 - Worker único por advisory lock do PostgreSQL.
-- Cota operacional em janela móvel: `META_ENVIOS_POR_DIA=9950`, teto técnico `MAX_ENVIOS_POR_DIA=10000`.
+- Cota operacional em janela móvel: `META_ENVIOS_POR_DIA=9000`, teto técnico `MAX_ENVIOS_POR_DIA=10000`.
 - Modo de recuperação de reputação: `DELIVERABILITY_MAX_ENVIOS_POR_MINUTO=10`.
 
 ## Fila contínua
 
-O worker chama o enfileirador antes de buscar o próximo lote. Com os defaults atuais:
+O `queue_replenisher` mantém o buffer de forma independente do worker. Com os defaults atuais:
 
-- `QUEUE_MIN_PENDING=1000`
-- `QUEUE_TARGET_PENDING=5000`
+- `QUEUE_MIN_PENDING=14800`
+- `QUEUE_TARGET_PENDING=15000`
 
 Ao atingir o gatilho mínimo, a fila é reposta até o target quando houver destinatários elegíveis. Enfileirar não consome a cota móvel; a trava de 24h é aplicada imediatamente antes de cada submissão.
 
 ## Política de importação
 
-A partir das migrations V022/V023, a decisão operacional registrada em 13/08/2026 é:
-
-- estoque já existente: `marketing_autorizado=true` e `mei_verificado=true`;
-- novos registros inseridos em `mei_email.empresas`: os mesmos flags entram como `true`;
-- a origem do override é gravada em `marketing_autorizado_origem` e `mei_verificado_origem`;
-- `opt_out=true` continua bloqueando envio independentemente desses flags.
+A política canônica está em `AGENTS.md`: empresa deve estar ATIVA; e-mail não pode conter `contabil`; e-mail compartilhado por mais de 2 cadastros não entra; destinatário/CNPJ já enviado ou enfileirado não entra. MG é apenas prioridade de ordenação. Gates legados aposentados não podem voltar ao fluxo operacional.
 
 ## Atualização diária da base
 
@@ -41,7 +36,7 @@ A rotina `scripts/sincronizar_base_diaria.py` registra cada execução em `mei_e
 Há duas camadas de proteção:
 
 1. o worker abre a pausa ao receber `sender_blocked` de forma síncrona;
-2. `mei-mg-email-ndr-guard.service` monitora NDRs assíncronos e abre a mesma pausa ao detectar `AS(42004)`, `5.1.8`, `bad outbound sender` ou equivalente.
+2. `mei-mg-email-ndr-guard.service` monitora NDRs assíncronos e abre a mesma pausa ao detectar `AS(42004)`, `5.1.8`, `5.1.90`, `AS:46601` ou equivalente.
 
 O estado persistente fica fora do Git em:
 

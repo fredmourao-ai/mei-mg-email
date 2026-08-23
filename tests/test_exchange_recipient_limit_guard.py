@@ -38,3 +38,32 @@ def test_active_send_auditors_do_not_require_9950_anymore():
     assert "EXPECTED_DAILY_TARGET = 9950" not in dispatch
     assert "9000" in audit
     assert "9000" in dispatch
+
+
+def _effective_meta(**values):
+    env = os.environ.copy()
+    env.update({key: str(value) for key, value in values.items()})
+    command = [sys.executable, "-c", "from app.config import settings; print(settings.meta_envios_por_dia)"]
+    completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, check=True)
+    return completed.stdout.strip()
+
+
+def test_exchange_reserve_cannot_be_configured_below_1000():
+    assert _effective_meta(META_ENVIOS_POR_DIA=9950, EXCHANGE_RECIPIENT_SAFETY_RESERVE=50) == "9000"
+
+
+def test_exchange_reserve_also_applies_to_lower_local_max():
+    assert _effective_meta(META_ENVIOS_POR_DIA=9950, MAX_ENVIOS_POR_DIA=8000, EXCHANGE_RECIPIENT_SAFETY_RESERVE=1000) == "7000"
+
+
+def test_active_docs_do_not_restore_stale_quota_or_retired_policy():
+    paths = ("README.md", ".env.example", "docs/fila-continua.md", "docs/contabilidade-melo-disparo.md")
+    combined = "\n".join((ROOT / path).read_text(encoding="utf-8") for path in paths)
+    for stale in (
+        "META_ENVIOS_POR_DIA=9950",
+        "QUEUE_MIN_PENDING=1000",
+        "QUEUE_TARGET_PENDING=5000",
+        "V022 marca o estoque existente",
+        "V023 aplica a mesma politica",
+    ):
+        assert stale not in combined, stale
