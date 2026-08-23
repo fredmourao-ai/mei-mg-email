@@ -20,4 +20,10 @@ O desbloqueio nao remove automaticamente `/var/lib/mei-mg-email/sender_blocked.p
 
 ## NDR guard
 
-`mei-mg-email-ndr-guard.service` observa NDRs assincronos na caixa Microsoft via Graph `Mail.Read`. Ao detectar `AS(42004)`, `5.1.8` ou equivalente, cria `/var/lib/mei-mg-email/sender_blocked.pause`. O worker continua fail-closed ate remocao operacional deliberada do sentinel.
+`mei-mg-email-ndr-guard.service` observa NDRs assincronos da caixa configurada via Microsoft Graph `Mail.Read`. O guard abre `/var/lib/mei-mg-email/sender_blocked.pause` para bloqueios sistemicos, incluindo `AS(42004)`, `5.1.8`, `5.1.90`, `AS:46601` e mensagens de limite de destinatarios em 24 horas.
+
+Antes de habilitar o servico, execute `python scripts/auditar_graph_mail_read.py`. Se o preflight retornar `403 ErrorAccessDenied`, o guard esta cego e deve permanecer desabilitado; nao declare monitoramento de NDR ativo nessa condicao.
+
+Enquanto a leitura autoritativa de NDR nao estiver disponivel, a protecao obrigatoria e o limite local efetivo de 9.000 destinatarios/24h com reserva minima de 1.000 abaixo do teto Exchange de 10.000, alem do gate imediatamente antes de cada submissao Graph.
+
+O worker continua fail-closed quando existir sentinel de pausa. O sentinel nunca deve ser removido automaticamente por um NDR guard, monitor ou rotina de reparo.
