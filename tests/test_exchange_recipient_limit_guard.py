@@ -57,7 +57,14 @@ def test_exchange_reserve_also_applies_to_lower_local_max():
 
 
 def test_active_docs_do_not_restore_stale_quota_or_retired_policy():
-    paths = ("README.md", ".env.example", "docs/fila-continua.md", "docs/contabilidade-melo-disparo.md")
+    paths = (
+        "README.md",
+        ".env.example",
+        "docs/fila-continua.md",
+        "docs/contabilidade-melo-disparo.md",
+        "ops/README.md",
+        "deploy/systemd/gate-release.txt",
+    )
     combined = "\n".join((ROOT / path).read_text(encoding="utf-8") for path in paths)
     for stale in (
         "META_ENVIOS_POR_DIA=9950",
@@ -65,5 +72,7 @@ def test_active_docs_do_not_restore_stale_quota_or_retired_policy():
         "QUEUE_TARGET_PENDING=5000",
         "V022 marca o estoque existente",
         "V023 aplica a mesma politica",
+        "aplicar V022/V023/V024",
+        "V022/V023/V024 applied",
     ):
         assert stale not in combined, stale
