@@ -29,3 +29,12 @@ def test_exchange_recipient_safety_reserve_caps_old_9950_configuration():
     ]
     completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, check=True)
     assert completed.stdout.strip() == "9000"
+
+
+def test_active_send_auditors_do_not_require_9950_anymore():
+    audit = (ROOT / "scripts" / "auditar_exchange_10000.py").read_text(encoding="utf-8")
+    dispatch = (ROOT / "scripts" / "disparar_10000_mei_mg.py").read_text(encoding="utf-8")
+    assert "META_ENVIOS_POR_DIA_deve_ser_9950" not in audit
+    assert "EXPECTED_DAILY_TARGET = 9950" not in dispatch
+    assert "9000" in audit
+    assert "9000" in dispatch
