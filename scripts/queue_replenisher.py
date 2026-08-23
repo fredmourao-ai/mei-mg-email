@@ -112,18 +112,19 @@ def filter_candidates_batch(cur, rows, needed: int):
                ) shared
            ) <= 2
            and not exists (
-               select 1
-                 from mei_email.envios x
-                where (
-                    x.cnpj = e.cnpj
-                    or lower(btrim(x.email::text)) = lower(btrim(e.email::text))
-                )
+               select 1 from mei_email.envios x
+                where x.cnpj = e.cnpj
+                  and x.status = any(%s::mei_email.status_envio[])
+           )
+           and not exists (
+               select 1 from mei_email.envios x
+                where lower(btrim(x.email::text)) = lower(btrim(e.email::text))
                   and x.status = any(%s::mei_email.status_envio[])
            )
          order by case when upper(coalesce(r.uf,''))='MG' then 0 else 1 end,
                   r.cnpj
          limit %s
-    """, (cnpjs, emails, ufs, statuses, needed))
+    """, (cnpjs, emails, ufs, statuses, statuses, needed))
     return [(str(cnpj), str(email).strip()) for cnpj, email in cur.fetchall()]
 
 def collect_candidates(cur, needed: int, state: dict):
