@@ -505,6 +505,17 @@ def run() -> None:
                     time.sleep(max(settings.worker_poll_interval_segundos, 60))
                     continue
 
+                envios_24h = _obter_envios_ultimas_24h_indexado(conn)
+                limite_24h = base_worker.limite_operacional_24h()
+                if envios_24h >= limite_24h:
+                    logger.warning(
+                        "Meta movel de 24h atingida: %d/%d. Worker aguardando nova capacidade.",
+                        envios_24h,
+                        limite_24h,
+                    )
+                    time.sleep(max(settings.worker_poll_interval_segundos, 60))
+                    continue
+
                 # Existing queue always wins. No replenishment query may run
                 # while there is a recoverable lot.
                 if _processar_se_disponivel(conn, provider):
