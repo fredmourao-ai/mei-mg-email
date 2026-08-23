@@ -48,8 +48,8 @@ def _effective_meta(**values):
     return completed.stdout.strip()
 
 
-def test_exchange_reserve_cannot_be_configured_below_1000():
-    assert _effective_meta(META_ENVIOS_POR_DIA=9950, EXCHANGE_RECIPIENT_SAFETY_RESERVE=50) == "9000"
+def test_exchange_reserve_cannot_be_configured_below_500():
+    assert _effective_meta(META_ENVIOS_POR_DIA=9950, EXCHANGE_RECIPIENT_SAFETY_RESERVE=50) == "9500"
 
 
 def test_exchange_reserve_also_applies_to_lower_local_max():
