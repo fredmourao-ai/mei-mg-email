@@ -5,8 +5,8 @@ O Microsoft Graph sendMail pode responder HTTP 202 e o Exchange gerar um NDR
 segundos depois. Este processo observa a caixa do remetente via Graph Mail.Read.
 
 Dois comportamentos são deliberadamente separados:
-* bloqueio sistêmico do remetente (AS(42004), 5.1.8 etc.) abre o sentinel e
-  interrompe globalmente os envios;
+* bloqueio sistêmico do remetente/cota abre o sentinel e interrompe globalmente
+  os envios;
 * falha permanente de um destinatário individual registra hard-bounce na
   suppression list e deixa os demais destinatários autorizados seguirem.
 
@@ -50,6 +50,10 @@ SENTINEL_PATH = Path(os.getenv("SENDER_BLOCK_SENTINEL_PATH", "/var/lib/mei-mg-em
 BLOCK_MARKERS = (
     "as(42004)",
     "5.1.8",
+    "5.1.90",
+    "as:46601",
+    "24 hour limit for message recipients",
+    "daily limit for message recipients",
     "bad outbound sender",
     "restricted sender",
     "address was not recognized as a valid sender",
@@ -163,10 +167,6 @@ def _recent_messages(provider: MicrosoftGraphEmailProvider) -> list[dict]:
             "$select": "id,subject,receivedDateTime,bodyPreview",
         }
     )
-    # NDRs can be moved out of Inbox immediately by mailbox rules (for example
-    # into a dedicated Microsoft/NDR folder). Query the mailbox-wide messages
-    # collection so hard bounces and sender restrictions remain observable
-    # regardless of which folder currently contains the report.
     url = f"https://graph.microsoft.com/v1.0/users/{quote(provider.address)}/messages?{params}"
     payload = _graph_json(token, url)
     return list(payload.get("value") or [])
@@ -188,17 +188,8 @@ def _full_message_text(provider: MicrosoftGraphEmailProvider, message_id: str) -
     )
 
 
-def _previously_sent_recipient_matches(
-    addresses: list[str], *, sender_address: str
-) -> list[str]:
-    """Return exact NDR addresses that have a terminal prior-send record."""
-    normalized = sorted(
-        {
-            value.casefold()
-            for value in addresses
-            if value.casefold() != sender_address.casefold()
-        }
-    )
+def _previously_sent_recipient_matches(addresses: list[str], *, sender_address: str) -> list[str]:
+    normalized = sorted({value.casefold() for value in addresses if value.casefold() != sender_address.casefold()})
     if not normalized:
         return []
     with psycopg.connect(settings.database_url, connect_timeout=10) as conn:
@@ -215,52 +206,29 @@ def _previously_sent_recipient_matches(
             return sorted({str(row[0]).casefold() for row in cur.fetchall()})
 
 
-def _record_permanent_recipient_suppression(
-    *,
-    provider: MicrosoftGraphEmailProvider,
-    message_id: str,
-    received_at: str | None,
-    text: str,
-) -> bool:
-    """Turn an unambiguous hard NDR into a durable technical suppression."""
+def _record_permanent_recipient_suppression(*, provider: MicrosoftGraphEmailProvider, message_id: str, received_at: str | None, text: str) -> bool:
     if not is_permanent_recipient_ndr(text):
         return False
-
     candidates = extract_email_addresses(text)
-    matches = _previously_sent_recipient_matches(
-        candidates,
-        sender_address=provider.address,
-    )
+    matches = _previously_sent_recipient_matches(candidates, sender_address=provider.address)
     if len(matches) != 1:
-        logger.warning(
-            "NDR_HARD_BOUNCE_NOT_SUPPRESSED ambiguous_match_count=%d message_id=%s",
-            len(matches),
-            message_id,
-        )
+        logger.warning("NDR_HARD_BOUNCE_NOT_SUPPRESSED ambiguous_match_count=%d message_id=%s", len(matches), message_id)
         return False
-
     recipient = matches[0]
     with psycopg.connect(settings.database_url, connect_timeout=10) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 select mei_email.register_operational_suppression(
-                    null,
-                    %s::public.citext,
-                    'hard_bounce',
-                    'async_ndr_graph_guard',
-                    %s,
+                    null, %s::public.citext, 'hard_bounce',
+                    'async_ndr_graph_guard', %s,
                     coalesce(%s::timestamptz, now())
                 )
                 """,
                 (recipient, message_id, received_at or None),
             )
         conn.commit()
-
-    logger.warning(
-        "NDR_HARD_BOUNCE_SUPPRESSED message_id=%s source=async_ndr_graph_guard",
-        message_id,
-    )
+    logger.warning("NDR_HARD_BOUNCE_SUPPRESSED message_id=%s source=async_ndr_graph_guard", message_id)
     return True
 
 
@@ -295,16 +263,13 @@ def check_once(provider: MicrosoftGraphEmailProvider) -> bool:
         preview = str(message.get("bodyPreview") or "")
         if not looks_like_ndr(subject, preview):
             continue
-
-        # Fetch the full NDR exactly once. Sender-block classification takes
-        # precedence over recipient-level suppression.
         text = _full_message_text(provider, message_id)
         if contains_sender_blocked_marker(text):
             received_at = str(message.get("receivedDateTime") or "")
             _open_pause(
                 message_id=message_id,
                 received_at=received_at,
-                detail="AS(42004)/5.1.8 sender restriction detected in asynchronous NDR",
+                detail="Exchange sender or recipient-rate restriction detected in asynchronous NDR",
             )
             logger.critical(
                 "NDR_GUARD_SENDER_BLOCKED sender=%s received_at=%s sentinel=%s",
