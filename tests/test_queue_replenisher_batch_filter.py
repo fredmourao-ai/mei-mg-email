@@ -17,3 +17,10 @@ def test_replenisher_filters_page_in_one_set_based_query():
     assert "unnest(" in body.lower()
     assert body.count("cur.execute(") == 1
     assert "row_number() over" in body.lower()
+
+
+def test_replenisher_anti_replay_uses_indexable_separate_lookups():
+    src = (ROOT / "scripts/queue_replenisher.py").read_text(encoding="utf-8")
+    body = src.split("def filter_candidates_batch", 1)[1].split("def collect_candidates", 1)[0]
+    assert body.lower().count("not exists (") >= 2
+    assert "lower(btrim(x.email::text)) = lower(btrim(e.email::text))" in body
