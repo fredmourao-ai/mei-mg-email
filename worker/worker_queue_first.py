@@ -69,7 +69,7 @@ def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
             select count(*)
               from mei_email.envios
              where status in ('submitted', 'enviado')
-               and enviado_em >= now() - interval '24 hours'
+               and enviado_em >= statement_timestamp() - interval '24 hours'
             """
         )
         row = cur.fetchone()
@@ -80,7 +80,7 @@ def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
                 """
                 select count(*)
                   from mei_email.envios_externos_cota
-                 where sent_at >= now() - interval '24 hours'
+                 where sent_at >= statement_timestamp() - interval '24 hours'
                 """
             )
             row = cur.fetchone()
