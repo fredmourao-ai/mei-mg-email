@@ -27,4 +27,12 @@ Se o guard falhar, NAO contorne, NAO edite a lista de proibicoes e NAO force o s
 - Nao alterar a meta de fila 14.800-15.000 sem aprovacao explicita.
 - Preserve anti-reenvio e idempotencia do Graph.
 
+## Politica obrigatoria de PR, gate e merge
+- Toda alteracao finalizada deve terminar em PR validado e merge; nao deixar PR pronta aberta sem motivo tecnico comprovado.
+- Se qualquer check, teste, lint, gate, conflito ou Action falhar: investigar a causa raiz, corrigir, executar novamente e repetir ate ficar verde. E proibido contornar o erro com bypass, `|| true`, `exit 0`, force merge ou desativacao do check.
+- Gate verde autoriza merge automatico quando a PR pertence a este repositorio e todas as protecoes aplicaveis passaram.
+- Bloqueio aparentemente externo nao encerra a tarefa: procurar solucao segura por configuracao, credencial, permissao, servico, infraestrutura ou rota alternativa antes de classificar como inconclusivo.
+- Para este repositorio, auto-gate/auto-merge NUNCA significa disparar campanha, aumentar ritmo de envio, remover supressoes ou alterar elegibilidade. Envios continuam sujeitos aos controles operacionais e de seguranca existentes.
+- Depois do merge, verificar Actions do SHA resultante e corrigir falhas regressivas antes de declarar conclusao.
+
 O arquivo `AGENTS.md` e parte da politica do repositorio e deve ser lido antes de qualquer alteracao automatizada.
