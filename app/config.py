@@ -36,11 +36,11 @@ class Settings:
 
     # Exchange Online applies a hard 10,000-recipient limit in a sliding 24h
     # window. Local DB accounting can lag mailbox-wide activity, so keep
-    # 500 recipients of explicit operational headroom below that hard ceiling.
+    # 50 recipients of explicit operational headroom below that hard ceiling.
     max_envios_por_dia: int = _positive_int_env("MAX_ENVIOS_POR_DIA", 10000)
     exchange_recipient_safety_reserve: int = max(
-        500,
-        _positive_int_env("EXCHANGE_RECIPIENT_SAFETY_RESERVE", 500),
+        50,
+        _positive_int_env("EXCHANGE_RECIPIENT_SAFETY_RESERVE", 50),
     )
     configured_meta_envios_por_dia: int = _positive_int_env("META_ENVIOS_POR_DIA", 9500)
     meta_envios_por_dia: int = min(
