@@ -1,0 +1,137 @@
+name: AI Conflict Resolver
+
+on:
+  push:
+    branches: [ai-conflict-resolver-v2]
+    paths:
+      - ".github/scripts/ai_conflict_resolver.py"
+      - ".github/workflows/ai-conflict-resolver.yml"
+      - "tests/test_ai_conflict_resolver.py"
+      - "AI_CONFLICT_RULES.md"
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: ai-conflict-resolver-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  OLLAMA_MODEL: qwen2.5-coder:1.5b
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolver unit tests
+        run: python3 -m unittest tests/test_ai_conflict_resolver.py
+      - name: Python syntax
+        run: python3 -m py_compile .github/scripts/ai_conflict_resolver.py
+
+  resolve:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    needs: self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge base and classify conflicts
+        id: merge
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BASE_REF"
+          set +e
+          git merge --no-ff --no-commit "origin/$BASE_REF" >/tmp/ai-merge.log 2>&1
+          set -e
+          conflicts="$(git diff --name-only --diff-filter=U)"
+          if [ -z "$conflicts" ]; then
+            git merge --abort >/dev/null 2>&1 || true
+            echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+          CONFLICTS="$conflicts" python3 - <<'PY' > /tmp/ai-protected.txt
+          import importlib.util, os
+          spec = importlib.util.spec_from_file_location("r", ".github/scripts/ai_conflict_resolver.py")
+          mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+          for path in os.environ["CONFLICTS"].splitlines():
+              if mod.is_protected_path(path): print(path)
+          PY
+          if [ -s /tmp/ai-protected.txt ]; then
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            echo "### AI conflict resolver: human review required" >> "$GITHUB_STEP_SUMMARY"
+            echo "Protected conflicts were not sent to a model." >> "$GITHUB_STEP_SUMMARY"
+            git merge --abort
+          else
+            echo "safe=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install local Ollama
+        if: steps.merge.outputs.has_conflicts == 'true' && steps.merge.outputs.safe == 'true'
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama --version
+          nohup ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/ollama.log
+          exit 1
+
+      - name: Pull free local model
+        if: steps.merge.outputs.has_conflicts == 'true' && steps.merge.outputs.safe == 'true'
+        run: ollama pull "$OLLAMA_MODEL"
+
+      - name: Resolve safe conflicts
+        id: resolve
+        if: steps.merge.outputs.has_conflicts == 'true' && steps.merge.outputs.safe == 'true'
+        run: |
+          set +e
+          python3 .github/scripts/ai_conflict_resolver.py
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            git merge --abort >/dev/null 2>&1 || true
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+            echo "### AI conflict resolver: human review required" >> "$GITHUB_STEP_SUMMARY"
+            echo "The local model or deterministic safety gate declined the resolution (exit $rc)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "resolved=true" >> "$GITHUB_OUTPUT"
+
+      - name: Validate resolution
+        if: steps.resolve.outputs.resolved == 'true'
+        run: |
+          test -z "$(git diff --name-only --diff-filter=U)"
+          git diff --check
+          python3 -m unittest tests/test_ai_conflict_resolver.py
+
+      - name: Commit and push resolution
+        if: steps.resolve.outputs.resolved == 'true'
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          git status --short
+          git commit -m "chore: resolve merge conflicts with local AI"
+          git push origin "HEAD:$HEAD_REF"
