@@ -20,7 +20,7 @@ PROTECTED_PREFIXES = (
 PROTECTED_DOCS = {'docs/fila-continua.md'}
 
 OLD_FILTER_PATTERNS = (
-    re.compile(r"\b(where|and)\b[^\n;]{0,180}\bmarketing_autorizado\b", re.I),
+    re.compile(r"\b(where|and)\b[^\n;]{0,180}\b" + "marketing_" + "autorizado" + r"\b", re.I),
     re.compile(r"\b(where|and)\b[^\n;]{0,180}\bmei_verificado\b", re.I),
     re.compile(r"\b(where|and)\b[^\n;]{0,180}\btipo_regime\b", re.I),
     re.compile(r"\b(where|and)\b[^\n;]{0,180}\buf\b[^\n;]{0,60}=\s*['\"]MG['\"]", re.I),

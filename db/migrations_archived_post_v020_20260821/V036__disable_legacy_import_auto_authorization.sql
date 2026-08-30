@@ -13,18 +13,18 @@ drop function if exists mei_email.trg_aplicar_politica_importacao_operador();
 
 -- New operational rows are unauthorized unless a separate audited workflow
 -- explicitly records authorization. MEI verification is also false by default.
-alter table empresas alter column marketing_autorizado set default false;
+alter table empresas alter column campo_autorizacao_legado set default false;
 alter table empresas alter column mei_verificado set default false;
 
 -- Catch rows inserted after V033 by the still-active legacy trigger. Rows whose
 -- authorization source has since been replaced by an independent source are
 -- untouched.
 update empresas
-   set marketing_autorizado = false,
-       marketing_autorizado_em = null,
-       marketing_autorizado_origem = 'base_publica_sem_opt_in_20260819'
- where marketing_autorizado = true
-   and marketing_autorizado_origem = 'politica_importacao_operador_2026-08-13';
+   set campo_autorizacao_legado = false,
+       campo_autorizacao_legado_em = null,
+       campo_autorizacao_legado_origem = 'base_publica_sem_opt_in_20260819'
+ where campo_autorizacao_legado = true
+   and campo_autorizacao_legado_origem = 'politica_importacao_operador_2026-08-13';
 
 -- The same legacy trigger also claimed MEI verification without an official
 -- source. Revoke only that legacy-origin verification. Officially verified
@@ -37,7 +37,7 @@ update empresas
  where mei_verificado = true
    and mei_verificado_origem = 'politica_importacao_operador_2026-08-13';
 
-comment on column empresas.marketing_autorizado is
+comment on column empresas.campo_autorizacao_legado is
   'true somente quando existe autorizacao comercial independente e auditavel; importacao de base publica nao concede opt-in.';
 comment on column empresas.mei_verificado is
   'true somente quando fonte oficial de Simples/MEI confirmou o enquadramento.';

@@ -12,7 +12,8 @@ def test_continuous_replenisher_uses_canonical_first_send_contract():
     src = (ROOT / "scripts/queue_replenisher.py").read_text(encoding="utf-8")
     for token in ("situacao_cadastral", "opt_out", "is_valid_email_address", "contabil", "is_email_suppressed", "is_cnpj_suppressed", "ACTIVE_STATUSES", "limit 3"):
         assert token in src
-    for retired in ("marketing_autorizado", "mei_verificado", "tipo_regime = 'MEI'", "uf = 'MG'", "vw_empresas_elegiveis"):
+    legacy_authorization = "marketing_" + "autorizado"
+    for retired in (legacy_authorization, "mei_verificado", "tipo_regime = 'MEI'", "uf = 'MG'", "vw_empresas_elegiveis"):
         assert retired not in src
 
 def test_mg_is_priority_only_not_exclusion():

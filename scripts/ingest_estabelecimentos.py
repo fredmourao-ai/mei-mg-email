@@ -1,9 +1,8 @@
-"""
-Ingestao dos dados abertos oficiais de CNPJ/Simples -> mei_email.empresas.
+"""Ingestao dos dados abertos oficiais de CNPJ -> mei_email.empresas.
 
-Quando o arquivo SIMPLES e informado, OPCAO_PELO_MEI='S' e a fonte que pode
-marcar mei_verificado=true. Sem esse arquivo, registros podem ser armazenados
-para atualizacao cadastral, mas jamais sao tratados como MEI verificado.
+A importacao aplica somente a politica operacional atual: empresa ATIVA, e-mail
+valido, e-mail sem a palavra contabil e e-mail compartilhado por no maximo 2
+CNPJs no arquivo importado.
 """
 from __future__ import annotations
 
@@ -26,7 +25,7 @@ SITUACAO_CADASTRAL = {
     "08": "BAIXADA",
 }
 
-LIMITE_CNPJS_POR_EMAIL_TERCEIRO = 3
+LIMITE_CNPJS_POR_EMAIL_COMPARTILHADO = 2
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -42,7 +41,7 @@ def ler_empresas(caminho: Path | None) -> dict[str, str]:
 
 
 def ler_simples(caminho: Path | None) -> dict[str, bool]:
-    """cnpj_basico -> opcao_pelo_mei. A coluna e a fonte oficial de verificacao."""
+    """Compatibilidade com chamadas antigas; o retorno nao dirige elegibilidade."""
     if caminho is None:
         return {}
     mei_por_basico: dict[str, bool] = {}
@@ -63,7 +62,6 @@ def ingerir_estabelecimentos(
     empresas: list[dict] = []
     total_linhas = 0
     descartadas_situacao = 0
-    descartadas_mei = 0
     descartadas_email = 0
 
     with open(caminho, encoding="latin-1", newline="") as f:
@@ -84,13 +82,8 @@ def ingerir_estabelecimentos(
                 descartadas_situacao += 1
                 continue
 
-            mei_confirmado = bool(mei_por_basico.get(cnpj_basico, False)) if filtrar_mei else False
-            if filtrar_mei and not mei_confirmado:
-                descartadas_mei += 1
-                continue
-
-            email = campo[27].lower()
-            if not EMAIL_RE.match(email):
+            email = campo[27].strip().lower()
+            if not EMAIL_RE.match(email) or "contabil" in email:
                 descartadas_email += 1
                 continue
 
@@ -105,21 +98,11 @@ def ingerir_estabelecimentos(
                     "ddd_1": campo[21] or None,
                     "telefone_1": campo[22] or None,
                     "data_abertura": _parse_data(campo[10]),
-                    "tipo_regime": "MEI" if mei_confirmado else "NAO_VERIFICADO",
-                    "mei_verificado": mei_confirmado,
-                    "mei_verificado_origem": "receita_simples_opcao_mei" if mei_confirmado else None,
                 }
             )
 
     print(f"[ingest] linhas lidas: {total_linhas}")
     print(f"[ingest] descartadas (situacao != ATIVA): {descartadas_situacao}")
-    if filtrar_mei:
-        print(f"[ingest] descartadas (nao optante MEI): {descartadas_mei}")
-        print("[ingest] MEI verificado pela coluna OPCAO_PELO_MEI do arquivo SIMPLES.")
-    else:
-        print(
-            "[ingest] AVISO: arquivo SIMPLES nao informado -- nenhum registro sera marcado como MEI verificado."
-        )
     print(f"[ingest] descartadas (sem e-mail valido): {descartadas_email}")
     print(f"[ingest] elegiveis apos filtros basicos: {len(empresas)}")
     return empresas
@@ -131,16 +114,18 @@ def _parse_data(valor: str) -> str | None:
     return f"{valor[0:4]}-{valor[4:6]}-{valor[6:8]}"
 
 
-def marcar_provaveis_terceiros(empresas: list[dict]) -> None:
+def remover_emails_compartilhados(empresas: list[dict]) -> None:
     contagem = Counter(e["email"] for e in empresas)
-    marcados = 0
-    for e in empresas:
-        e["provavel_terceiro"] = contagem[e["email"]] > LIMITE_CNPJS_POR_EMAIL_TERCEIRO
-        if e["provavel_terceiro"]:
-            marcados += 1
+    antes = len(empresas)
+    empresas[:] = [
+        e
+        for e in empresas
+        if contagem[e["email"]] <= LIMITE_CNPJS_POR_EMAIL_COMPARTILHADO
+    ]
+    descartados = antes - len(empresas)
     print(
-        f"[ingest] e-mails repetidos em mais de {LIMITE_CNPJS_POR_EMAIL_TERCEIRO} CNPJs "
-        f"(marcados provavel_terceiro): {marcados}"
+        f"[ingest] e-mails repetidos em mais de {LIMITE_CNPJS_POR_EMAIL_COMPARTILHADO} CNPJs "
+        f"(descartados): {descartados}"
     )
 
 
@@ -154,38 +139,21 @@ def gravar_no_banco(empresas: list[dict]) -> None:
                 """
                 insert into mei_email.empresas
                     (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                     uf, email, ddd_1, telefone_1, data_abertura, provavel_terceiro,
-                     tipo_regime, mei_verificado, mei_verificado_em, mei_verificado_origem)
+                     uf, email, ddd_1, telefone_1, data_abertura)
                 values
                     (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s,
                      %(situacao_cadastral)s, %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s,
-                     %(data_abertura)s, %(provavel_terceiro)s, %(tipo_regime)s,
-                     %(mei_verificado)s,
-                     case when %(mei_verificado)s then now() else null end,
-                     %(mei_verificado_origem)s)
+                     %(data_abertura)s)
                 on conflict (cnpj) do update set
                     razao_social = excluded.razao_social,
                     nome_fantasia = excluded.nome_fantasia,
                     situacao_cadastral = excluded.situacao_cadastral,
+                    uf = excluded.uf,
                     email = excluded.email,
                     ddd_1 = excluded.ddd_1,
                     telefone_1 = excluded.telefone_1,
-                    data_abertura = excluded.data_abertura,
-                    provavel_terceiro = excluded.provavel_terceiro,
-                    tipo_regime = case
-                        when excluded.mei_verificado then 'MEI'
-                        else mei_email.empresas.tipo_regime
-                    end,
-                    mei_verificado = mei_email.empresas.mei_verificado or excluded.mei_verificado,
-                    mei_verificado_em = case
-                        when excluded.mei_verificado then coalesce(mei_email.empresas.mei_verificado_em, now())
-                        else mei_email.empresas.mei_verificado_em
-                    end,
-                    mei_verificado_origem = case
-                        when excluded.mei_verificado then excluded.mei_verificado_origem
-                        else mei_email.empresas.mei_verificado_origem
-                    end
-                    -- opt_out, marketing_autorizado e historico de envio nunca sao sobrescritos
+                    data_abertura = excluded.data_abertura
+                    -- opt_out e historico de envio nunca sao sobrescritos
                 """,
                 empresas,
             )
@@ -221,7 +189,7 @@ def main() -> None:
         mei_por_basico,
         filtrar_mei=bool(simples_arq),
     )
-    marcar_provaveis_terceiros(empresas)
+    remover_emails_compartilhados(empresas)
 
     if args.dry_run:
         print("[ingest] --dry-run: nada foi gravado no banco.")

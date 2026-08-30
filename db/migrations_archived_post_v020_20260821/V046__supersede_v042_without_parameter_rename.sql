@@ -47,13 +47,13 @@ as $function$
 declare
   mei_origin text := btrim(coalesce(new.mei_verificado_origem, ''));
 begin
-  if new.marketing_autorizado is true
+  if new.campo_autorizacao_legado is true
      and not mei_email.is_allowed_marketing_authorization_source(
-       new.marketing_autorizado, new.marketing_autorizado_origem
+       new.campo_autorizacao_legado, new.campo_autorizacao_legado_origem
      )
   then
-    new.marketing_autorizado := false;
-    new.marketing_autorizado_em := null;
+    new.campo_autorizacao_legado := false;
+    new.campo_autorizacao_legado_em := null;
   end if;
 
   if new.mei_verificado is true
@@ -74,7 +74,6 @@ begin
 end
 $function$;
 
--- V040 created this trigger. Recreate only if schema drift removed it.
 do $do$
 begin
   if not exists (
@@ -88,16 +87,13 @@ begin
        and t.tgname='zz_empresas_enforce_independent_sources'
   ) then
     create trigger zz_empresas_enforce_independent_sources
-    before insert or update of marketing_autorizado, marketing_autorizado_origem,
+    before insert or update of campo_autorizacao_legado, campo_autorizacao_legado_origem,
       mei_verificado, mei_verificado_origem on mei_email.empresas
     for each row execute function mei_email.enforce_independent_empresa_sources();
   end if;
 end
 $do$;
 
--- Only still-open unsafe rows are blocked. Terminal evidence is untouched.
--- OPEN_TOTAL is normally small; unlike the historical empresas table this is
--- a bounded operational set and therefore safe to normalize during migration.
 update mei_email.envios e
    set status = 'bloqueado'::mei_email.status_envio,
        erro = 'V046: origem de autorizacao sintetizada/invalida; bloqueio fail-closed'
@@ -106,7 +102,7 @@ update mei_email.envios e
    and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
    and (
        not mei_email.is_allowed_marketing_authorization_source(
-         emp.marketing_autorizado, emp.marketing_autorizado_origem
+         emp.campo_autorizacao_legado, emp.campo_autorizacao_legado_origem
        )
        or upper(coalesce(emp.tipo_regime, '')) <> 'MEI'
        or not mei_email.is_independent_mei_verification(
@@ -118,8 +114,8 @@ create or replace view mei_email.vw_empresas_elegiveis as
 select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.email,
        e.ddd_1, e.telefone_1, e.data_abertura, e.provavel_terceiro, e.opt_out,
        e.opt_out_em, e.opt_out_motivo, e.enviado, e.enviado_em, e.importado_em,
-       e.atualizado_em, e.tipo_regime, e.marketing_autorizado,
-       e.marketing_autorizado_em, e.marketing_autorizado_origem,
+       e.atualizado_em, e.tipo_regime, e.campo_autorizacao_legado,
+       e.campo_autorizacao_legado_em, e.campo_autorizacao_legado_origem,
        e.mei_verificado, e.mei_verificado_em, e.mei_verificado_origem
   from mei_email.empresas e
  where e.situacao_cadastral = 'ATIVA'
@@ -132,7 +128,7 @@ select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.em
    and mei_email.is_valid_email_address(e.email)
    and position('contabil' in lower(btrim(e.email::text))) = 0
    and mei_email.is_allowed_marketing_authorization_source(
-       e.marketing_autorizado, e.marketing_autorizado_origem
+       e.campo_autorizacao_legado, e.campo_autorizacao_legado_origem
    )
    and mei_email.is_independent_mei_verification(
        e.mei_verificado, e.mei_verificado_origem
@@ -180,7 +176,7 @@ begin
 
   select (
       mei_email.is_allowed_marketing_authorization_source(
-          emp.marketing_autorizado, emp.marketing_autorizado_origem
+          emp.campo_autorizacao_legado, emp.campo_autorizacao_legado_origem
       )
       and upper(coalesce(emp.tipo_regime, '')) = 'MEI'
       and mei_email.is_independent_mei_verification(

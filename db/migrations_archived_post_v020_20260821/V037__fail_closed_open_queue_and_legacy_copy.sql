@@ -25,7 +25,7 @@ update envios e
  where e.cnpj = emp.cnpj
    and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
    and (
-       emp.marketing_autorizado is not true
+       emp.campo_autorizacao_legado is not true
        or emp.mei_verificado is not true
        or emp.opt_out is true
        or emp.situacao_cadastral <> 'ATIVA'

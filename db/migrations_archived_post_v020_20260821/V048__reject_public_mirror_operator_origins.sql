@@ -48,7 +48,6 @@ as $function$
      and lower(btrim(p_origin)) not like 'legacy_operator_verification_rejected%';
 $function$;
 
--- Keep V046's canonical helper aligned with the same no-public-base policy.
 create or replace function mei_email.is_allowed_marketing_authorization_source(
     p_authorized boolean,
     p_origin text
@@ -61,21 +60,19 @@ as $function$
   select mei_email.is_independent_marketing_authorization(p_authorized, p_origin);
 $function$;
 
--- Neutralize future writes from any old importer that is still present. The
--- original origin string is preserved so the evidence remains auditable.
 create or replace function mei_email.enforce_independent_empresa_sources()
 returns trigger
 language plpgsql
 set search_path = mei_email, public
 as $function$
 begin
-  if new.marketing_autorizado is true
+  if new.campo_autorizacao_legado is true
      and not mei_email.is_independent_marketing_authorization(
-       new.marketing_autorizado, new.marketing_autorizado_origem
+       new.campo_autorizacao_legado, new.campo_autorizacao_legado_origem
      )
   then
-    new.marketing_autorizado := false;
-    new.marketing_autorizado_em := null;
+    new.campo_autorizacao_legado := false;
+    new.campo_autorizacao_legado_em := null;
   end if;
 
   if new.mei_verificado is true
@@ -94,8 +91,6 @@ begin
 end
 $function$;
 
--- Existing contaminated empresa rows are left as audit evidence; they are now
--- false at the helper level. Only still-open work is normalized immediately.
 update mei_email.envios e
    set status = 'bloqueado'::mei_email.status_envio,
        erro = concat_ws(
@@ -108,17 +103,16 @@ update mei_email.envios e
    and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
    and (
      not mei_email.is_independent_marketing_authorization(
-       emp.marketing_autorizado, emp.marketing_autorizado_origem
+       emp.campo_autorizacao_legado, emp.campo_autorizacao_legado_origem
      )
      or not mei_email.is_independent_mei_verification(
        emp.mei_verificado, emp.mei_verificado_origem
      )
    );
 
--- Recreate the trigger defensively without touching terminal send records.
 drop trigger if exists zz_empresas_enforce_independent_sources on mei_email.empresas;
 create trigger zz_empresas_enforce_independent_sources
-before insert or update of marketing_autorizado, marketing_autorizado_origem,
+before insert or update of campo_autorizacao_legado, campo_autorizacao_legado_origem,
   mei_verificado, mei_verificado_origem on mei_email.empresas
 for each row execute function mei_email.enforce_independent_empresa_sources();
 

@@ -16,7 +16,6 @@ def main() -> None:
         "nome": "Contabilidade Melo - Plano Basico MEI",
         "assunto": "MEI: Ganhe Certificado Digital + 10 Notas Fiscais por mes",
         "corpo_template": template,
-        "filtro_tipo_regime": "MEI",
         "tamanho_lote": int(os.getenv("TAMANHO_LOTE", "100")),
     }
 

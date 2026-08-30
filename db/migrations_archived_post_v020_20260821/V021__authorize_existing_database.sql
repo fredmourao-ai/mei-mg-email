@@ -1,7 +1,7 @@
 -- V021: registra a confirmacao do operador de que todo o estoque atual do banco
 -- ja possui autorizacao comercial. Esta migration afeta somente registros que
 -- existem no momento em que ela roda; novas importacoes continuam usando o
--- default marketing_autorizado=false e precisam de regra/confirmacao posterior.
+-- default campo_autorizacao_legado=false e precisam de regra/confirmacao posterior.
 set search_path = mei_email, public;
 
 -- A V019 exigia uma lista fechada de origens. A partir desta confirmacao, a
@@ -10,10 +10,10 @@ alter table empresas
   drop constraint if exists chk_empresas_marketing_autorizacao_auditavel;
 
 update empresas
-   set marketing_autorizado = true,
-       marketing_autorizado_em = coalesce(marketing_autorizado_em, now()),
-       marketing_autorizado_origem = coalesce(
-           nullif(btrim(marketing_autorizado_origem), ''),
+   set campo_autorizacao_legado = true,
+       campo_autorizacao_legado_em = coalesce(campo_autorizacao_legado_em, now()),
+       campo_autorizacao_legado_origem = coalesce(
+           nullif(btrim(campo_autorizacao_legado_origem), ''),
            'confirmacao_operador_2026-08-12'
        );
 
@@ -22,11 +22,11 @@ update empresas
 alter table empresas
   add constraint chk_empresas_marketing_autorizacao_auditavel
   check (
-    not marketing_autorizado
+    not campo_autorizacao_legado
     or (
-      marketing_autorizado_em is not null
-      and marketing_autorizado_origem is not null
-      and btrim(marketing_autorizado_origem) <> ''
+      campo_autorizacao_legado_em is not null
+      and campo_autorizacao_legado_origem is not null
+      and btrim(campo_autorizacao_legado_origem) <> ''
     )
   );
 
@@ -40,7 +40,7 @@ update envios x
  where x.cnpj = e.cnpj
    and x.status::text = 'bloqueado'
    and x.erro = 'deliverability gate: autorizacao comercial sem origem/data auditavel'
-   and e.marketing_autorizado = true
+   and e.campo_autorizacao_legado = true
    and e.opt_out = false
    and e.provavel_terceiro = false
    and e.situacao_cadastral = 'ATIVA';
@@ -49,8 +49,8 @@ create or replace view vw_empresas_elegiveis as
 select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.email,
        e.ddd_1, e.telefone_1, e.data_abertura, e.provavel_terceiro, e.opt_out,
        e.opt_out_em, e.opt_out_motivo, e.enviado, e.enviado_em, e.importado_em,
-       e.atualizado_em, e.tipo_regime, e.marketing_autorizado,
-       e.marketing_autorizado_em, e.marketing_autorizado_origem,
+       e.atualizado_em, e.tipo_regime, e.campo_autorizacao_legado,
+       e.campo_autorizacao_legado_em, e.campo_autorizacao_legado_origem,
        e.mei_verificado, e.mei_verificado_em, e.mei_verificado_origem
   from empresas e
  where e.situacao_cadastral = 'ATIVA'
@@ -59,7 +59,7 @@ select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.em
    and e.email is not null
    and btrim(e.email::text) <> ''
    and e.enviado = false
-   and e.marketing_autorizado = true
+   and e.campo_autorizacao_legado = true
    and (
         e.tipo_regime not in ('MEI', 'MEI_CANDIDATO')
         or e.mei_verificado = true
@@ -78,4 +78,4 @@ select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.em
    );
 
 comment on view vw_empresas_elegiveis is
-  'Fonte fail-closed: ativa, sem opt-out/terceiro, marketing_autorizado=true, sem duplicidade e MEI oficialmente verificado.';
+  'Fonte fail-closed: ativa, sem opt-out/terceiro, campo_autorizacao_legado=true, sem duplicidade e MEI oficialmente verificado.';

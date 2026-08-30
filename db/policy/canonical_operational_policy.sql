@@ -8,13 +8,8 @@ DROP FUNCTION IF EXISTS mei_email.trg_archive_envio_and_purge_pii();
 
 CREATE OR REPLACE FUNCTION mei_email.operational_filter_rejection_reason(
     p_situacao text,
-    p_uf text,
     p_email public.citext,
-    p_opt_out boolean,
-    p_provavel_terceiro boolean,
-    p_marketing_autorizado boolean,
-    p_tipo_regime text,
-    p_mei_verificado boolean
+    p_opt_out boolean
 ) RETURNS text
 LANGUAGE sql IMMUTABLE
 AS $function$

@@ -114,3 +114,18 @@ def test_hourly_autorepair_uses_total_quota_but_worker_progress_for_stall():
     assert "make_interval(mins => %s)" in source
     assert 'before["sent_stall_window"] == 0' in source
     assert 'after["sent_stall_window"] == 0' in source
+
+
+def test_startup_recovers_stale_sending_before_reopening_stuck_lots():
+    source = (ROOT / "worker" / "worker_queue_first.py").read_text(encoding="utf-8")
+    startup = source[source.index("with psycopg.connect"):source.index("while True:")]
+    recover_queue = startup.index("recuperar_fila_legada_e_lotes_orfaos(conn)")
+    recover_lots = startup.index("recuperar_lotes_travados(conn)")
+    assert recover_queue < recover_lots
+
+
+def test_stale_sending_recovery_handles_reopened_lot():
+    source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
+    block = source[source.index("recovered_stale_sending ="):source.index("reopened_lots =")]
+    assert "l.status =" not in block
+    assert "l.iniciado_em is null" in block

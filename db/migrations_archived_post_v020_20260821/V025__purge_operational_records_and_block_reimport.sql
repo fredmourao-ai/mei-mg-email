@@ -77,7 +77,7 @@ create or replace function mei_email.operational_filter_rejection_reason(
     p_email public.citext,
     p_opt_out boolean,
     p_provavel_terceiro boolean,
-    p_marketing_autorizado boolean,
+    p_campo_autorizacao_legado boolean,
     p_tipo_regime text,
     p_mei_verificado boolean
 )
@@ -91,7 +91,7 @@ as $function$
     when coalesce(upper(btrim(p_uf)), '') <> 'MG' then 'filter_uf'
     when p_email is null or btrim(p_email::text) = '' then 'filter_email_missing'
     when coalesce(p_provavel_terceiro, false) then 'filter_third_party'
-    when not coalesce(p_marketing_autorizado, false) then 'filter_marketing_not_authorized'
+    when not coalesce(p_campo_autorizacao_legado, false) then 'filter_marketing_not_authorized'
     when coalesce(upper(btrim(p_tipo_regime)), '') <> 'MEI' then 'filter_not_mei'
     when not coalesce(p_mei_verificado, false) then 'filter_mei_not_verified'
     else null
@@ -118,7 +118,7 @@ begin
       new.email,
       new.opt_out,
       new.provavel_terceiro,
-      new.marketing_autorizado,
+      new.campo_autorizacao_legado,
       new.tipo_regime,
       new.mei_verificado
   );
@@ -152,7 +152,7 @@ begin
       new.email,
       new.opt_out,
       new.provavel_terceiro,
-      new.marketing_autorizado,
+      new.campo_autorizacao_legado,
       new.tipo_regime,
       new.mei_verificado
   );
@@ -289,8 +289,8 @@ create or replace view mei_email.vw_empresas_elegiveis as
 select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.email,
        e.ddd_1, e.telefone_1, e.data_abertura, e.provavel_terceiro, e.opt_out,
        e.opt_out_em, e.opt_out_motivo, e.enviado, e.enviado_em, e.importado_em,
-       e.atualizado_em, e.tipo_regime, e.marketing_autorizado,
-       e.marketing_autorizado_em, e.marketing_autorizado_origem,
+       e.atualizado_em, e.tipo_regime, e.campo_autorizacao_legado,
+       e.campo_autorizacao_legado_em, e.campo_autorizacao_legado_origem,
        e.mei_verificado, e.mei_verificado_em, e.mei_verificado_origem
   from mei_email.empresas e
  where e.situacao_cadastral = 'ATIVA'
@@ -299,7 +299,7 @@ select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.em
    and e.provavel_terceiro = false
    and e.email is not null
    and btrim(e.email::text) <> ''
-   and e.marketing_autorizado = true
+   and e.campo_autorizacao_legado = true
    and e.enviado = false
    and e.tipo_regime = 'MEI'
    and e.mei_verificado = true

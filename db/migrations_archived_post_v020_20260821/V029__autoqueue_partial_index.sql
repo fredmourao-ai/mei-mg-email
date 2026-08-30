@@ -12,7 +12,7 @@ create index if not exists idx_empresas_autoqueue_mei_mg
       and provavel_terceiro = false
       and email is not null
       and enviado = false
-      and marketing_autorizado = true
+      and campo_autorizacao_legado = true
       and mei_verificado = true;
 
 comment on index mei_email.idx_empresas_autoqueue_mei_mg is

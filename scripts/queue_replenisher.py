@@ -71,61 +71,124 @@ def fetch_page(cur, cursor: str):
 def filter_candidates_batch(cur, rows, needed: int):
     if not rows or needed <= 0:
         return []
-    cnpjs = [str(row[0]) for row in rows]
-    emails = [str(row[1] or '').strip() for row in rows]
-    ufs = [str(row[2] or '').strip() for row in rows]
-    statuses = list(ACTIVE_STATUSES)
+
+    page = []
+    for row in rows:
+        cnpj = str(row[0])
+        email = str(row[1] or '').strip()
+        uf = str(row[2] or '').strip()
+        email_norm = email.strip().lower()
+        if not email_norm or 'contabil' in email_norm:
+            continue
+        page.append((cnpj, email, uf))
+    if not page:
+        return []
+
+    cnpjs = [cnpj for cnpj, _, _ in page]
+    emails = [email for _, email, _ in page]
+    ufs = [uf for _, _, uf in page]
     cur.execute("""
-        with page as (
-            select *
+        with page as materialized (
+            select p.cnpj,
+                   p.email,
+                   p.uf,
+                   lower(btrim(p.email)) as email_norm,
+                   case when upper(coalesce(p.uf,''))='MG' then 0 else 1 end as uf_priority
               from unnest(%s::text[], %s::text[], %s::text[])
                    as p(cnpj,email,uf)
         ), ranked as (
             select p.*,
                    row_number() over (
-                       partition by lower(btrim(p.email))
-                       order by case when upper(coalesce(p.uf,''))='MG' then 0 else 1 end,
-                                p.cnpj
+                       partition by p.email_norm
+                       order by p.uf_priority, p.cnpj
                    ) as rn
               from page p
              where btrim(p.email) <> ''
-               and position('contabil' in lower(btrim(p.email))) = 0
+               and position('contabil' in p.email_norm) = 0
+        ), eligible_page as materialized (
+            select r.cnpj, r.email, r.uf, r.email_norm, r.uf_priority
+              from ranked r
+             where r.rn = 1
+               and mei_email.is_valid_email_address(r.email::public.citext)
+               and position('contabil' in r.email_norm) = 0
+               and not mei_email.is_email_suppressed(r.email::public.citext)
+               and not mei_email.is_cnpj_suppressed(r.cnpj)
         )
-        select r.cnpj, r.email
-          from ranked r
-          join mei_email.empresas e on e.cnpj = r.cnpj
-         where r.rn = 1
-           and e.situacao_cadastral = 'ATIVA'
-           and coalesce(e.opt_out,false)=false
-           and e.email is not null
-           and lower(btrim(e.email::text)) = lower(btrim(r.email))
-           and mei_email.is_valid_email_address(e.email)
-           and position('contabil' in lower(btrim(e.email::text))) = 0
-           and not mei_email.is_email_suppressed(e.email)
-           and not mei_email.is_cnpj_suppressed(e.cnpj::text)
-           and (
-               select count(*) from (
-                   select 1
-                     from mei_email.empresas e2
-                    where lower(btrim(e2.email::text)) = lower(btrim(e.email::text))
-                    limit 3
-               ) shared
-           ) <= 2
-           and not exists (
-               select 1 from mei_email.envios x
-                where x.cnpj = e.cnpj
-                  and x.status = any(%s::mei_email.status_envio[])
-           )
-           and not exists (
-               select 1 from mei_email.envios x
-                where lower(btrim(x.email::text)) = lower(btrim(e.email::text))
-                  and x.status = any(%s::mei_email.status_envio[])
-           )
-         order by case when upper(coalesce(r.uf,''))='MG' then 0 else 1 end,
-                  r.cnpj
+        select cnpj, email, email_norm, uf_priority
+          from eligible_page
+         order by uf_priority, cnpj
          limit %s
-    """, (cnpjs, emails, ufs, statuses, statuses, needed))
-    return [(str(cnpj), str(email).strip()) for cnpj, email in cur.fetchall()]
+    """, (cnpjs, emails, ufs, needed))
+    eligible = [
+        {
+            'cnpj': str(cnpj),
+            'email': str(email).strip(),
+            'email_norm': str(email_norm),
+            'uf_priority': int(uf_priority or 0),
+        }
+        for cnpj, email, email_norm, uf_priority in cur.fetchall()
+    ]
+    if not eligible:
+        return []
+
+    eligible_cnpjs = [row['cnpj'] for row in eligible]
+    eligible_email_norms = sorted({row['email_norm'] for row in eligible})
+    statuses = list(ACTIVE_STATUSES)
+
+    cur.execute("""
+        with emails as (
+            select unnest(%s::text[]) as email_norm
+        ), shared_email_counts as materialized (
+            select emails.email_norm, count(shared.cnpj) as shared_cnpjs
+              from emails
+              join lateral (
+                  select e2.cnpj
+                    from mei_email.empresas e2
+                   where lower(btrim(e2.email::text)) = emails.email_norm
+                   limit 3
+              ) shared on true
+             group by emails.email_norm
+        )
+        select email_norm
+          from shared_email_counts
+         where shared_cnpjs <= 2
+    """, (eligible_email_norms,))
+    allowed_shared_emails = {str(row[0]) for row in cur.fetchall()}
+    if not allowed_shared_emails:
+        return []
+
+    cur.execute("""
+        with prior_cnpjs as materialized (
+            select distinct cnpj::text as cnpj
+              from mei_email.envios
+             where cnpj::text = any(%s::text[])
+               and status = any(%s::mei_email.status_envio[])
+        )
+        select cnpj from prior_cnpjs
+    """, (eligible_cnpjs, statuses))
+    blocked_cnpjs = {str(row[0]) for row in cur.fetchall()}
+
+    cur.execute("""
+        with prior_emails as materialized (
+            select distinct lower(btrim(email::text)) as email_norm
+              from mei_email.envios
+             where lower(btrim(email::text)) = any(%s::text[])
+               and status = any(%s::mei_email.status_envio[])
+        )
+        select email_norm from prior_emails
+    """, (eligible_email_norms, statuses))
+    blocked_emails = {str(row[0]) for row in cur.fetchall()}
+
+    selected = []
+    for row in eligible:
+        if row['email_norm'] not in allowed_shared_emails:
+            continue
+        if row['cnpj'] in blocked_cnpjs or row['email_norm'] in blocked_emails:
+            continue
+        selected.append((row['cnpj'], row['email']))
+        if len(selected) >= needed:
+            break
+    return selected
 
 def collect_candidates(cur, needed: int, state: dict):
     selected = []

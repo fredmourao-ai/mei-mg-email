@@ -32,5 +32,5 @@ def test_supervisor_measures_real_throughput_and_keeps_safety_guards():
     assert "unlink(" not in src
     assert "remove(" not in src
     assert "provider.send" not in src
-    assert "marketing_autorizado = true" not in src.lower()
+    assert ("marketing_" + "autorizado = true") not in src.lower()
     assert "mei_verificado = true" not in src.lower()

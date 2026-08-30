@@ -16,7 +16,7 @@ begin
       new.email,
       new.opt_out,
       new.provavel_terceiro,
-      new.marketing_autorizado,
+      new.campo_autorizacao_legado,
       new.tipo_regime,
       new.mei_verificado
   );

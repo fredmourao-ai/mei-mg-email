@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""Descoberta incremental diaria de novos CNPJs de MG via Casa dos Dados v5.
+"""Descoberta incremental diaria de novos CNPJs via Casa dos Dados v5.
 
-A rotina consulta apenas empresas ATIVAS, em MG, indicadas pela fonte como
-optantes MEI e com e-mail, usando uma janela sobreposta de dias para tolerar
-atrasos de publicacao.
-
-Uma base publica de CNPJ comprova apenas a existencia do cadastro e do contato;
-ela nao comprova opt-in para comunicacao comercial. Por isso novas linhas desta
-fonte entram com ``marketing_autorizado=false``. Um UPSERT tambem nunca eleva
-essa flag: eventual autorizacao comercial existente e preservada, mas precisa
-ter sido obtida por um fluxo independente e auditavel. O opt_out permanece
-soberano e os campos enviado/enviado_em nao sao sobrescritos.
+A rotina consulta empresas ATIVAS e com e-mail, usando uma janela sobreposta de
+dias para tolerar atrasos de publicacao. A importacao aplica somente a politica
+operacional atual: ativa, e-mail valido e e-mail sem a palavra contabil. MG e
+apenas prioridade de envio no reabastecedor, nunca filtro de entrada.
 
 Esta rotina NAO cria campanhas e NAO inicia o worker de e-mail.
 """
@@ -44,7 +38,6 @@ TIMEOUT_SECONDS = max(int(os.getenv("CASA_DOS_DADOS_TIMEOUT_SECONDS", "45")), 5)
 TZ = ZoneInfo(os.getenv("CNPJ_DAILY_TIMEZONE", "America/Sao_Paulo"))
 CNPJ_RE = re.compile(r"^[0-9A-Z]{12}[0-9]{2}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-PUBLIC_BASE_ORIGIN = "base_publica_sem_opt_in"
 
 
 def normalize_cnpj(value: object) -> str | None:
@@ -71,9 +64,7 @@ def build_search_payload(
     start = today - timedelta(days=max(lookback_days, 1) - 1)
     return {
         "situacao_cadastral": ["ATIVA"],
-        "uf": ["mg"],
         "data_abertura": {"inicio": start.isoformat(), "fim": today.isoformat()},
-        "mei": {"optante": True},
         "mais_filtros": {
             "com_email": True,
             "excluir_email_contab": True,
@@ -89,7 +80,12 @@ def _collect_email_values(node: object, *, parent_key: str = "", depth: int = 0)
     found: list[str] = []
     if isinstance(node, str):
         value = node.strip().lower()
-        if "email" in parent_key.casefold() and "contab" not in parent_key.casefold() and EMAIL_RE.fullmatch(value):
+        if (
+            "email" in parent_key.casefold()
+            and "contab" not in parent_key.casefold()
+            and "contabil" not in value
+            and EMAIL_RE.fullmatch(value)
+        ):
             found.append(value)
         return found
     if isinstance(node, list):
@@ -158,8 +154,6 @@ def normalize_company(item: dict) -> dict | None:
         "ddd_1": ddd,
         "telefone_1": telefone,
         "data_abertura": clean_text(item.get("data_abertura"), 10),
-        "tipo_regime": "MEI_CANDIDATO",
-        "provavel_terceiro": False,
     }
 
 
@@ -202,16 +196,10 @@ def upsert_companies(conn, companies: list[dict]) -> tuple[int, int]:
             """
             insert into mei_email.empresas
                 (cnpj, razao_social, nome_fantasia, situacao_cadastral,
-                 uf, email, ddd_1, telefone_1, data_abertura,
-                 tipo_regime, provavel_terceiro,
-                 marketing_autorizado, marketing_autorizado_em, marketing_autorizado_origem,
-                 mei_verificado, mei_verificado_em, mei_verificado_origem)
+                 uf, email, ddd_1, telefone_1, data_abertura)
             values
                 (%(cnpj)s, %(razao_social)s, %(nome_fantasia)s, %(situacao_cadastral)s,
-                 %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s, %(data_abertura)s,
-                 %(tipo_regime)s, %(provavel_terceiro)s,
-                 false, null, 'base_publica_sem_opt_in',
-                 true, now(), 'casa_dos_dados_mei_verificado')
+                 %(uf)s, %(email)s, %(ddd_1)s, %(telefone_1)s, %(data_abertura)s)
             on conflict (cnpj) do update set
                 razao_social = coalesce(excluded.razao_social, mei_email.empresas.razao_social),
                 nome_fantasia = coalesce(excluded.nome_fantasia, mei_email.empresas.nome_fantasia),
@@ -223,47 +211,13 @@ def upsert_companies(conn, companies: list[dict]) -> tuple[int, int]:
                     then excluded.email else mei_email.empresas.email
                 end,
                 ddd_1 = coalesce(mei_email.empresas.ddd_1, excluded.ddd_1),
-                telefone_1 = coalesce(mei_email.empresas.telefone_1, excluded.telefone_1),
-                tipo_regime = case
-                    when mei_email.empresas.tipo_regime = 'MEI' then 'MEI'
-                    else excluded.tipo_regime
-                end,
-                marketing_autorizado = mei_email.empresas.marketing_autorizado,
-                marketing_autorizado_em = mei_email.empresas.marketing_autorizado_em,
-                marketing_autorizado_origem = mei_email.empresas.marketing_autorizado_origem,
-                mei_verificado = true,
-                mei_verificado_em = coalesce(mei_email.empresas.mei_verificado_em, now()),
-                mei_verificado_origem = coalesce(mei_email.empresas.mei_verificado_origem, 'casa_dos_dados_mei_verificado')
+                telefone_1 = coalesce(mei_email.empresas.telefone_1, excluded.telefone_1)
             """,
             companies,
         )
     conn.commit()
     inserted = sum(1 for cnpj in cnpjs if cnpj not in existing)
     return inserted, len(companies) - inserted
-
-
-def mark_shared_emails(conn) -> int:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            with emails_terceiros as (
-                select lower(btrim(email::text)) as email_normalizado
-                  from mei_email.empresas
-                 where email is not null and btrim(email::text) <> ''
-                 group by lower(btrim(email::text))
-                having count(*) > 3
-            )
-            update mei_email.empresas e
-               set provavel_terceiro = true
-             where e.provavel_terceiro = false
-               and lower(btrim(e.email::text)) in (
-                   select email_normalizado from emails_terceiros
-               )
-            """
-        )
-        changed = max(cur.rowcount, 0)
-    conn.commit()
-    return changed
 
 
 def main() -> int:
@@ -286,8 +240,6 @@ def main() -> int:
         "inserted": 0,
         "updated": 0,
         "invalid": 0,
-        "shared_email_marks": 0,
-        "marketing_policy": PUBLIC_BASE_ORIGIN,
     }
 
     database_url = os.environ["DATABASE_URL"]
@@ -313,11 +265,16 @@ def main() -> int:
                 if company is None:
                     stats["invalid"] += 1
                     continue
-                if company["uf"] != "MG" or company["situacao_cadastral"] != "ATIVA":
+                email = company.get("email")
+                if (
+                    company["situacao_cadastral"] != "ATIVA"
+                    or not isinstance(email, str)
+                    or not EMAIL_RE.fullmatch(email)
+                    or "contabil" in email
+                ):
                     stats["invalid"] += 1
                     continue
-                if company["email"]:
-                    stats["with_email_in_response"] += 1
+                stats["with_email_in_response"] += 1
                 normalized.append(company)
 
             inserted, updated = upsert_companies(conn, normalized)
@@ -332,12 +289,10 @@ def main() -> int:
         else:
             raise RuntimeError(f"Paginacao excedeu CASA_DOS_DADOS_MAX_PAGES={MAX_PAGES}")
 
-        stats["shared_email_marks"] = mark_shared_emails(conn)
-
     print("CASA_DOS_DADOS_STATUS=success", flush=True)
     print("CASA_DOS_DADOS_RESULT=" + json.dumps(stats, ensure_ascii=False, sort_keys=True), flush=True)
     print(
-        "POLICY=base_publica_nao_concede_opt_in;mei_verificado_true;opt_out_preservado;autorizacao_existente_preservada;worker_nao_iniciado",
+        "POLICY=ativa;email_valido;sem_contabil;opt_out_preservado;worker_nao_iniciado",
         flush=True,
     )
     return 0

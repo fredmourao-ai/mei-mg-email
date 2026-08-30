@@ -9,10 +9,10 @@ set search_path = mei_email, public;
 
 -- Preserve the origin as audit evidence while revoking the synthetic grant.
 update mei_email.empresas
-   set marketing_autorizado = false,
+   set campo_autorizacao_legado = false,
        atualizado_em = now()
- where marketing_autorizado_origem = 'user_campaign_authorization_2026-08-20'
-   and marketing_autorizado is distinct from false;
+ where campo_autorizacao_legado_origem = 'user_campaign_authorization_2026-08-20'
+   and campo_autorizacao_legado is distinct from false;
 
 -- Never touch terminal history. Only remove unsafe never-terminal work from
 -- eligibility by blocking rows that are still open.
@@ -25,7 +25,7 @@ update mei_email.envios e
        end
   from mei_email.empresas emp
  where emp.cnpj = e.cnpj
-   and emp.marketing_autorizado_origem = 'user_campaign_authorization_2026-08-20'
+   and emp.campo_autorizacao_legado_origem = 'user_campaign_authorization_2026-08-20'
    and e.status::text in ('pendente', 'pending', 'enviando', 'processing');
 
 -- Historical callers still use this signature. MEI classification and verified
@@ -36,7 +36,7 @@ create or replace function mei_email.operational_filter_rejection_reason(
     p_email public.citext,
     p_opt_out boolean,
     p_provavel_terceiro boolean,
-    p_marketing_autorizado boolean,
+    p_campo_autorizacao_legado boolean,
     p_tipo_regime text,
     p_mei_verificado boolean
 )
@@ -51,7 +51,7 @@ as $function$
     when p_email is null or btrim(p_email::text) = '' then 'filter_email_missing'
     when not mei_email.is_valid_email_address(p_email) then 'filter_email_invalid'
     when coalesce(p_provavel_terceiro, false) then 'filter_third_party'
-    when not coalesce(p_marketing_autorizado, false) then 'filter_marketing_not_authorized'
+    when not coalesce(p_campo_autorizacao_legado, false) then 'filter_marketing_not_authorized'
     when coalesce(upper(btrim(p_tipo_regime)), '') <> 'MEI' then 'filter_not_mei'
     when not coalesce(p_mei_verificado, false) then 'filter_mei_not_verified'
     else null
@@ -62,8 +62,8 @@ create or replace view mei_email.vw_empresas_elegiveis as
 select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.email,
        e.ddd_1, e.telefone_1, e.data_abertura, e.provavel_terceiro, e.opt_out,
        e.opt_out_em, e.opt_out_motivo, e.enviado, e.enviado_em, e.importado_em,
-       e.atualizado_em, e.tipo_regime, e.marketing_autorizado,
-       e.marketing_autorizado_em, e.marketing_autorizado_origem,
+       e.atualizado_em, e.tipo_regime, e.campo_autorizacao_legado,
+       e.campo_autorizacao_legado_em, e.campo_autorizacao_legado_origem,
        e.mei_verificado, e.mei_verificado_em, e.mei_verificado_origem
   from mei_email.empresas e
  where e.situacao_cadastral = 'ATIVA'
@@ -76,9 +76,9 @@ select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.em
    and mei_email.is_valid_email_address(e.email)
    and position('contabil' in lower(btrim(e.email::text))) = 0
    and mei_email.is_independent_marketing_authorization(
-       e.marketing_autorizado, e.marketing_autorizado_origem
+       e.campo_autorizacao_legado, e.campo_autorizacao_legado_origem
    )
-   and e.marketing_autorizado_origem <> 'user_campaign_authorization_2026-08-20'
+   and e.campo_autorizacao_legado_origem <> 'user_campaign_authorization_2026-08-20'
    and mei_email.is_independent_mei_verification(
        e.mei_verificado, e.mei_verificado_origem
    )
@@ -124,9 +124,9 @@ begin
 
   select (
       mei_email.is_independent_marketing_authorization(
-          emp.marketing_autorizado, emp.marketing_autorizado_origem
+          emp.campo_autorizacao_legado, emp.campo_autorizacao_legado_origem
       )
-      and emp.marketing_autorizado_origem <> 'user_campaign_authorization_2026-08-20'
+      and emp.campo_autorizacao_legado_origem <> 'user_campaign_authorization_2026-08-20'
       and upper(coalesce(emp.tipo_regime, '')) = 'MEI'
       and mei_email.is_independent_mei_verification(
           emp.mei_verificado, emp.mei_verificado_origem

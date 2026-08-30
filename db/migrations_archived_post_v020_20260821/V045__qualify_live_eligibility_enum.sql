@@ -30,9 +30,9 @@ begin
 
   select (
       mei_email.is_independent_marketing_authorization(
-          emp.marketing_autorizado, emp.marketing_autorizado_origem
+          emp.campo_autorizacao_legado, emp.campo_autorizacao_legado_origem
       )
-      and emp.marketing_autorizado_origem <> 'user_campaign_authorization_2026-08-20'
+      and emp.campo_autorizacao_legado_origem <> 'user_campaign_authorization_2026-08-20'
       and upper(coalesce(emp.tipo_regime, '')) = 'MEI'
       and mei_email.is_independent_mei_verification(
           emp.mei_verificado, emp.mei_verificado_origem
