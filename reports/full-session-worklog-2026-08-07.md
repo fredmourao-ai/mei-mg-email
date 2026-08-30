@@ -88,9 +88,9 @@ Foi criada a migration:
 
 Ela adiciona:
 
-- `marketing_autorizado`;
-- `marketing_autorizado_em`;
-- `marketing_autorizado_origem`;
+- `campo_autorizacao_legado`;
+- `campo_autorizacao_legado_em`;
+- `campo_autorizacao_legado_origem`;
 - status de envio `bloqueado`;
 - indice por e-mail normalizado;
 - nova `vw_empresas_elegiveis` fail-closed.
@@ -102,7 +102,7 @@ A view so libera:
 - nao marcada como terceiro;
 - com e-mail valido;
 - ainda nao marcada como enviada;
-- `marketing_autorizado=true`;
+- `campo_autorizacao_legado=true`;
 - sem qualquer registro previo do mesmo e-mail normalizado em `envios`.
 
 Assim, o mesmo e-mail nao volta para a fila, mesmo se aparecer em outro CNPJ.
@@ -113,7 +113,7 @@ Assim, o mesmo e-mail nao volta para a fila, mesmo se aparecer em outro CNPJ.
 
 - opt-out;
 - situacao cadastral ATIVA;
-- `marketing_autorizado=true`.
+- `campo_autorizacao_legado=true`.
 
 Se alguma dessas condicoes falhar depois do enfileiramento, o envio vira `bloqueado` ou `opt_out` e nao e enviado.
 
@@ -167,7 +167,7 @@ Comportamento atual:
 - carga parcial aborta a rotina;
 - heuristica de terceiros so reforca bloqueio, nunca o remove automaticamente.
 
-Bases publicas entram com `marketing_autorizado=false` por padrao.
+Bases publicas entram com `campo_autorizacao_legado=false` por padrao.
 
 ## Rotina diaria fail-closed
 
@@ -213,7 +213,7 @@ O disparo real foi mantido bloqueado de proposito ate confirmar no ambiente de p
 1. `scripts/auditar_graph_token.py` retornando `GRAPH_TOKEN_READY` no mesmo host/usuario do worker;
 2. TERRL real do tenant no Exchange Admin Center e `MICROSOFT_TERRL_THRESHOLD` configurado com o valor confirmado;
 3. banco de producao com migrations aplicadas;
-4. destinatarios com `marketing_autorizado=true`;
+4. destinatarios com `campo_autorizacao_legado=true`;
 5. `scripts/auditar_exchange_10000.py` retornando `READY_FOR_AUTHORIZED_RECIPIENTS_WITHIN_CONFIGURED_LIMITS`.
 
 ## Seguranca / limites

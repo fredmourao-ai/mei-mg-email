@@ -130,3 +130,15 @@ def test_monitor_runs_as_separate_restartable_service():
     service = (ROOT / "deploy" / "systemd" / "mei-mg-email-monitor.service").read_text(encoding="utf-8")
     assert "ExecStart=__PYTHON__ scripts/monitor_operacao.py" in service
     assert "Restart=always" in service
+
+def test_worker_lock_held_supports_dict_row():
+    from scripts.monitor_operacao import _worker_lock_held
+
+    class Cursor:
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchone(self):
+            return {"exists": True}
+
+    assert _worker_lock_held(Cursor()) is True

@@ -34,7 +34,6 @@ as $function$
   end;
 $function$;
 
--- Block only open rows that cannot satisfy the durable MEI contract.
 update mei_email.envios e
    set status = 'bloqueado'::mei_email.status_envio,
        erro = concat_ws(
@@ -74,7 +73,7 @@ begin
 
   select (
       mei_email.is_independent_marketing_authorization(
-          emp.marketing_autorizado, emp.marketing_autorizado_origem
+          emp.campo_autorizacao_legado, emp.campo_autorizacao_legado_origem
       )
       and mei_email.is_independent_mei_verification(
           emp.mei_verificado, emp.mei_verificado_origem
@@ -127,20 +126,19 @@ begin
 end
 $function$;
 
--- Neutralize future importer writes without erasing their source evidence.
 create or replace function mei_email.enforce_independent_empresa_sources()
 returns trigger
 language plpgsql
 set search_path = mei_email, public
 as $function$
 begin
-  if new.marketing_autorizado is true
+  if new.campo_autorizacao_legado is true
      and not mei_email.is_independent_marketing_authorization(
-       new.marketing_autorizado, new.marketing_autorizado_origem
+       new.campo_autorizacao_legado, new.campo_autorizacao_legado_origem
      )
   then
-    new.marketing_autorizado := false;
-    new.marketing_autorizado_em := null;
+    new.campo_autorizacao_legado := false;
+    new.campo_autorizacao_legado_em := null;
   end if;
 
   if new.mei_verificado is true

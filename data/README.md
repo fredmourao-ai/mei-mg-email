@@ -12,9 +12,8 @@ Baixar pelo menos:
 
 - `Estabelecimentos*.zip` (vários arquivos numerados, ~1GB cada compactado) — **obrigatório**
 - `Empresas*.zip` — opcional, mas necessário pra ter `razao_social` preenchida
-- `Simples.zip` — opcional, mas **necessário pra filtrar só MEI** (sem ele, o
-  script pega qualquer porte de empresa ativa em MG, não só MEI, e avisa
-  isso no log)
+- `Simples.zip` — opcional; mantido apenas para compatibilidade com chamadas
+  antigas, sem dirigir elegibilidade operacional
 
 Cada arquivo é `.csv` na prática (apesar da extensão às vezes vir diferente),
 separado por `;`, **sem cabeçalho**, encoding **latin-1/ISO-8859-1**, layout
@@ -28,14 +27,14 @@ pelo `scripts/ingest_estabelecimentos.py` estão comentadas no próprio script.
 dados inventados, no mesmo layout posicional dos arquivos reais, cobrindo
 os casos de filtro:
 
-- 4 empresas MG/ATIVA/MEI com e-mail único cada (devem ficar elegíveis)
+- empresas ATIVAS com e-mail único e válido (devem ficar elegíveis,
+  independentemente de UF ou MEI)
 - 3 CNPJs compartilhando um e-mail (`escritorio3@contafake.com.br`) — no
-  limite, NÃO devem ser marcados `provavel_terceiro` (regra é "mais de 3")
+  limite atual, devem ser descartados na importação (regra é "mais de 2")
 - 4 CNPJs compartilhando outro e-mail (`escritorio4@contafake.com.br`) —
-  devem ser marcados `provavel_terceiro`
-- 1 empresa de SP (deve ser descartada pelo filtro de UF)
-- 1 empresa de MG mas com situação BAIXADA (deve ser descartada)
-- 1 empresa de MG/ATIVA sem e-mail e/ou não optante do MEI (deve ser
-  descartada)
+  devem ser descartados na importação
+- 1 empresa de SP (deve continuar elegível; MG é só prioridade de ordenação)
+- 1 empresa com situação BAIXADA (deve ser descartada)
+- 1 empresa ATIVA sem e-mail (deve ser descartada)
 
 Esses casos são exercitados em `tests/test_ingest.py`.

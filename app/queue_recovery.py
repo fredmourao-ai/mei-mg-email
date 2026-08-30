@@ -265,8 +265,10 @@ def recuperar_fila_legada_e_lotes_orfaos(
               from mei_email.envios e
               join mei_email.lotes l on l.id = e.lote_id
              where e.status = 'enviando'
-               and l.status = 'processando'
-               and l.iniciado_em < now() - interval '15 minutes'
+               and (
+                   l.iniciado_em is null
+                   or l.iniciado_em < now() - interval '15 minutes'
+               )
              order by e.id
              for update of e skip locked
              limit %s

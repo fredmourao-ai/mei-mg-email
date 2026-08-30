@@ -10,10 +10,10 @@ set search_path = mei_email, public;
 create or replace function mei_email.trg_aplicar_politica_importacao_operador()
 returns trigger language plpgsql as $$
 begin
-  new.marketing_autorizado := true;
-  new.marketing_autorizado_em := coalesce(new.marketing_autorizado_em, now());
-  new.marketing_autorizado_origem := coalesce(
-      nullif(btrim(new.marketing_autorizado_origem), ''),
+  new.campo_autorizacao_legado := true;
+  new.campo_autorizacao_legado_em := coalesce(new.campo_autorizacao_legado_em, now());
+  new.campo_autorizacao_legado_origem := coalesce(
+      nullif(btrim(new.campo_autorizacao_legado_origem), ''),
       'politica_importacao_operador_2026-08-13'
   );
 
@@ -33,4 +33,4 @@ create trigger empresas_aplicar_politica_importacao_operador
   for each row execute function mei_email.trg_aplicar_politica_importacao_operador();
 
 comment on function mei_email.trg_aplicar_politica_importacao_operador() is
-  'Politica do operador de 2026-08-13: novos registros entram marketing_autorizado=true e mei_verificado=true com origem auditavel. Opt-out nao e alterado.';
+  'Politica do operador de 2026-08-13: novos registros entram campo_autorizacao_legado=true e mei_verificado=true com origem auditavel. Opt-out nao e alterado.';

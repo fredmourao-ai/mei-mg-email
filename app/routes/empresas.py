@@ -9,7 +9,7 @@ from scripts.ingest_estabelecimentos import (
     ler_empresas,
     ler_simples,
     ingerir_estabelecimentos,
-    marcar_provaveis_terceiros,
+    remover_emails_compartilhados,
     gravar_no_banco,
     BASE_DIR,
 )
@@ -63,7 +63,7 @@ def atualizar_base(use_sample: bool = False):
             mei_por_basico,
             filtrar_mei=bool(simples_arq),
         )
-        marcar_provaveis_terceiros(empresas)
+        remover_emails_compartilhados(empresas)
         gravar_no_banco(empresas)
 
         return AtualizarBaseResponse(

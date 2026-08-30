@@ -28,13 +28,13 @@ $function$;
 -- Neutralize only the two known classes of synthesized authorization. Preserve
 -- all other audited/independent origins exactly as stored.
 update empresas
-   set marketing_autorizado = false,
-       marketing_autorizado_em = null,
-       marketing_autorizado_origem = 'synthesized_authorization_rejected_20260820'
- where marketing_autorizado is true
+   set campo_autorizacao_legado = false,
+       campo_autorizacao_legado_em = null,
+       campo_autorizacao_legado_origem = 'synthesized_authorization_rejected_20260820'
+ where campo_autorizacao_legado is true
    and (
-       btrim(coalesce(marketing_autorizado_origem, '')) = 'user_explicit_authorization_2026-08-20'
-       or lower(btrim(coalesce(marketing_autorizado_origem, ''))) like '%operator_authorization_true%'
+       btrim(coalesce(campo_autorizacao_legado_origem, '')) = 'user_explicit_authorization_2026-08-20'
+       or lower(btrim(coalesce(campo_autorizacao_legado_origem, ''))) like '%operator_authorization_true%'
    );
 
 create or replace function mei_email.enforce_independent_empresa_sources()
@@ -42,10 +42,10 @@ returns trigger
 language plpgsql
 as $function$
 declare
-  marketing_origin text := btrim(coalesce(new.marketing_autorizado_origem, ''));
+  marketing_origin text := btrim(coalesce(new.campo_autorizacao_legado_origem, ''));
   mei_origin text := btrim(coalesce(new.mei_verificado_origem, ''));
 begin
-  if new.marketing_autorizado is true
+  if new.campo_autorizacao_legado is true
      and (
        marketing_origin in (
          'confirmacao_operador_2026-08-12',
@@ -56,9 +56,9 @@ begin
        or lower(marketing_origin) like '%operator_authorization_true%'
      )
   then
-    new.marketing_autorizado := false;
-    new.marketing_autorizado_em := null;
-    new.marketing_autorizado_origem := 'synthesized_authorization_rejected_20260820';
+    new.campo_autorizacao_legado := false;
+    new.campo_autorizacao_legado_em := null;
+    new.campo_autorizacao_legado_origem := 'synthesized_authorization_rejected_20260820';
   end if;
 
   if new.mei_verificado is true
@@ -88,7 +88,7 @@ update envios e
  where e.cnpj = emp.cnpj
    and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
    and not mei_email.is_independent_marketing_authorization(
-       emp.marketing_autorizado, emp.marketing_autorizado_origem
+       emp.campo_autorizacao_legado, emp.campo_autorizacao_legado_origem
    );
 
 -- Recreate the eligibility view so autoqueue rejects these rows before LIMIT.
@@ -96,8 +96,8 @@ create or replace view mei_email.vw_empresas_elegiveis as
 select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.email,
        e.ddd_1, e.telefone_1, e.data_abertura, e.provavel_terceiro, e.opt_out,
        e.opt_out_em, e.opt_out_motivo, e.enviado, e.enviado_em, e.importado_em,
-       e.atualizado_em, e.tipo_regime, e.marketing_autorizado,
-       e.marketing_autorizado_em, e.marketing_autorizado_origem,
+       e.atualizado_em, e.tipo_regime, e.campo_autorizacao_legado,
+       e.campo_autorizacao_legado_em, e.campo_autorizacao_legado_origem,
        e.mei_verificado, e.mei_verificado_em, e.mei_verificado_origem
   from mei_email.empresas e
  where e.situacao_cadastral = 'ATIVA'
@@ -108,7 +108,7 @@ select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.em
    and btrim(e.email::text) <> ''
    and mei_email.is_valid_email_address(e.email)
    and mei_email.is_independent_marketing_authorization(
-       e.marketing_autorizado, e.marketing_autorizado_origem
+       e.campo_autorizacao_legado, e.campo_autorizacao_legado_origem
    )
    and mei_email.is_independent_mei_verification(
        e.mei_verificado, e.mei_verificado_origem

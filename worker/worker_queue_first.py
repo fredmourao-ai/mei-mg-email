@@ -409,7 +409,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             bloqueados_db = validation_row.get('bloqueados_db')
         else:
             total_db, submitted_db, abertos, sem_prova, falhas_db, bloqueados_db = validation_row
-        if total_db != expected_db_total or total_db == 0 or abertos or sem_prova:
+        if total_db != expected_db_total or total_db == 0 or sem_prova:
             cur.execute(
                 """update mei_email.lotes
                        set status = 'falhou', concluido_em = null,
@@ -485,8 +485,8 @@ def run() -> None:
                     "Ja existe outro worker de disparo ativo; instancia unica mantida."
                 )
 
-        recuperados = recuperar_lotes_travados(conn)
         recovery = recuperar_fila_legada_e_lotes_orfaos(conn)
+        recuperados = recuperar_lotes_travados(conn)
         if recuperados or recovery.changed:
             logger.warning(
                 "STARTUP_RECOVERY stuck_lots=%d queue_changes=%d",

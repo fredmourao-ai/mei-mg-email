@@ -61,7 +61,7 @@ update envios e
  where e.cnpj = emp.cnpj
    and e.status::text in ('pendente', 'enviando', 'pending', 'processing')
    and (
-       emp.marketing_autorizado is not true
+       emp.campo_autorizacao_legado is not true
        or emp.mei_verificado is not true
        or emp.opt_out is true
        or emp.situacao_cadastral <> 'ATIVA'
@@ -93,7 +93,7 @@ begin
   end if;
 
   select (
-      emp.marketing_autorizado is true
+      emp.campo_autorizacao_legado is true
       and emp.mei_verificado is true
       and emp.opt_out is false
       and emp.situacao_cadastral = 'ATIVA'

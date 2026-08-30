@@ -83,7 +83,8 @@ def _worker_lock_held(cur) -> bool:
         """,
         (high, low),
     )
-    return bool(cur.fetchone()[0])
+    row = cur.fetchone()
+    return bool(row["exists"] if isinstance(row, dict) else row[0])
 
 
 def coletar_snapshot(conn: psycopg.Connection) -> dict:

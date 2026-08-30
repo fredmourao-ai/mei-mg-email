@@ -7,18 +7,18 @@
 set search_path = mei_email, public;
 
 update empresas
-   set marketing_autorizado = true,
-       marketing_autorizado_em = coalesce(marketing_autorizado_em, now()),
-       marketing_autorizado_origem = case
-           when marketing_autorizado_origem is null
-             or btrim(marketing_autorizado_origem) = ''
+   set campo_autorizacao_legado = true,
+       campo_autorizacao_legado_em = coalesce(campo_autorizacao_legado_em, now()),
+       campo_autorizacao_legado_origem = case
+           when campo_autorizacao_legado_origem is null
+             or btrim(campo_autorizacao_legado_origem) = ''
            then 'confirmacao_operador_2026-08-13'
-           else marketing_autorizado_origem
+           else campo_autorizacao_legado_origem
        end
- where marketing_autorizado = false
-    or marketing_autorizado_em is null
-    or marketing_autorizado_origem is null
-    or btrim(marketing_autorizado_origem) = '';
+ where campo_autorizacao_legado = false
+    or campo_autorizacao_legado_em is null
+    or campo_autorizacao_legado_origem is null
+    or btrim(campo_autorizacao_legado_origem) = '';
 
 update empresas
    set mei_verificado = true,
@@ -44,7 +44,7 @@ update envios x
  where x.cnpj = e.cnpj
    and x.status::text = 'bloqueado'
    and x.erro = 'deliverability gate: autorizacao comercial sem origem/data auditavel'
-   and e.marketing_autorizado = true
+   and e.campo_autorizacao_legado = true
    and e.opt_out = false
    and e.provavel_terceiro = false
    and e.situacao_cadastral = 'ATIVA';

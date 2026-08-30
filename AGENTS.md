@@ -11,7 +11,7 @@ Nao entram na fila ou no envio apenas:
 
 MG e apenas prioridade de ordenacao, nunca filtro de elegibilidade.
 ## Campos e gates proibidos no fluxo operacional
-Nao reintroduzir `marketing_autorizado*`, `mei_verificado*`, `tipo_regime`, `vw_empresas_elegiveis`, `filter_not_mei`, `insert_filter_gate` nem filtro `uf='MG'`.
+Nao reintroduzir campos legados de autorizacao comercial, `mei_verificado*`, `tipo_regime`, `vw_empresas_elegiveis`, `filter_not_mei`, `insert_filter_gate` nem filtro `uf='MG'`.
 
 Nao criar nova view, trigger, migration, guard, gate ou supervisor que reproduza essas regras sob outro nome.
 
