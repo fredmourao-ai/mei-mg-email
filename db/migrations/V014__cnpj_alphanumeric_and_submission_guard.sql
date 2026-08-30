@@ -45,5 +45,36 @@ create trigger envios_marcar_empresa_submetida
   after insert or update on envios
   for each row execute function mei_email.trg_marcar_empresa_submetida();
 
--- Eligibility is enforced by the canonical queue/replenisher and live envio
--- trigger, not by a stored relation.
+-- Elegibilidade continua fail-closed por autorizacao, mas uma linha antiga
+-- bloqueada/falha nao condena para sempre um cadastro que posteriormente se
+-- torne legitimamente elegivel. O bloqueio historico definitivo e para
+-- submitted/enviado/bounced e para itens atualmente comprometidos na fila.
+create or replace view vw_empresas_elegiveis as
+select e.cnpj, e.razao_social, e.nome_fantasia, e.situacao_cadastral, e.uf, e.email,
+       e.ddd_1, e.telefone_1, e.data_abertura, e.provavel_terceiro, e.opt_out,
+       e.opt_out_em, e.opt_out_motivo, e.enviado, e.enviado_em, e.importado_em,
+       e.atualizado_em, e.tipo_regime, e.marketing_autorizado,
+       e.marketing_autorizado_em, e.marketing_autorizado_origem
+  from empresas e
+ where e.situacao_cadastral = 'ATIVA'
+   and e.opt_out = false
+   and e.provavel_terceiro = false
+   and e.email is not null
+   and btrim(e.email::text) <> ''
+   and e.enviado = false
+   and e.marketing_autorizado = true
+   and not exists (
+     select 1
+       from envios x
+      where x.cnpj = e.cnpj
+        and x.status::text in ('submitted', 'enviado', 'bounced', 'pendente', 'enviando')
+   )
+   and not exists (
+     select 1
+       from envios x
+      where lower(btrim(x.email::text)) = lower(btrim(e.email::text))
+        and x.status::text in ('submitted', 'enviado', 'bounced', 'pendente', 'enviando')
+   );
+
+comment on view vw_empresas_elegiveis is
+  'Fonte fail-closed: ativa, sem opt-out/terceiro, autorizada, sem fila atual e sem submissao/entrega/bounce anterior pelo CNPJ ou e-mail normalizado.';
