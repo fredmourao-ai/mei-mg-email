@@ -1,4 +1,8 @@
-#!/bin/sh
-set -eu
-cd "$(git rev-parse --show-toplevel)"
-exec python3 scripts/repo_policy_guard.py
+#!/usr/bin/env bash
+set -Eeuo pipefail
+root="$(git rev-parse --show-toplevel)"
+if [ -n "$(git -C "$root" status --porcelain=v1)" ]; then echo 'BLOCKED: working tree must be clean before push.' >&2; exit 41; fi
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in refs/heads/main|refs/heads/master) echo 'BLOCKED: direct push to protected branch is forbidden.' >&2; exit 42;; esac
+done
+"$root/scripts/repository-governance-validate.sh" pre-push
