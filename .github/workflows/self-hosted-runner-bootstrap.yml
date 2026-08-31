@@ -1,0 +1,69 @@
+name: Self Hosted Runner Bootstrap
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/self-hosted-runner-bootstrap.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    timeout-minutes: 20
+    steps:
+      - name: Install required CI host dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if ! command -v docker >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y docker.io docker-compose-v2
+          fi
+          sudo systemctl enable --now docker
+          sudo usermod -aG docker "$USER"
+
+          if ! command -v pwsh >/dev/null 2>&1; then
+            version="7.6.5"
+            archive="powershell-${version}-linux-arm64.tar.gz"
+            url="https://github.com/PowerShell/PowerShell/releases/download/v${version}/${archive}"
+            curl -fsSLo "/tmp/${archive}" "$url"
+            printf '%s  %s\n' "ed4084f215d8bce2edd23aa7cb1f1e7b0818e41363a635a22065d2701b6141df" "/tmp/${archive}" | sha256sum -c -
+            sudo install -d -m 755 /opt/microsoft/powershell/7
+            sudo tar xzf "/tmp/${archive}" -C /opt/microsoft/powershell/7
+            sudo chmod 755 /opt/microsoft/powershell/7/pwsh
+            sudo ln -sfn /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh
+            rm -f "/tmp/${archive}"
+          fi
+
+          pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          sudo docker version
+          sudo docker compose version
+
+      - name: Install persistent runner service and schedule handoff
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          runner_dir="$HOME/actions-runner-mei"
+          cd "$runner_dir"
+          if [ ! -s .service ]; then
+            sudo ./svc.sh install "$USER"
+          fi
+          svc="$(cat .service)"
+          sudo install -d -m 755 "/etc/systemd/system/${svc}.d"
+          cat <<'EOF' | sudo tee "/etc/systemd/system/${svc}.d/10-hardening.conf" >/dev/null
+          [Service]
+          Restart=always
+          RestartSec=10
+          Nice=15
+          IOSchedulingClass=idle
+          CPUQuota=70%
+          MemoryHigh=2G
+          EOF
+          sudo systemctl daemon-reload
+          sudo systemctl enable "$svc"
+          uid="$(id -u)"
+          sudo systemd-run --unit=github-runner-mei-handoff --on-active=60s /bin/bash -lc "if pgrep -u ${uid} -f '${runner_dir}/bin/Runner.Listener run' >/dev/null; then pkill -TERM -u ${uid} -f '${runner_dir}/bin/Runner.Listener run'; fi; sleep 3; systemctl restart '${svc}'"
+          echo "RUNNER_SERVICE=${svc}"
