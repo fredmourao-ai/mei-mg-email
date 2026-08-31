@@ -38,7 +38,7 @@ permissions:
 
 jobs:
   safety:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
     timeout-minutes: 15
     env:
       EMAIL_PROVIDER: dryrun
