@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from html import escape
 
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from psycopg.rows import dict_row
 
@@ -43,6 +43,26 @@ def _registrar_descadastro(payload: DescadastroIn) -> dict:
 def registrar_descadastro(payload: DescadastroIn):
     """Endpoint JSON para integrações da API."""
     return _registrar_descadastro(payload)
+
+
+@router.post("/descadastro/one-click", status_code=200)
+def registrar_descadastro_one_click(
+    email: str,
+    cnpj: str | None = None,
+    campanha_id: str | None = None,
+    list_unsubscribe: str = Form(..., alias="List-Unsubscribe"),
+):
+    """RFC 8058: descadastro em um clique, sem confirmação adicional."""
+    if list_unsubscribe != "One-Click":
+        raise HTTPException(status_code=400, detail="List-Unsubscribe invalido")
+    return _registrar_descadastro(
+        DescadastroIn(
+            cnpj=cnpj,
+            email=email,
+            campanha_id=campanha_id,
+            origem="rfc8058_one_click",
+        )
+    )
 
 
 @router.get("/descadastro", response_class=HTMLResponse)

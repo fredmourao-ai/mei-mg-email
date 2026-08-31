@@ -1,6 +1,28 @@
 BEGIN;
 SET search_path = mei_email, public;
 
+CREATE OR REPLACE FUNCTION mei_email.is_valid_email_address(p_email public.citext)
+RETURNS boolean
+LANGUAGE sql IMMUTABLE PARALLEL SAFE
+AS $function$
+  SELECT CASE WHEN p_email IS NULL THEN false ELSE
+    length(btrim(p_email::text)) BETWEEN 3 AND 254
+    AND btrim(p_email::text) !~ '[[:space:],;]'
+    AND length(btrim(p_email::text)) - length(replace(btrim(p_email::text),'@','')) = 1
+    AND length(split_part(btrim(p_email::text),'@',1)) BETWEEN 1 AND 64
+    AND split_part(btrim(p_email::text),'@',1) ~ '^[A-Za-z0-9!#$%&''*+/=?^_`{|}~.-]+$'
+    AND split_part(btrim(p_email::text),'@',1) !~ '(^[.]|[.]$|[.][.])'
+    AND length(split_part(btrim(p_email::text),'@',2)) BETWEEN 3 AND 253
+    AND split_part(btrim(p_email::text),'@',2) LIKE '%.%'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM unnest(string_to_array(split_part(btrim(p_email::text),'@',2),'.')) AS label
+      WHERE length(label) NOT BETWEEN 1 AND 63
+         OR label !~ '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$'
+    )
+  END;
+$function$;
+
 DROP EVENT TRIGGER IF EXISTS mei_email_policy_ddl_guard;
 DROP TRIGGER IF EXISTS zz_empresas_block_suppressed_or_rejected_insert ON mei_email.empresas;
 DROP TRIGGER IF EXISTS zz_empresas_purge_rejected_after_update ON mei_email.empresas;

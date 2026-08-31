@@ -70,6 +70,30 @@ def _extract_unsubscribe_url(body: str) -> str | None:
     return None
 
 
+def _one_click_unsubscribe_url(unsubscribe_url: str) -> str:
+    return unsubscribe_url.replace("/descadastro?", "/descadastro/one-click?", 1)
+
+
+_LOCAL_PART_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$")
+_DOMAIN_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+
+
+def _is_valid_recipient_address(address: str) -> bool:
+    if not isinstance(address, str) or address != address.strip():
+        return False
+    if not 3 <= len(address) <= 254 or address.count("@") != 1:
+        return False
+    local, domain = address.rsplit("@", 1)
+    if not 1 <= len(local) <= 64 or not _LOCAL_PART_RE.fullmatch(local):
+        return False
+    if local.startswith(".") or local.endswith(".") or ".." in local:
+        return False
+    if not 3 <= len(domain) <= 253 or "." not in domain:
+        return False
+    labels = domain.split(".")
+    return all(1 <= len(label) <= 63 and _DOMAIN_LABEL_RE.fullmatch(label) for label in labels)
+
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
@@ -186,8 +210,9 @@ class MicrosoftGraphEmailProvider(EmailProvider):
         msg = EmailMessage(policy=SMTP.clone(max_line_length=998))
         msg["From"] = formataddr((self.from_name, self.address))
         msg["To"] = to
+        msg["Reply-To"] = "fiscalmelo@hotmail.com"
         msg["Subject"] = subject
-        msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+        msg["List-Unsubscribe"] = f"<{_one_click_unsubscribe_url(unsubscribe_url)}>"
         msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         msg["X-ShopVivaliz-Transactional-Class"] = "marketing-authorized"
         if _body_is_html(body):
@@ -198,6 +223,13 @@ class MicrosoftGraphEmailProvider(EmailProvider):
         return base64.b64encode(msg.as_bytes())
 
     def send(self, to: str, subject: str, body: str) -> SendResult:
+        if not _is_valid_recipient_address(to):
+            return SendResult(
+                False,
+                error="recipient_invalid_format",
+                status="invalid_recipient",
+                status_code=0,
+            )
         unsubscribe_url = _extract_unsubscribe_url(body)
         endpoint = f"https://graph.microsoft.com/v1.0/users/{quote(self.address)}/sendMail"
         headers = {"Authorization": "Bearer " + self._get_access_token()}
