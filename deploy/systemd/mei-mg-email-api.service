@@ -1,0 +1,15 @@
+[Unit]
+Description=MEI MG Email API
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/mei-mg-email
+EnvironmentFile=/home/ubuntu/mei-mg-email/.env
+ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
