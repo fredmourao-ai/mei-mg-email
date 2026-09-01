@@ -21,8 +21,11 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import time
+from urllib.error import URLError
+from urllib.request import urlopen
 from pathlib import Path
 
 import psycopg
@@ -40,6 +43,10 @@ CANONICAL_SENTINEL = Path(
 )
 LEGACY_SENTINEL = BASE_DIR / "runtime" / "sender_blocked.pause"
 WORKER_UNIT = "mei-mg-email-worker.service"
+API_UNIT = "mei-mg-email-api.service"
+API_HEALTH_URL = "http://127.0.0.1:8010/health"
+API_UNIT_SOURCE = BASE_DIR / "deploy" / "systemd" / API_UNIT
+API_UNIT_INSTALLED = Path("/etc/systemd/system") / API_UNIT
 DB_CONTAINER = os.getenv("MEI_DB_CONTAINER", "mei-mg-email-db")
 STATE_PATH = Path(
     os.getenv(
@@ -66,6 +73,92 @@ def _state() -> str:
 
 def _sentinel() -> bool:
     return CANONICAL_SENTINEL.is_file() or LEGACY_SENTINEL.is_file()
+
+
+def _api_health() -> tuple[bool, str]:
+    try:
+        with urlopen(API_HEALTH_URL, timeout=4) as response:
+            body = response.read(200).decode("utf-8", "replace")
+            ok = int(response.status) == 200 and '"status":"ok"' in body.replace(" ", "")
+            return ok, f"http_{response.status}"
+    except (URLError, OSError, ValueError) as exc:
+        return False, f"{type(exc).__name__}: {str(exc)[:200]}"
+
+
+def _api_state() -> str:
+    cp = _systemctl("is-active", API_UNIT, timeout=8)
+    return (cp.stdout or cp.stderr).strip() or f"exit_{cp.returncode}"
+
+
+def _sync_api_unit(result: dict[str, object]) -> None:
+    if not API_UNIT_SOURCE.is_file():
+        return
+    source = API_UNIT_SOURCE.read_bytes()
+    installed = API_UNIT_INSTALLED.read_bytes() if API_UNIT_INSTALLED.is_file() else b""
+    if source == installed:
+        return
+    API_UNIT_INSTALLED.write_bytes(source)
+    cp = _systemctl("daemon-reload", timeout=20)
+    if cp.returncode != 0:
+        raise RuntimeError(f"api daemon-reload failed: {(cp.stderr or cp.stdout)[-500:]}")
+    result["actions"].append("api_unit_synced")
+
+
+def _api_orphan_pids() -> list[int]:
+    pids: list[int] = []
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            cmd = (proc / "cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace")
+        except OSError:
+            continue
+        if "uvicorn app.main:app" in cmd and "--port 8010" in cmd:
+            pids.append(int(proc.name))
+    return pids
+
+
+def _ensure_api_active(result: dict[str, object]) -> bool:
+    _sync_api_unit(result)
+    before_state = _api_state()
+    before_ok, before_detail = _api_health()
+    result["api_before"] = {"systemd": before_state, "api_health": before_ok, "detail": before_detail}
+    if before_state == "active" and before_ok:
+        result["api_after"] = result["api_before"]
+        return True
+
+    if before_state != "active":
+        orphan_pids = _api_orphan_pids()
+        if orphan_pids:
+            for pid in orphan_pids:
+                os.kill(pid, signal.SIGTERM)
+            result["actions"].append("api_orphan_terminated")
+            time.sleep(2)
+
+    enabled = _systemctl("is-enabled", API_UNIT, timeout=8)
+    if (enabled.stdout or "").strip() != "enabled":
+        cp = _systemctl("enable", API_UNIT, timeout=20)
+        if cp.returncode != 0:
+            result["api_after"] = {"systemd": _api_state(), "api_health": False, "detail": "enable_failed"}
+            return False
+        result["actions"].append("api_enabled")
+
+    _systemctl("reset-failed", API_UNIT, timeout=10)
+    cp = _systemctl("restart", API_UNIT, timeout=35)
+    if cp.returncode != 0:
+        result["api_after"] = {"systemd": _api_state(), "api_health": False, "detail": (cp.stderr or cp.stdout)[-500:]}
+        return False
+    result["actions"].append("api_restarted")
+    for _ in range(10):
+        time.sleep(1)
+        ok, detail = _api_health()
+        state = _api_state()
+        if state == "active" and ok:
+            result["api_after"] = {"systemd": state, "api_health": True, "detail": detail}
+            return True
+    ok, detail = _api_health()
+    result["api_after"] = {"systemd": _api_state(), "api_health": ok, "detail": detail}
+    return False
 
 
 def _db_probe() -> tuple[bool, str]:
@@ -117,9 +210,6 @@ def _ensure_db_available(result: dict[str, object]) -> bool:
     result["actions"].append("db_unavailable_detected")
     result["db_recovery"] = {"attempted": True}
 
-    # Prefer restarting the existing container. ``docker compose up`` can
-    # recreate a container when local compose configuration drifts; if that
-    # operation is cancelled between stop/start, PostgreSQL remains exited.
     try:
         inspect = _run_process(
             ["docker", "inspect", DB_CONTAINER],
@@ -146,8 +236,6 @@ def _ensure_db_available(result: dict[str, object]) -> bool:
             f"{type(exc).__name__}: {str(exc)[:500]}"
         )
 
-    # Fallback only when a simple start could not recover the DB. This path may
-    # create/reconcile the container and therefore is intentionally second.
     try:
         compose = _run_process(
             ["docker", "compose", "up", "-d", "db"],
@@ -308,6 +396,11 @@ def main() -> int:
         "worker_before": _state(),
         "actions": [],
     }
+    try:
+        api_ok = _ensure_api_active(result)
+    except Exception as exc:
+        api_ok = False
+        result["api_after"] = {"systemd": _api_state(), "api_health": False, "detail": f"{type(exc).__name__}: {str(exc)[:500]}"}
 
     if result["sender_block_sentinel"]:
         if result["worker_before"] not in {"inactive", "failed"}:
@@ -355,7 +448,9 @@ def main() -> int:
     after = result["after"]
     result["worker_after"] = _state()
 
-    if result["worker_after"] != "active":
+    if not api_ok:
+        result["result"] = "degraded_api_unavailable_or_unsupervised"
+    elif result["worker_after"] != "active":
         result["result"] = "degraded_worker_inactive"
     elif bool(after["active_campaign"]) and int(after["sent_24h"]) < int(settings.meta_envios_por_dia):
         if int(after["sent_10m"]) > 0:
