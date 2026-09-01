@@ -126,6 +126,21 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
         )
         envio = dict(cur.fetchone())
 
+        cur.execute(
+            """
+            select
+              count(*) filter (where updated_at >= now() - interval '24 hours') as hard_bounces_24h,
+              count(*) filter (where updated_at >= now() - interval '60 minutes') as hard_bounces_60m,
+              count(*) filter (where updated_at >= now() - interval '15 minutes') as hard_bounces_15m
+              from mei_email.email_suppressions
+             where active
+               and scope = 'email'
+               and reason = 'hard_bounce'
+               and source = 'async_ndr_graph_guard'
+            """
+        )
+        bounce = dict(cur.fetchone())
+
         cur.execute("""
             select coalesce(reltuples::bigint, 0) as elegiveis
               from pg_class
@@ -166,6 +181,17 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
         for key in ("source_last_modified", "started_at", "finished_at"):
             base[key] = _iso(base.get(key))
 
+    sent_24h = int(envio.get("enviados_24h") or 0)
+    sent_60m = int(envio.get("enviados_60m") or 0)
+    hard_bounces_24h = int(bounce.get("hard_bounces_24h") or 0)
+    hard_bounces_60m = int(bounce.get("hard_bounces_60m") or 0)
+    hard_bounces_15m = int(bounce.get("hard_bounces_15m") or 0)
+
+    def pct(numerator: int, denominator: int) -> float:
+        if denominator <= 0:
+            return 0.0
+        return round((numerator * 100.0) / denominator, 2)
+
     snapshot = {
         "captured_at": agora.isoformat(),
         "limits": {
@@ -182,9 +208,14 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
             "elegiveis_restantes": elegiveis,
         },
         "sending": {
-            "submitted_enviado_24h": int(envio.get("enviados_24h") or 0),
-            "submitted_enviado_60m": int(envio.get("enviados_60m") or 0),
+            "submitted_enviado_24h": sent_24h,
+            "submitted_enviado_60m": sent_60m,
             "submitted_enviado_15m": int(envio.get("enviados_15m") or 0),
+            "hard_bounces_24h": hard_bounces_24h,
+            "hard_bounces_60m": hard_bounces_60m,
+            "hard_bounces_15m": hard_bounces_15m,
+            "hard_bounce_rate_24h_pct": pct(hard_bounces_24h, sent_24h),
+            "hard_bounce_rate_60m_pct": pct(hard_bounces_60m, sent_60m),
             "submitted_enviado_5m": int(envio.get("enviados_5m") or 0),
             "last_submission_at": _iso(ultimo_envio),
             "last_submission_age_minutes": round(ultimo_envio_age_minutes, 2)
@@ -268,6 +299,24 @@ def construir_alertas(snapshot: dict) -> list[dict]:
             f"NDR guard nao esta habilitado: {ndr_guard_enabled}.",
         )
 
+    hard_bounces_60m = int(sending.get("hard_bounces_60m") or 0)
+    hard_bounce_rate_60m = float(sending.get("hard_bounce_rate_60m_pct") or 0.0)
+    hard_bounce_rate_24h = float(sending.get("hard_bounce_rate_24h_pct") or 0.0)
+    material_bounce_worsening = (
+        hard_bounces_60m >= 20
+        and hard_bounce_rate_60m >= 10.0
+        and hard_bounce_rate_60m >= hard_bounce_rate_24h * 2.0
+        and hard_bounce_rate_60m - hard_bounce_rate_24h >= 5.0
+    )
+    if material_bounce_worsening:
+        add(
+            "warning",
+            "hard_bounce_rate_worsening",
+            "Taxa de hard bounce na ultima hora piorou materialmente: "
+            f"{hard_bounce_rate_60m:.2f}% vs baseline 24h {hard_bounce_rate_24h:.2f}% "
+            f"({hard_bounces_60m} hard bounces/60m).",
+        )
+
     quota_reached = sending["submitted_enviado_24h"] >= limits["meta_24h"]
     has_capacity = not quota_reached
     if queue["total"] > 0 and has_capacity and not pause_active:
@@ -338,11 +387,14 @@ def executar_uma_vez() -> dict:
         snapshot = coletar_snapshot(conn)
     persistir_snapshot(snapshot)
     logger.info(
-        "MONITOR_SNAPSHOT health=%s fila=%d enviados_24h=%d enviados_15m=%d elegiveis=%d base_age_h=%s pause=%s ndr_guard=%s",
+        "MONITOR_SNAPSHOT health=%s fila=%d enviados_24h=%d enviados_15m=%d hard_bounce_60m=%d hard_bounce_rate_60m=%.2f hard_bounce_rate_24h=%.2f elegiveis=%d base_age_h=%s pause=%s ndr_guard=%s",
         snapshot["health"],
         snapshot["queue"]["total"],
         snapshot["sending"]["submitted_enviado_24h"],
         snapshot["sending"]["submitted_enviado_15m"],
+        snapshot["sending"]["hard_bounces_60m"],
+        snapshot["sending"]["hard_bounce_rate_60m_pct"],
+        snapshot["sending"]["hard_bounce_rate_24h_pct"],
         snapshot["queue"]["elegiveis_restantes"],
         snapshot["base_sync"]["age_hours"],
         snapshot["worker"]["sender_block_pause_active"],

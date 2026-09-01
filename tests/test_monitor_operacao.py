@@ -142,3 +142,27 @@ def test_worker_lock_held_supports_dict_row():
             return {"exists": True}
 
     assert _worker_lock_held(Cursor()) is True
+
+
+def test_hard_bounce_baseline_does_not_alert_without_material_worsening():
+    snapshot = snapshot_base()
+    snapshot["sending"].update({
+        "hard_bounces_15m": 8,
+        "hard_bounces_60m": 30,
+        "hard_bounces_24h": 280,
+        "hard_bounce_rate_60m_pct": 5.0,
+        "hard_bounce_rate_24h_pct": 7.0,
+    })
+    assert "hard_bounce_rate_worsening" not in codes(snapshot)
+
+
+def test_material_hard_bounce_rate_worsening_is_detected():
+    snapshot = snapshot_base()
+    snapshot["sending"].update({
+        "hard_bounces_15m": 35,
+        "hard_bounces_60m": 120,
+        "hard_bounces_24h": 280,
+        "hard_bounce_rate_60m_pct": 20.0,
+        "hard_bounce_rate_24h_pct": 7.0,
+    })
+    assert "hard_bounce_rate_worsening" in codes(snapshot)

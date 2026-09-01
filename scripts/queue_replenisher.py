@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import psycopg
 from dotenv import load_dotenv
 
+from app.email_quality import recipient_has_obvious_provider_typo
 from app.queue_manager import AUTOQUEUE_LOT_SIZE, AUTOQUEUE_SUBJECT, carregar_template_html
 
 ROOT = Path('/home/ubuntu/mei-mg-email')
@@ -78,7 +79,11 @@ def filter_candidates_batch(cur, rows, needed: int):
         email = str(row[1] or '').strip()
         uf = str(row[2] or '').strip()
         email_norm = email.strip().lower()
-        if not email_norm or 'contabil' in email_norm:
+        if (
+            not email_norm
+            or 'contabil' in email_norm
+            or recipient_has_obvious_provider_typo(email)
+        ):
             continue
         page.append((cnpj, email, uf))
     if not page:
