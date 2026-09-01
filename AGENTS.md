@@ -27,6 +27,18 @@ Se o guard falhar, NAO contorne, NAO edite a lista de proibicoes e NAO force o s
 - Nao alterar a meta de fila 14.800-15.000 sem aprovacao explicita.
 - Preserve anti-reenvio e idempotencia do Graph.
 
+## Politica obrigatoria de consumo de IA e execucao recorrente
+- Claude, GPT/OpenAI e Codex pagos sao permitidos somente em tarefas finitas e devem encerrar quando a tarefa concluir ou atingir bloqueio real.
+- E proibido usar IA paga em daemon, service loop, cron/timer periodico, watcher, autorepair, supervisor, polling ou retry sem limite.
+- Rotinas permanentes ou periodicas devem ser deterministicas. Se IA for indispensavel, usar opcao gratuita/local aprovada, com limite de chamadas e sem fallback silencioso para provedor pago.
+- Toda tarefa finita com IA paga deve ter circuit breaker: timeout, limite de retries/chamadas, condicao de saida e checkpoint quando necessario. Atingido o limite, encerrar em vez de relancar automaticamente.
+- Auditar consumidor por consumidor antes de manter ou habilitar automacao: necessidade real, host, gatilho, frequencia, provedor/modelo, custo, timeout, retries, limite de chamadas, condicao de saida e duplicidade/orfandade.
+- Processos travados, orfaos ou sem progresso devem ser encerrados e ter a causa raiz investigada. Reinicio infinito e proibido.
+- Workflows GitHub com IA paga devem exigir gatilho explicito/restrito; eventos genericos e `schedule` nao podem disparar Claude/GPT/Codex automaticamente.
+- Para este repositorio, worker, monitor, NDR guard, queue replenisher, base sync e autorepair devem permanecer deterministas e nao podem adquirir dependencia de IA paga.
+- Teste de credencial nao deve gerar conteudo em modelo pago quando validacao de configuracao/formato for suficiente.
+- Registrar sem secrets o inicio/fim, gatilho, provedor/modelo, tentativas, duracao e resultado de qualquer consumidor de IA.
+
 ## Politica obrigatoria de PR, gate e merge
 - Toda alteracao finalizada deve terminar em PR validado e merge; nao deixar PR pronta aberta sem motivo tecnico comprovado.
 - Se qualquer check, teste, lint, gate, conflito ou Action falhar: investigar a causa raiz, corrigir, executar novamente e repetir ate ficar verde. E proibido contornar o erro com bypass, `|| true`, `exit 0`, force merge ou desativacao do check.
