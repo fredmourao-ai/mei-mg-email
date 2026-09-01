@@ -22,6 +22,7 @@ from psycopg.rows import dict_row
 
 from app.config import settings
 from app.email_provider import get_email_provider
+from app.email_quality import recipient_has_obvious_provider_typo
 from app.queue_recovery import (
     recuperar_fila_legada_e_lotes_orfaos,
     repor_fila_automatica_isolada,
@@ -275,6 +276,15 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
                 lote["id"],
             )
             return
+
+        if recipient_has_obvious_provider_typo(str(envio["email"])):
+            base_worker._atualizar_envio(
+                conn,
+                envio["envio_id"],
+                "bloqueado",
+                erro="FIRSTSEND: dominio de provedor com typo obvio; bloqueio operacional",
+            )
+            continue
 
         if envio["situacao_cadastral"] != "ATIVA":
             base_worker._atualizar_envio(

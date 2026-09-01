@@ -26,6 +26,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
+from app.email_quality import recipient_has_obvious_provider_typo
+
 logger = logging.getLogger("mei_mg_email.email_provider")
 ALLOWED_SENDER = "naoresponda@dev.shopvivaliz.com.br"
 
@@ -82,6 +84,8 @@ def _is_valid_recipient_address(address: str) -> bool:
     if not isinstance(address, str) or address != address.strip():
         return False
     if not 3 <= len(address) <= 254 or address.count("@") != 1:
+        return False
+    if recipient_has_obvious_provider_typo(address):
         return False
     local, domain = address.rsplit("@", 1)
     if not 1 <= len(local) <= 64 or not _LOCAL_PART_RE.fullmatch(local):
