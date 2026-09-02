@@ -314,6 +314,7 @@ def check_once(
         if not message_id or message_id in seen_set:
             continue
         newly_seen.append(message_id)
+        seen_set.add(message_id)
         subject = str(message.get("subject") or "")
         preview = str(message.get("bodyPreview") or "")
         if not looks_like_ndr(subject, preview):
