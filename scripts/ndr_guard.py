@@ -44,6 +44,8 @@ logger = logging.getLogger("mei_mg_email.ndr_guard")
 POLL_SECONDS = max(int(os.getenv("NDR_GUARD_POLL_SECONDS", "60")), 15)
 LOOKBACK_MINUTES = max(int(os.getenv("NDR_GUARD_LOOKBACK_MINUTES", "20")), 5)
 MAX_MESSAGES = min(max(int(os.getenv("NDR_GUARD_MAX_MESSAGES", "50")), 5), 100)
+INITIAL_LOOKBACK_MINUTES = max(int(os.getenv("NDR_GUARD_INITIAL_LOOKBACK_MINUTES", "1440")), LOOKBACK_MINUTES)
+INITIAL_MAX_MESSAGES = min(max(int(os.getenv("NDR_GUARD_INITIAL_MAX_MESSAGES", "2000")), MAX_MESSAGES), 5000)
 STATE_PATH = Path(os.getenv("NDR_GUARD_STATE_PATH", "/var/lib/mei-mg-email/ndr_guard_state.json"))
 SENTINEL_PATH = Path(os.getenv("SENDER_BLOCK_SENTINEL_PATH", "/var/lib/mei-mg-email/sender_blocked.pause"))
 
@@ -156,24 +158,33 @@ def _graph_json(token: str, url: str) -> dict:
         raise RuntimeError(f"NDR_GUARD_GRAPH_ERROR: {exc}") from exc
 
 
-def _recent_messages(provider: MicrosoftGraphEmailProvider) -> list[dict]:
+def _recent_messages(
+    provider: MicrosoftGraphEmailProvider,
+    *,
+    lookback_minutes: int = LOOKBACK_MINUTES,
+    max_messages: int = MAX_MESSAGES,
+) -> list[dict]:
     token = provider._get_access_token()
-    since = (datetime.now(timezone.utc) - timedelta(minutes=LOOKBACK_MINUTES)).isoformat().replace("+00:00", "Z")
-    params = urlencode(
-        {
-            "$top": str(MAX_MESSAGES),
-            "$filter": f"receivedDateTime ge {since}",
-            "$orderby": "receivedDateTime desc",
-            "$select": "id,subject,receivedDateTime,bodyPreview",
-        }
+    since = (datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)).isoformat().replace("+00:00", "Z")
+    ndr_filter = (
+        "(startswith(subject,'Não é possível entregar') or "
+        "startswith(subject,'Undeliverable') or "
+        "startswith(subject,'Delivery Status Notification') or "
+        "startswith(subject,'Address not found'))"
     )
-    # NDRs can be moved out of Inbox immediately by mailbox rules (for example
-    # into a dedicated Microsoft/NDR folder). Query the mailbox-wide messages
-    # collection so hard bounces and sender restrictions remain observable
-    # regardless of which folder currently contains the report.
+    params = urlencode({
+        "$top": str(min(max_messages, 100)),
+        "$filter": f"receivedDateTime ge {since} and {ndr_filter}",
+        "$orderby": "receivedDateTime desc",
+        "$select": "id,subject,receivedDateTime,bodyPreview",
+    })
     url = f"https://graph.microsoft.com/v1.0/users/{quote(provider.address)}/messages?{params}"
-    payload = _graph_json(token, url)
-    return list(payload.get("value") or [])
+    messages: list[dict] = []
+    while url and len(messages) < max_messages:
+        payload = _graph_json(token, url)
+        messages.extend(list(payload.get("value") or []))
+        url = str(payload.get("@odata.nextLink") or "")
+    return messages[:max_messages]
 
 
 def _full_message_text(provider: MicrosoftGraphEmailProvider, message_id: str) -> str:
@@ -282,11 +293,19 @@ def _open_pause(*, message_id: str, received_at: str | None, detail: str) -> Non
     SENTINEL_PATH.write_text(payload, encoding="utf-8")
 
 
-def check_once(provider: MicrosoftGraphEmailProvider) -> bool:
+def check_once(
+    provider: MicrosoftGraphEmailProvider,
+    *,
+    lookback_minutes: int = LOOKBACK_MINUTES,
+    max_messages: int = MAX_MESSAGES,
+    detect_sender_block: bool = True,
+) -> bool:
     state = _load_state()
     seen = list(state.get("seen_ids") or [])
     seen_set = set(str(value) for value in seen)
-    messages = _recent_messages(provider)
+    messages = _recent_messages(
+        provider, lookback_minutes=lookback_minutes, max_messages=max_messages
+    )
     newly_seen: list[str] = []
     hard_bounces_suppressed = int(state.get("hard_bounces_suppressed") or 0)
 
@@ -303,7 +322,7 @@ def check_once(provider: MicrosoftGraphEmailProvider) -> bool:
         # Fetch the full NDR exactly once. Sender-block classification takes
         # precedence over recipient-level suppression.
         text = _full_message_text(provider, message_id)
-        if contains_sender_blocked_marker(text):
+        if detect_sender_block and contains_sender_blocked_marker(text):
             received_at = str(message.get("receivedDateTime") or "")
             _open_pause(
                 message_id=message_id,
@@ -339,8 +358,19 @@ def check_once(provider: MicrosoftGraphEmailProvider) -> bool:
     return False
 
 
+def backfill_recent_hard_bounces(provider: MicrosoftGraphEmailProvider) -> None:
+    """Reconcile recent recipient NDRs after downtime without reopening stale sender blocks."""
+    check_once(
+        provider,
+        lookback_minutes=INITIAL_LOOKBACK_MINUTES,
+        max_messages=INITIAL_MAX_MESSAGES,
+        detect_sender_block=False,
+    )
+
+
 def main() -> int:
     provider = MicrosoftGraphEmailProvider()
+    backfill_recent_hard_bounces(provider)
     logger.info(
         "NDR guard iniciado sender=%s poll=%ss lookback=%smin sentinel=%s",
         provider.address,

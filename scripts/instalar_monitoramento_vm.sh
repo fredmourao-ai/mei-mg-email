@@ -40,6 +40,7 @@ render_unit "$APP_DIR/deploy/systemd/mei-mg-email-monitor.service" "/etc/systemd
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-base-sync.service" "/etc/systemd/system/mei-mg-email-base-sync.service"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-base-sync.timer" "/etc/systemd/system/mei-mg-email-base-sync.timer"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-ndr-guard.service" "/etc/systemd/system/mei-mg-email-ndr-guard.service"
+render_unit "$APP_DIR/deploy/systemd/mei-mg-email-worker.service" "/etc/systemd/system/mei-mg-email-worker.service"
 
 # Estado operacional persistente fica fora do Git. Se um deploy antigo ainda
 # tiver o sentinel como arquivo regular no repo, preserve seu conteudo antes de
@@ -59,6 +60,7 @@ chown -h "$RUN_USER":"$RUN_GROUP" "$APP_DIR/runtime/sender_blocked.pause" 2>/dev
 "${SUDO[@]}" systemctl daemon-reload
 "${SUDO[@]}" systemctl enable --now mei-mg-email-base-sync.timer
 "${SUDO[@]}" systemctl enable --now mei-mg-email-monitor.service
+"${SUDO[@]}" systemctl enable --now mei-mg-email-worker.service
 "${SUDO[@]}" systemctl enable --now mei-mg-email-ndr-guard.service
 
 # Executa uma sincronizacao imediatamente para validar a cadeia completa em vez
@@ -78,6 +80,7 @@ echo "run_user=$RUN_USER"
 echo "python=$PYTHON"
 echo "state_dir=$STATE_DIR"
 "${SUDO[@]}" systemctl is-active mei-mg-email-monitor.service
+"${SUDO[@]}" systemctl is-active mei-mg-email-worker.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-ndr-guard.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-base-sync.timer
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-ndr-guard.service
