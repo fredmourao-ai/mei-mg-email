@@ -117,3 +117,10 @@ def test_startup_backfill_scans_24h_without_reopening_old_sender_block():
     assert "lookback_minutes=INITIAL_LOOKBACK_MINUTES" in source
     assert "detect_sender_block=False" in source
     assert "backfill_recent_hard_bounces(provider)" in source
+
+
+def test_ndr_guard_deduplicates_message_ids_within_same_scan():
+    source = (ROOT / "scripts" / "ndr_guard.py").read_text(encoding="utf-8")
+    append_pos = source.index("newly_seen.append(message_id)")
+    add_pos = source.find("seen_set.add(message_id)", append_pos, append_pos + 120)
+    assert add_pos > append_pos
