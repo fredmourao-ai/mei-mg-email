@@ -108,3 +108,12 @@ def test_monitoring_installer_deploys_and_enables_worker_with_rendered_paths():
     assert "ExecStartPre=__PYTHON__ __APP_DIR__/scripts/runtime_policy_guard.py" in unit
     assert "ExecStartPre=__PYTHON__ __APP_DIR__/scripts/runtime_sender_preflight.py" in unit
     assert "ExecStart=__PYTHON__ -m worker.safe_entrypoint_v2" in unit
+
+
+def test_startup_backfill_scans_24h_without_reopening_old_sender_block():
+    source = (ROOT / "scripts" / "ndr_guard.py").read_text(encoding="utf-8")
+    assert "INITIAL_LOOKBACK_MINUTES" in source
+    assert "def backfill_recent_hard_bounces" in source
+    assert "lookback_minutes=INITIAL_LOOKBACK_MINUTES" in source
+    assert "detect_sender_block=False" in source
+    assert "backfill_recent_hard_bounces(provider)" in source
