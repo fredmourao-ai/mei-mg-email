@@ -5,6 +5,8 @@ on:
     workflows:
       - Email Safety CI
       - Repository Policy Guard
+      - Repository Governance Gate
+      - AI Conflict Resolver
     types: [completed]
 
 permissions:
