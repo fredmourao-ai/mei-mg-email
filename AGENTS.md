@@ -2,6 +2,9 @@
 
 Este repositorio opera envio de primeiro contato em lote. Agentes, automacoes, PR-healers e scripts autonomos NAO podem alterar a politica de elegibilidade sem aprovacao explicita do usuario.
 
+## Acesso a infraestrutura e VMs
+Antes de executar qualquer comando em VM Oracle Cloud, leia e siga obrigatoriamente [`AGENTS-VM-ACCESS.md`](AGENTS-VM-ACCESS.md). O fluxo canonico e Remote Desktop Commander -> SSH validado -> OCI Compute Instance Run Command pelo perfil `AGENTS` -> serial console como ultimo recurso. Nunca versione credenciais nem presuma root no Run Command.
+
 ## Politica atual de exclusao
 Nao entram na fila ou no envio apenas:
 - empresa com situacao cadastral diferente de ATIVA;
