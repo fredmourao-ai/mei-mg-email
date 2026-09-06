@@ -15,3 +15,12 @@ def test_auto_merge_gate_uses_rest_checks_instead_of_gh_pr_checks():
     assert '.conclusion == "skipped"' in workflow
     assert '.conclusion == "neutral"' in workflow
     assert "gh pr checks" not in workflow
+
+
+def test_auto_merge_reacts_to_every_pull_request_gate():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "- Email Safety CI" in workflow
+    assert "- Repository Policy Guard" in workflow
+    assert "- Repository Governance Gate" in workflow
+    assert "- AI Conflict Resolver" in workflow
