@@ -24,3 +24,9 @@ def test_auto_merge_reacts_to_every_pull_request_gate():
     assert "- Repository Policy Guard" in workflow
     assert "- Repository Governance Gate" in workflow
     assert "- AI Conflict Resolver" in workflow
+
+
+def test_auto_merge_can_read_legacy_commit_statuses():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "statuses: read" in workflow
