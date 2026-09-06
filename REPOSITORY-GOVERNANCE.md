@@ -13,3 +13,5 @@ Every clone/worktree must enable the versioned hooks once with:
 `git config core.hooksPath .githooks`
 
 The GitHub governance workflow repeats validation independently. Native branch protection/rulesets must additionally require pull requests and the governance status check wherever the GitHub plan supports those controls.
+
+For this private repository, `.github/workflows/pr-auto-merge.yml` is the automatic merge gate when native GitHub auto-merge is unavailable. It resolves same-repository pull requests by exact head SHA through the REST API and permits squash merge only after every applicable check run is completed with `success`, `skipped`, or `neutral` and any legacy commit statuses are successful. It must react to completion of every pull-request gate so the last green gate can finalize the merge without bypassing validation.
