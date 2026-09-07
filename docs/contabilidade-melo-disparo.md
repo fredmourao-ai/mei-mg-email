@@ -5,7 +5,7 @@
 A producao usa **Brevo Transactional Email API** com `EMAIL_PROVIDER=brevo`.
 O Microsoft Graph/Exchange foi aposentado do runtime de envio e o NDR Guard legado deve permanecer desabilitado.
 
-Remetente permitido: `naoresponda@dev.shopvivaliz.com.br`.
+Remetente permitido: `atendimento@shopvivaliz.com.br`.
 Nome: `Contabilidade Melo`.
 
 HTTP 201 do Brevo significa apenas `submitted`. A entrega so e confirmada quando o reconciliador recebe evento `delivered` para o `messageId` correspondente.
@@ -36,7 +36,7 @@ A fonte de verdade e exclusivamente `AGENTS.md`. Este documento nao redefine fil
 ```ini
 EMAIL_PROVIDER=brevo
 BREVO_API_KEY=<secret runtime, nunca versionar>
-MAIL_FROM=Contabilidade Melo <naoresponda@dev.shopvivaliz.com.br>
+MAIL_FROM=Contabilidade Melo <atendimento@shopvivaliz.com.br>
 MAIL_FROM_NAME=Contabilidade Melo
 MAX_ENVIOS_POR_DIA=300
 META_ENVIOS_POR_DIA=295

@@ -14,7 +14,7 @@ Migrate production e-mail delivery from the cancelled Microsoft Graph path to Br
 - Every commit is pushed immediately; completion requires validated PR, merge and post-merge checks.
 
 ## Provider contract
-`BrevoEmailProvider` sends one recipient per `POST https://api.brevo.com/v3/smtp/email` using `api-key`, the fixed allowed sender `naoresponda@dev.shopvivaliz.com.br`, and `fiscalmelo@hotmail.com` as reply-to.
+`BrevoEmailProvider` sends one recipient per `POST https://api.brevo.com/v3/smtp/email` using `api-key`, the validated allowed sender `atendimento@shopvivaliz.com.br`, and `fiscalmelo@hotmail.com` as reply-to.
 
 HTTP 201 is successful only when a non-empty Brevo `messageId` is returned. The stored provider ID is prefixed as `brevo:<messageId>` so provider attribution is explicit without a schema migration. Authentication material is read only from `BREVO_API_KEY` and is never logged.
 ## Quota and replay semantics

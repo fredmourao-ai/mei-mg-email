@@ -15,7 +15,7 @@ load_dotenv(BASE_DIR / ".env", override=True)
 
 from app.config import settings
 
-ALLOWED_SENDER = "naoresponda@dev.shopvivaliz.com.br"
+ALLOWED_SENDER = "atendimento@shopvivaliz.com.br"
 REQUIRED_EMPRESA_COLUMNS = (
     "email",
     "opt_out",
