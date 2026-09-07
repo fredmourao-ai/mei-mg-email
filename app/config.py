@@ -34,18 +34,20 @@ class Settings:
         30,
     )
 
-    # Exchange Online applies a hard 10,000-recipient limit in a sliding 24h
-    # window. Local DB accounting can lag mailbox-wide activity, so keep at
-    # least 500 recipients of operational headroom below that hard ceiling.
-    max_envios_por_dia: int = _positive_int_env("MAX_ENVIOS_POR_DIA", 10000)
+    brevo_free_hard_cap: int = 300
+    brevo_free_safe_target: int = 295
+    configured_max_envios_por_dia: int = _positive_int_env("MAX_ENVIOS_POR_DIA", 10000)
+    configured_meta_envios_por_dia: int = _positive_int_env("META_ENVIOS_POR_DIA", 9500)
+    _brevo_active: bool = email_provider.strip().lower() in {"brevo", "brevo_api"}
+    max_envios_por_dia: int = min(configured_max_envios_por_dia, brevo_free_hard_cap) if _brevo_active else configured_max_envios_por_dia
     exchange_recipient_safety_reserve: int = max(
         500,
         _positive_int_env("EXCHANGE_RECIPIENT_SAFETY_RESERVE", 500),
     )
-    configured_meta_envios_por_dia: int = _positive_int_env("META_ENVIOS_POR_DIA", 9500)
-    meta_envios_por_dia: int = min(
-        configured_meta_envios_por_dia,
-        max(1, min(10000, max_envios_por_dia) - exchange_recipient_safety_reserve),
+    meta_envios_por_dia: int = (
+        min(configured_meta_envios_por_dia, brevo_free_safe_target, max_envios_por_dia)
+        if _brevo_active
+        else min(configured_meta_envios_por_dia, max(1, min(10000, max_envios_por_dia) - exchange_recipient_safety_reserve))
     )
     worker_poll_interval_segundos: int = int(
         os.getenv("WORKER_POLL_INTERVAL_SEGUNDOS", "5")

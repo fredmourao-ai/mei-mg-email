@@ -107,6 +107,83 @@ def _is_sender_blocked(code: str, message: str) -> bool:
     return any(marker in text for marker in ("5.1.8", "42004", "bad outbound sender", "restricted sender"))
 
 
+def brevo_storage_message_id(raw_id: str) -> str:
+    value = (raw_id or "").strip()
+    if not value:
+        raise ValueError("Brevo response missing messageId")
+    return value if value.startswith("brevo:") else f"brevo:{value}"
+
+
+class BrevoEmailProvider(EmailProvider):
+    ENDPOINT = "https://api.brevo.com/v3/smtp/email"
+
+    def __init__(self) -> None:
+        self.api_key = os.getenv("BREVO_API_KEY", "").strip()
+        raw_from = os.getenv("MAIL_FROM", ALLOWED_SENDER).strip() or ALLOWED_SENDER
+        parsed_name, parsed_address = parseaddr(raw_from)
+        self.from_name = parsed_name.strip() or os.getenv("MAIL_FROM_NAME", "").strip() or "Contabilidade Melo"
+        self.from_address = parsed_address.strip() or ALLOWED_SENDER
+        if not self.api_key:
+            raise RuntimeError("BREVO_API_KEY missing")
+        if self.from_address.casefold() != ALLOWED_SENDER.casefold():
+            raise RuntimeError(f"Remetente Brevo bloqueado por fail-closed. Permitido somente {ALLOWED_SENDER}.")
+
+    @staticmethod
+    def _parse_retry_after(error: HTTPError) -> int | None:
+        value = error.headers.get("Retry-After") if error.headers else None
+        try:
+            return max(int(value), 0) if value else None
+        except (TypeError, ValueError):
+            return None
+
+    def send(self, to: str, subject: str, body: str) -> SendResult:
+        if not _is_valid_recipient_address(to):
+            return SendResult(False, error="recipient_invalid_format", status="invalid_recipient", status_code=0)
+        payload = {
+            "sender": {"name": self.from_name, "email": self.from_address},
+            "to": [{"email": to}],
+            "replyTo": {"email": "fiscalmelo@hotmail.com"},
+            "subject": subject,
+        }
+        if _body_is_html(body):
+            payload["htmlContent"] = body
+        else:
+            payload["textContent"] = body
+        unsubscribe_url = _extract_unsubscribe_url(body)
+        if unsubscribe_url:
+            payload["headers"] = {
+                "List-Unsubscribe": f"<{_one_click_unsubscribe_url(unsubscribe_url)}>",
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {
+            "api-key": self.api_key,
+            "accept": "application/json",
+            "content-type": "application/json; charset=utf-8",
+        }
+        try:
+            req = Request(self.ENDPOINT, data=data, headers=headers, method="POST")
+            with urlopen(req, timeout=30) as response:
+                status_code = int(response.status)
+                raw = response.read().decode("utf-8", "replace")
+            if status_code != 201:
+                return SendResult(False, error=f"Brevo HTTP {status_code}", status="error", status_code=status_code)
+            try:
+                response_payload = json.loads(raw or "{}")
+            except ValueError:
+                response_payload = {}
+            raw_message_id = str(response_payload.get("messageId") or "").strip()
+            if not raw_message_id:
+                return SendResult(False, error="Brevo response missing messageId", status="error", status_code=status_code)
+            return SendResult(True, message_id=brevo_storage_message_id(raw_message_id), status="submitted", status_code=status_code)
+        except HTTPError as error:
+            retry_after = self._parse_retry_after(error)
+            detail = error.read().decode("utf-8", "replace")[:500]
+            return SendResult(False, error=f"Brevo HTTP {error.code}: {detail}", retry_after_seconds=retry_after, status="error", status_code=int(error.code))
+        except (URLError, OSError, ValueError) as error:
+            return SendResult(False, error=f"Brevo request failed: {error}", status="error")
+
+
 class MicrosoftGraphEmailProvider(EmailProvider):
     """Microsoft Graph application authentication using a local X.509 key."""
 
@@ -284,8 +361,8 @@ def get_email_provider(name: str) -> EmailProvider:
     normalized = (name or "").strip().lower()
     if normalized == "dryrun":
         return DryRunEmailProvider()
-    if normalized in {"microsoft_graph", "microsoft-oauth", "graph"}:
-        return MicrosoftGraphEmailProvider()
-    if normalized in {"gmail", "microsoft", "outlook", "office365", "brevo", "brevo_api", "smtp"}:
-        raise RuntimeError(f"Email provider '{normalized}' is disabled. ShopVivaliz production is Microsoft Graph app-only only.")
-    raise ValueError("Unknown e-mail provider. Use 'dryrun' or 'microsoft_graph'.")
+    if normalized in {"brevo", "brevo_api"}:
+        return BrevoEmailProvider()
+    if normalized in {"microsoft_graph", "microsoft-oauth", "graph", "gmail", "microsoft", "outlook", "office365", "smtp"}:
+        raise RuntimeError(f"Email provider '{normalized}' is disabled. ShopVivaliz production uses Brevo only.")
+    raise ValueError("Unknown e-mail provider. Use 'dryrun' or 'brevo'.")
