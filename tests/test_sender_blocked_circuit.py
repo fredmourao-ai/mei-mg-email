@@ -5,13 +5,17 @@ from app.email_provider import _is_sender_blocked
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_worker_has_persistent_sender_block_circuit():
-    worker = (ROOT / "worker" / "worker.py").read_text(encoding="utf-8").casefold()
-    assert "sender_block_sentinel" in worker
-    assert "sender_blocked.pause" in worker
-    assert "_registrar_sender_blocked_pause" in worker
-    assert "_sender_blocked_pause_ativo" in worker
-    assert "nenhum novo envio sera tentado" in worker
+def test_worker_has_persistent_sender_block_circuit_outside_checkout():
+    worker = (ROOT / "worker" / "worker.py").read_text(encoding="utf-8")
+    folded = worker.casefold()
+    assert "sender_block_sentinel" in folded
+    assert "sender_blocked.pause" in folded
+    assert "_registrar_sender_blocked_pause" in folded
+    assert "_sender_blocked_pause_ativo" in folded
+    assert "nenhum novo envio sera tentado" in folded
+    assert "SENDER_BLOCK_SENTINEL_PATH" in worker
+    assert "/var/lib/mei-mg-email/sender_blocked.pause" in worker
+    assert 'parents[1] / "runtime" / "sender_blocked.pause"' not in worker
 
 
 def test_current_incident_pause_is_runtime_state_not_git_state():
