@@ -5,13 +5,13 @@ from worker.worker_queue_first import _empresa_para_template
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_worker_checkpoints_before_graph_side_effect():
+def test_worker_checkpoints_before_provider_side_effect():
     source = (ROOT / "worker" / "worker_queue_first.py").read_text(encoding="utf-8")
     checkpoint = source.index("_marcar_envio_em_transito(conn, envio[\"envio_id\"])")
     send = source.index("resultado = provider.send(", checkpoint)
     submitted = source.index('"submitted",', send)
     assert checkpoint < send < submitted
-    assert "dispatch_started: aguardando resultado do Microsoft Graph" in source
+    assert "dispatch_started: aguardando resultado do provedor" in source
 
 
 def test_recovery_never_replays_explicit_uncertain_graph_checkpoint():
