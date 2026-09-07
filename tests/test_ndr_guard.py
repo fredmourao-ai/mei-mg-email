@@ -89,13 +89,15 @@ def test_retention_aware_ndr_guard_accepts_all_audited_prior_send_stores():
     assert "guard._previously_sent_recipient_matches" in source
 
 
-def test_installer_moves_pause_state_and_replaces_legacy_ndr_guard():
+def test_installer_moves_pause_state_out_of_checkout_and_replaces_legacy_ndr_guard():
     script = (ROOT / "scripts" / "instalar_monitoramento_vm.sh").read_text(encoding="utf-8")
     assert 'STATE_DIR="/var/lib/mei-mg-email"' in script
     assert "mei-mg-email-ndr-guard.service" in script
     assert "disable --now mei-mg-email-ndr-guard.service" in script
     assert "enable --now mei-mg-email-brevo-reconciler.service" in script
-    assert 'ln -s "$STATE_DIR/sender_blocked.pause"' in script
+    assert 'rm -f "$APP_DIR/runtime/sender_blocked.pause"' in script
+    assert 'ln -s "$STATE_DIR/sender_blocked.pause"' not in script
+
 
 def test_monitoring_installer_deploys_and_enables_worker_with_rendered_paths():
     script = (ROOT / "scripts" / "instalar_monitoramento_vm.sh").read_text(encoding="utf-8")

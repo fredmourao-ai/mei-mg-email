@@ -54,8 +54,6 @@ if [[ -f "$APP_DIR/runtime/sender_blocked.pause" && ! -L "$APP_DIR/runtime/sende
   "${SUDO[@]}" chmod 0640 "$STATE_DIR/sender_blocked.pause"
 fi
 rm -f "$APP_DIR/runtime/sender_blocked.pause"
-ln -s "$STATE_DIR/sender_blocked.pause" "$APP_DIR/runtime/sender_blocked.pause"
-chown -h "$RUN_USER":"$RUN_GROUP" "$APP_DIR/runtime/sender_blocked.pause" 2>/dev/null || true
 
 "${SUDO[@]}" systemctl daemon-reload
 "${SUDO[@]}" systemctl enable --now mei-mg-email-base-sync.timer
