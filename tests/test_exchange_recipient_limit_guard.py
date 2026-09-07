@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _legacy_exchange_env() -> dict[str, str]:
     env = os.environ.copy()
     env["EMAIL_PROVIDER"] = "microsoft_graph"
+    env["MAX_ENVIOS_POR_DIA"] = "10000"
     return env
 
 
