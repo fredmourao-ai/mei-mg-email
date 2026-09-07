@@ -6,7 +6,7 @@ Sistema de fila, envio e monitoramento de e-mails para a operação MEI/MG da Co
 
 - Provedor exclusivo: **Brevo Transactional Email API**.
 - Plano operacional: **Brevo Free**, com hard cap local de **300 e-mails por janela móvel de 24 horas**.
-- Meta operacional: `META_ENVIOS_POR_DIA=295`, mantendo margem abaixo do teto.
+- Meta operacional explicitamente aprovada: `META_ENVIOS_POR_DIA=300`; o hard cap continua `MAX_ENVIOS_POR_DIA=300` e nunca pode ser excedido.
 - Remetente permitido: `atendimento@shopvivaliz.com.br`.
 - HTTP 201 + `messageId` do Brevo é registrado como `submitted`; não representa entrega confirmada.
 - IDs Brevo são persistidos como `brevo:<messageId>` para atribuição inequívoca do provedor.
@@ -25,7 +25,9 @@ Enfileirar não consome a cota Brevo. A trava de 300/24h é aplicada imediatamen
 
 ## Política de importação
 
-A política canônica está em `AGENTS.md`: empresa deve estar ATIVA; e-mail não pode conter `contabil`; e-mail compartilhado por mais de 2 cadastros não entra; destinatário/CNPJ já enviado ou enfileirado não entra. MG é apenas prioridade de ordenação. Gates legados aposentados não podem voltar ao fluxo operacional.
+A política canônica está em `AGENTS.md`: empresa deve estar ATIVA; e-mail não pode conter `contabil`; e-mail compartilhado por mais de 2 cadastros não entra na fila/envio; destinatário/CNPJ já enviado ou enfileirado não entra. MG é apenas prioridade de ordenação. Gates legados aposentados não podem voltar ao fluxo operacional.
+
+A importação da Receita mantém escopo nacional. A regra de e-mail compartilhado é aplicada pelo `queue_manager` contra a tabela completa `mei_email.empresas`, garantindo a contagem global antes do enfileiramento sem exigir staging temporário de toda a base mensal.
 
 ## Cota e anti-reenvio
 
@@ -36,11 +38,17 @@ A cota móvel conta apenas evidência atribuída ao Brevo:
 
 A proteção contra replay é independente do provedor: uma submissão anterior continua bloqueando reenvio mesmo depois de o status evoluir para `delivered` ou `bounce_permanent`.
 
-## Atualização diária da base
+## Atualização da base oficial
 
 O timer `mei-mg-email-base-sync.timer` executa diariamente às 03:15 em `America/Sao_Paulo`, com `Persistent=true` e atraso aleatório de até 10 minutos.
 
-A rotina `scripts/sincronizar_base_diaria.py` registra cada execução em `mei_email.base_sync_runs` e não cria campanhas nem inicia o worker.
+A fonte padrão é `CNPJ_DAILY_SOURCE=receita_webdav`, usando o compartilhamento público oficial da Receita Federal em `arquivos.receitafederal.gov.br`. A rotina faz um `PROPFIND` leve para localizar a competência `YYYY-MM` mais recente. Se a competência já foi importada com sucesso, registra `no_change` e não baixa ZIPs.
+
+Quando surge uma competência nova, os dez arquivos `Estabelecimentos0.zip` a `Estabelecimentos9.zip` são validados e processados sequencialmente: um ZIP por vez, leitura direta de dentro do arquivo compactado, sem extração do CSV gigante, com reserva mínima de disco e remoção imediata do ZIP após processamento. Uma competência parcial ou ZIP truncado/corrompido nunca é registrado como sucesso.
+
+Casa dos Dados e o espelho Hugging Face permanecem apenas como modos explícitos de fallback/manual; não são requisitos da atualização normal de produção.
+
+A rotina `scripts/sincronizar_base_diaria.py` registra cada execução em `mei_email.base_sync_runs` e não cria campanhas nem inicia o worker de e-mail.
 
 ## Reconciliação de entrega Brevo
 

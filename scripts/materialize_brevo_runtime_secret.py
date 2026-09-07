@@ -15,7 +15,7 @@ BACKUP_DIR = Path("/home/ubuntu/.shopvivaliz/backups/mei-mg-email")
 CUTOVER_VALUES = {
     "EMAIL_PROVIDER": "brevo",
     "MAX_ENVIOS_POR_DIA": "300",
-    "META_ENVIOS_POR_DIA": "295",
+    "META_ENVIOS_POR_DIA": "300",
     "RATE_LIMIT_ENVIOS_POR_MINUTO": "10",
     "DELIVERABILITY_MAX_ENVIOS_POR_MINUTO": "10",
     "MAIL_FROM": "Contabilidade Melo <atendimento@shopvivaliz.com.br>",

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Sincronizacao diaria auditavel da base de CNPJ, independente do disparo.
+"""Sincronizacao auditavel da base de CNPJ, independente do disparo.
 
-Por padrao a rotina usa a pesquisa v5 da Casa dos Dados para descobrir novos
-CNPJs de MG em uma janela diaria sobreposta. A fonte espelho do Hugging Face
-continua disponivel apenas como fallback explicito.
+Por padrao a rotina verifica a competencia mensal oficial da Receita Federal via
+Nextcloud/WebDAV. Casa dos Dados e o espelho Hugging Face permanecem disponiveis
+somente como modos explicitos de fallback/manual.
 
-Toda execucao grava trilha em mei_email.base_sync_runs. Ausencia de credencial,
-fonte obsoleta ou falha de ingestao retorna codigo diferente de zero para que o
-monitoramento nao confunda "timer executou" com "dados novos foram avaliados".
+Toda execucao grava trilha em mei_email.base_sync_runs. Falha de fonte ou de
+ingestao retorna codigo diferente de zero para que monitoramento nao confunda
+"timer executou" com "dados novos foram avaliados".
 
 Esta rotina NAO cria campanhas e NAO inicia o worker de e-mail.
 """
@@ -25,15 +25,22 @@ from zoneinfo import ZoneInfo
 import psycopg
 from dotenv import load_dotenv
 
+try:
+    from scripts import receita_webdav
+except ImportError:  # execucao direta: python scripts/sincronizar_base_diaria.py
+    import receita_webdav  # type: ignore
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
-DAILY_SOURCE = os.getenv("CNPJ_DAILY_SOURCE", "casadosdados").strip().casefold()
-SOURCE_NAME = (
-    "casa_dos_dados_v5"
-    if DAILY_SOURCE in {"casadosdados", "casa_dos_dados", "cdd"}
-    else os.getenv("CNPJ_BASE_SOURCE_NAME", "huggingface_fluowai_datacorp_cnpj").strip()
-)
+DAILY_SOURCE = os.getenv("CNPJ_DAILY_SOURCE", "receita_webdav").strip().casefold()
+if DAILY_SOURCE in {"receita", "receita_webdav", "rfb", "receita_federal"}:
+    SOURCE_NAME = "receita_federal_webdav"
+elif DAILY_SOURCE in {"casadosdados", "casa_dos_dados", "cdd"}:
+    SOURCE_NAME = "casa_dos_dados_v5"
+else:
+    SOURCE_NAME = os.getenv("CNPJ_BASE_SOURCE_NAME", "huggingface_fluowai_datacorp_cnpj").strip()
+
 SOURCE_API = os.getenv(
     "CNPJ_BASE_SOURCE_METADATA_URL",
     "https://huggingface.co/api/datasets/fluowai/datacorp-cnpj-data",
@@ -120,12 +127,79 @@ def _count_companies(conn) -> int:
         return int(cur.fetchone()[0])
 
 
+def _previous_successful_revision(conn, run_id: int) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select source_revision
+              from mei_email.base_sync_runs
+             where source_name=%s
+               and id<>%s
+               and status in ('success','no_change')
+               and source_revision is not null
+             order by finished_at desc nulls last, id desc
+             limit 1
+            """,
+            (SOURCE_NAME, run_id),
+        )
+        row = cur.fetchone()
+    return str(row[0]) if row and row[0] else None
+
+
 def _parse_result_line(stdout: str, prefix: str) -> dict:
     for line in stdout.splitlines():
         if line.startswith(prefix):
             raw = line[len(prefix) :].strip()
             return json.loads(raw) if raw else {}
     return {}
+
+
+def sync_receita_webdav(conn, run_id: int) -> int:
+    manifest = receita_webdav.discover_latest_snapshot()
+    revision = f"receita:{manifest.competence}"
+    previous_revision = _previous_successful_revision(conn, run_id)
+    details = {
+        "daily_source": "receita_webdav",
+        "manifest": receita_webdav.manifest_public_summary(manifest),
+        "previous_revision": previous_revision,
+        "safety": "no_campaign_creation_no_worker_start",
+    }
+
+    if previous_revision == revision and not FORCE_REFRESH:
+        finish_run(
+            conn,
+            run_id,
+            "no_change",
+            source_revision=revision,
+            details=details,
+        )
+        print("BASE_SYNC_STATUS=no_change", flush=True)
+        print(f"SOURCE_REVISION={revision}", flush=True)
+        return 0
+
+    rows_before = _count_companies(conn)
+    conn.commit()
+    stats = receita_webdav.import_snapshot(conn, manifest)
+    rows_after = _count_companies(conn)
+    rows_added = max(rows_after - rows_before, 0)
+    details["import"] = stats.to_dict()
+    finish_run(
+        conn,
+        run_id,
+        "success",
+        source_revision=revision,
+        rows_before=rows_before,
+        rows_after=rows_after,
+        rows_added=rows_added,
+        details=details,
+    )
+    print("BASE_SYNC_STATUS=success", flush=True)
+    print(f"SOURCE_REVISION={revision}", flush=True)
+    print(f"ROWS_BEFORE={rows_before}", flush=True)
+    print(f"ROWS_AFTER={rows_after}", flush=True)
+    print(f"ROWS_ADDED={rows_added}", flush=True)
+    print("RECEITA_IMPORT_RESULT=" + json.dumps(stats.to_dict(), sort_keys=True), flush=True)
+    return 0
 
 
 def sync_casa_dos_dados(conn, run_id: int) -> int:
@@ -148,10 +222,6 @@ def sync_casa_dos_dados(conn, run_id: int) -> int:
         return 3
 
     rows_before = _count_companies(conn)
-    # SELECT count(*) opens a transaction in psycopg. The ingest subprocess can
-    # take a long time, so close that read transaction before waiting on it.
-    # The session-level advisory lock remains held and still guarantees a
-    # single base-sync execution without an hours-long idle-in-transaction.
     conn.commit()
     ingest = subprocess.run(
         [sys.executable, str(BASE_DIR / "scripts" / "ingest_casa_dos_dados_daily.py")],
@@ -175,6 +245,7 @@ def sync_casa_dos_dados(conn, run_id: int) -> int:
         "daily_source": "casadosdados",
         "api_result": result,
         "safety": "no_campaign_creation_no_worker_start",
+        "fallback_only": True,
     }
     finish_run(
         conn,
@@ -298,6 +369,8 @@ def main() -> int:
         conn.commit()
 
         try:
+            if DAILY_SOURCE in {"receita", "receita_webdav", "rfb", "receita_federal"}:
+                return sync_receita_webdav(conn, run_id)
             if DAILY_SOURCE in {"casadosdados", "casa_dos_dados", "cdd"}:
                 return sync_casa_dos_dados(conn, run_id)
             if DAILY_SOURCE in {"huggingface", "hf", "mirror"}:
