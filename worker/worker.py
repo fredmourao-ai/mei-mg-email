@@ -8,6 +8,7 @@ Microsoft Graph e registrado como `submitted`, nunca como entrega comprovada.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mei_mg_email.worker")
 WORKER_ADVISORY_LOCK_ID = 100002026
 MAX_TENTATIVAS_TRANSITORIAS = 5
-SENDER_BLOCK_SENTINEL = Path(__file__).resolve().parents[1] / "runtime" / "sender_blocked.pause"
+SENDER_BLOCK_SENTINEL = Path(os.getenv("SENDER_BLOCK_SENTINEL_PATH", "/var/lib/mei-mg-email/sender_blocked.pause"))
 
 
 def montar_corpo(template: str, empresa: dict) -> str:
