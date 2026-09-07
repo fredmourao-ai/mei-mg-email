@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Official Receita Federal CNPJ snapshot discovery and disk-safe import.
 
-This module is deterministic and intentionally independent from campaigns and the
-email worker. It reads the public Receita Nextcloud/WebDAV share, validates a
-complete monthly Establishments manifest and streams one ZIP at a time without
-extracting the uncompressed CSV to disk.
+The stable Receita host redirects to a rotating public Nextcloud share token.
+This module resolves that redirect at runtime, validates the complete monthly
+Estabelecimentos manifest and streams one ZIP at a time without extracting the
+uncompressed CSV to disk. It never creates campaigns or starts the email worker.
 """
 from __future__ import annotations
 
@@ -24,8 +24,12 @@ from urllib.request import Request, urlopen
 
 DEFAULT_SHARE_URL = os.getenv(
     "RECEITA_WEBDAV_SHARE_URL",
-    "https://arquivos.receitafederal.gov.br/index.php/s/TwY6Wd9h4aQ6DdP?dir=/",
+    "https://arquivos.receitafederal.gov.br/",
 ).strip()
+DEFAULT_DIRECTORY = os.getenv(
+    "RECEITA_WEBDAV_DIRECTORY",
+    "Dados/Cadastros/CNPJ",
+).strip("/")
 DEFAULT_CACHE_DIR = Path(
     os.getenv("RECEITA_WEBDAV_CACHE_DIR", "/var/lib/mei-mg-email/receita-cache")
 )
@@ -76,7 +80,29 @@ class ImportStats:
         return asdict(self)
 
 
-def parse_share_url(url: str) -> tuple[str, str, str]:
+def resolve_share_url(url: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> str:
+    """Resolve the stable Receita host to the currently active public share."""
+    parsed = urllib.parse.urlparse(url)
+    if "/s/" in parsed.path:
+        return url
+    req = Request(url, headers={"User-Agent": USER_AGENT}, method="GET")
+    try:
+        with urlopen(req, timeout=timeout_seconds) as response:
+            final_url = response.geturl()
+    except HTTPError as exc:
+        raise RuntimeError(f"Receita HTTP {exc.code} ao resolver share publico") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Receita indisponivel ao resolver share: {exc.reason}") from exc
+    if "/s/" not in urllib.parse.urlparse(final_url).path:
+        raise RuntimeError("Receita nao redirecionou para um share publico /s/")
+    return final_url
+
+
+def parse_share_url(
+    url: str,
+    *,
+    default_directory: str = DEFAULT_DIRECTORY,
+) -> tuple[str, str, str]:
     parsed = urllib.parse.urlparse(url)
     marker = "/s/"
     if marker not in parsed.path:
@@ -84,7 +110,8 @@ def parse_share_url(url: str) -> tuple[str, str, str]:
     token = parsed.path.split(marker, 1)[1].split("/", 1)[0].strip()
     if not token:
         raise RuntimeError("URL publica da Receita sem token")
-    directory = urllib.parse.parse_qs(parsed.query).get("dir", [""])[0].strip("/")
+    query = urllib.parse.parse_qs(parsed.query)
+    directory = query.get("dir", [default_directory])[0].strip("/")
     webdav = f"{parsed.scheme}://{parsed.netloc}/public.php/webdav"
     return token, directory, webdav
 
@@ -130,11 +157,18 @@ def parse_propfind_entries(payload: bytes) -> list[DavEntry]:
             continue
         href = urllib.parse.unquote(href_el.text)
         display = prop.find(f"{DAV}displayname")
-        name = (display.text if display is not None and display.text else href.rstrip("/").split("/")[-1]).strip()
+        name = (
+            display.text
+            if display is not None and display.text
+            else href.rstrip("/").split("/")[-1]
+        ).strip()
         if not name:
             continue
         resourcetype = prop.find(f"{DAV}resourcetype")
-        is_dir = bool(resourcetype is not None and resourcetype.find(f"{DAV}collection") is not None)
+        is_dir = bool(
+            resourcetype is not None
+            and resourcetype.find(f"{DAV}collection") is not None
+        )
         size_el = prop.find(f"{DAV}getcontentlength")
         try:
             size = int(size_el.text or 0) if size_el is not None else 0
@@ -144,12 +178,18 @@ def parse_propfind_entries(payload: bytes) -> list[DavEntry]:
     return entries
 
 
-def list_webdav_entries(url: str, token: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> list[DavEntry]:
+def list_webdav_entries(
+    url: str,
+    token: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> list[DavEntry]:
     return parse_propfind_entries(_propfind(url, token, timeout_seconds))
 
 
 def select_latest_competence(entries: list[DavEntry]) -> str:
-    folders = sorted({e.name for e in entries if e.is_dir and COMPETENCE_RE.fullmatch(e.name)})
+    folders = sorted(
+        {e.name for e in entries if e.is_dir and COMPETENCE_RE.fullmatch(e.name)}
+    )
     if not folders:
         raise RuntimeError("Receita WebDAV sem pasta YYYY-MM")
     return folders[-1]
@@ -170,12 +210,16 @@ def build_manifest(
     for expected in EXPECTED_ARCHIVES:
         matches = by_name.get(expected, [])
         if len(matches) != 1:
-            raise RuntimeError(f"Manifesto Receita invalido: esperado exatamente um {expected}")
+            raise RuntimeError(
+                f"Manifesto Receita invalido: esperado exatamente um {expected}"
+            )
         entry = matches[0]
         if entry.is_dir or entry.size <= 0:
-            raise RuntimeError(f"Manifesto Receita invalido: {expected} sem tamanho valido")
-        url = folder_url.rstrip("/") + "/" + urllib.parse.quote(expected)
-        files.append(RemoteZip(name=expected, url=url, size=entry.size))
+            raise RuntimeError(
+                f"Manifesto Receita invalido: {expected} sem tamanho valido"
+            )
+        remote_url = folder_url.rstrip("/") + "/" + urllib.parse.quote(expected)
+        files.append(RemoteZip(name=expected, url=remote_url, size=entry.size))
     return SnapshotManifest(
         competence=competence,
         files=tuple(files),
@@ -188,10 +232,13 @@ def discover_latest_snapshot(
     share_url: str = DEFAULT_SHARE_URL,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> SnapshotManifest:
-    token, directory, webdav = parse_share_url(share_url)
+    resolved_share_url = resolve_share_url(share_url, timeout_seconds)
+    token, directory, webdav = parse_share_url(resolved_share_url)
     root_url = webdav.rstrip("/")
     if directory:
-        root_url += "/" + "/".join(urllib.parse.quote(p) for p in directory.split("/") if p)
+        root_url += "/" + "/".join(
+            urllib.parse.quote(part) for part in directory.split("/") if part
+        )
     root_entries = list_webdav_entries(root_url, token, timeout_seconds)
     competence = select_latest_competence(root_entries)
     folder_url = root_url.rstrip("/") + "/" + urllib.parse.quote(competence)
@@ -205,7 +252,12 @@ def discover_latest_snapshot(
     )
 
 
-def ensure_disk_headroom(path: Path, *, remote_size: int, reserve_bytes: int = DEFAULT_DISK_RESERVE_BYTES) -> None:
+def ensure_disk_headroom(
+    path: Path,
+    *,
+    remote_size: int,
+    reserve_bytes: int = DEFAULT_DISK_RESERVE_BYTES,
+) -> None:
     path.mkdir(parents=True, exist_ok=True)
     free = shutil.disk_usage(path).free
     required = int(remote_size) + int(reserve_bytes)
@@ -223,7 +275,11 @@ def download_remote_zip(
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     reserve_bytes: int = DEFAULT_DISK_RESERVE_BYTES,
 ) -> Path:
-    ensure_disk_headroom(cache_dir, remote_size=remote.size, reserve_bytes=reserve_bytes)
+    ensure_disk_headroom(
+        cache_dir,
+        remote_size=remote.size,
+        reserve_bytes=reserve_bytes,
+    )
     final = cache_dir / remote.name
     part = cache_dir / f"{remote.name}.part"
     part.unlink(missing_ok=True)
@@ -249,10 +305,14 @@ def download_remote_zip(
         return final
     except HTTPError as exc:
         part.unlink(missing_ok=True)
-        raise RuntimeError(f"Receita WebDAV HTTP {exc.code} ao baixar {remote.name}") from exc
+        raise RuntimeError(
+            f"Receita WebDAV HTTP {exc.code} ao baixar {remote.name}"
+        ) from exc
     except URLError as exc:
         part.unlink(missing_ok=True)
-        raise RuntimeError(f"Receita WebDAV indisponivel ao baixar {remote.name}: {exc.reason}") from exc
+        raise RuntimeError(
+            f"Receita WebDAV indisponivel ao baixar {remote.name}: {exc.reason}"
+        ) from exc
     except Exception:
         part.unlink(missing_ok=True)
         raise
@@ -275,7 +335,7 @@ def _parse_date(value: str | None) -> str | None:
 def parse_establishment_row(row: list[str]) -> dict | None:
     if len(row) < 28:
         return None
-    values = [str(v or "").strip().strip('"') for v in row]
+    values = [str(value or "").strip().strip('"') for value in row]
     if values[5] != "02":
         return None
     email = values[27].strip().lower()
@@ -304,7 +364,9 @@ def parse_establishment_row(row: list[str]) -> dict | None:
     }
 
 
-def build_upsert_sql(values_clause: str = "(%s,%s,%s,%s,%s,%s,%s,%s,%s)") -> str:
+def build_upsert_sql(
+    values_clause: str = "(%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+) -> str:
     return f"""
         insert into mei_email.empresas
             (cnpj, razao_social, nome_fantasia, situacao_cadastral,
@@ -331,9 +393,15 @@ def _upsert_batch(conn, rows: list[dict]) -> int:
     for row in rows:
         params.extend(
             [
-                row["cnpj"], row["razao_social"], row["nome_fantasia"],
-                row["situacao_cadastral"], row["uf"], row["email"],
-                row["ddd_1"], row["telefone_1"], row["data_abertura"],
+                row["cnpj"],
+                row["razao_social"],
+                row["nome_fantasia"],
+                row["situacao_cadastral"],
+                row["uf"],
+                row["email"],
+                row["ddd_1"],
+                row["telefone_1"],
+                row["data_abertura"],
             ]
         )
     with conn.cursor() as cur:
@@ -341,7 +409,12 @@ def _upsert_batch(conn, rows: list[dict]) -> int:
         return max(int(cur.rowcount or 0), 0)
 
 
-def process_establishment_zip(conn, path: Path, *, batch_size: int = DEFAULT_BATCH_SIZE) -> tuple[int, int, int]:
+def process_establishment_zip(
+    conn,
+    path: Path,
+    *,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+) -> tuple[int, int, int]:
     rows_read = 0
     eligible = 0
     upserted = 0
@@ -350,9 +423,11 @@ def process_establishment_zip(conn, path: Path, *, batch_size: int = DEFAULT_BAT
     except zipfile.BadZipFile as exc:
         raise RuntimeError(f"ZIP Receita corrompido: {path.name}") from exc
     with archive:
-        members = [m for m in archive.infolist() if not m.is_dir()]
+        members = [member for member in archive.infolist() if not member.is_dir()]
         if len(members) != 1:
-            raise RuntimeError(f"ZIP Receita {path.name} deve conter exatamente um arquivo de dados")
+            raise RuntimeError(
+                f"ZIP Receita {path.name} deve conter exatamente um arquivo de dados"
+            )
         with archive.open(members[0], "r") as raw:
             text = io.TextIOWrapper(raw, encoding="latin-1", newline="")
             reader = csv.reader(text, delimiter=";")
@@ -395,7 +470,9 @@ def import_snapshot(
         )
         try:
             rows_read, eligible, upserted = process_establishment_zip(
-                conn, path, batch_size=batch_size
+                conn,
+                path,
+                batch_size=batch_size,
             )
             conn.commit()
             stats.files_processed += 1
@@ -416,5 +493,5 @@ def manifest_public_summary(manifest: SnapshotManifest) -> dict:
     return {
         "competence": manifest.competence,
         "source_host": parsed.netloc,
-        "files": [{"name": f.name, "size": f.size} for f in manifest.files],
+        "files": [{"name": item.name, "size": item.size} for item in manifest.files],
     }
