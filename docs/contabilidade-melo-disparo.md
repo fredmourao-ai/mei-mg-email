@@ -13,9 +13,9 @@ HTTP 201 do Brevo significa apenas `submitted`. A entrega so e confirmada quando
 ## Limites obrigatorios
 
 - `MAX_ENVIOS_POR_DIA=300`: hard cap absoluto do plano Brevo Free em janela movel local de 24h.
-- `META_ENVIOS_POR_DIA=295`: meta operacional com margem.
-- O runtime bloqueia configuracao acima de 300 antes do worker iniciar.
-- Testes/controlados tambem entram na cota por `mei_email.envios_externos_cota`.
+- `META_ENVIOS_POR_DIA=300`: meta operacional explicitamente aprovada pelo usuario em 07/09/2026.
+- O runtime bloqueia qualquer configuracao efetiva acima de 300 antes do worker iniciar.
+- Testes/controlados tambem entram na mesma cota por `mei_email.envios_externos_cota`.
 - IDs Brevo sao persistidos como `brevo:<messageId>`.
 
 ## Politica de elegibilidade
@@ -24,7 +24,7 @@ A fonte de verdade e exclusivamente `AGENTS.md`. Este documento nao redefine fil
 
 ## Deliverability e eventos
 
-`mei-mg-email-brevo-reconciler.service` consulta `/v3/smtp/statistics/events` com timeout, paginação e limites definidos.
+`mei-mg-email-brevo-reconciler.service` consulta `/v3/smtp/statistics/events` com timeout, paginacao e limites definidos.
 
 - `delivered` atualiza o envio para `delivered`.
 - `hardBounce`, `invalid`, `blocked` e `spam` atualizam para `bounce_permanent` e registram suppression tecnica.
@@ -39,7 +39,7 @@ BREVO_API_KEY=<secret runtime, nunca versionar>
 MAIL_FROM=Contabilidade Melo <atendimento@shopvivaliz.com.br>
 MAIL_FROM_NAME=Contabilidade Melo
 MAX_ENVIOS_POR_DIA=300
-META_ENVIOS_POR_DIA=295
+META_ENVIOS_POR_DIA=300
 RATE_LIMIT_ENVIOS_POR_MINUTO=10
 DELIVERABILITY_MAX_ENVIOS_POR_MINUTO=10
 MONITOR_BREVO_RECONCILER_UNIT=mei-mg-email-brevo-reconciler.service
@@ -47,14 +47,14 @@ MONITOR_BREVO_RECONCILER_UNIT=mei-mg-email-brevo-reconciler.service
 
 ## Checklist de liberacao
 
-1. manter `/var/lib/mei-mg-email/sender_blocked.pause` presente durante a migracao;
-2. validar `scripts/runtime_sender_preflight.py` com provider Brevo, secret presente, remetente correto e 300/295;
+1. manter `/var/lib/mei-mg-email/sender_blocked.pause` presente durante a manutencao;
+2. validar `scripts/runtime_sender_preflight.py` com provider Brevo, secret presente, remetente correto e limites efetivos 300/300;
 3. confirmar monitor, worker, reconciliador Brevo e timer diario instalados;
 4. confirmar `mei-mg-email-ndr-guard.service` desabilitado;
-5. executar `scripts/enviar_teste_brevo.py` e exigir `BREVO_TEST_DELIVERED=true`;
-6. conferir que o teste entrou no ledger de cota;
-7. somente depois remover a pausa persistente e reiniciar/recarregar o worker;
-8. validar novos envios Brevo-only, cota <=300/24h e ausencia de duplicidade.
+5. conferir a cota movel atribuida ao Brevo, incluindo testes externos;
+6. somente depois remover a pausa persistente e reiniciar/recarregar o worker;
+7. validar novos envios Brevo-only, total atribuido <=300/24h e ausencia de duplicidade;
+8. exigir ao menos um evento real `delivered` da fila antes de encerrar a liberacao.
 
 ## Arquivos principais
 
@@ -64,6 +64,7 @@ MONITOR_BREVO_RECONCILER_UNIT=mei-mg-email-brevo-reconciler.service
 - `scripts/enviar_teste_brevo.py`
 - `scripts/runtime_sender_preflight.py`
 - `scripts/monitor_operacao.py`
+- `scripts/receita_webdav.py`
 - `templates/mei-contabilidade-melo.html`
 
 Segredos nunca devem ser impressos, commitados ou copiados para logs.
