@@ -552,3 +552,19 @@ def manifest_public_summary(manifest: SnapshotManifest) -> dict:
         "source_host": parsed.netloc,
         "files": [{"name": item.name, "size": item.size} for item in manifest.files],
     }
+
+# Database reconciliation is split from transport so WebDAV parsing/downloading
+# stays focused. These aliases keep the public API stable for callers/tests.
+try:
+    from scripts import receita_snapshot_reconcile as _snapshot_reconcile
+except ImportError:  # direct execution from scripts/
+    import receita_snapshot_reconcile as _snapshot_reconcile  # type: ignore
+
+ExistingCnpjBloom = _snapshot_reconcile.ExistingCnpjBloom
+ImportStats = _snapshot_reconcile.ImportStats
+classify_establishment_row = _snapshot_reconcile.classify_establishment_row
+parse_establishment_row = _snapshot_reconcile.parse_establishment_row
+build_upsert_sql = _snapshot_reconcile.build_upsert_sql
+build_reconcile_existing_sql = _snapshot_reconcile.build_reconcile_existing_sql
+process_establishment_zip = _snapshot_reconcile.process_establishment_zip
+import_snapshot = _snapshot_reconcile.import_snapshot
