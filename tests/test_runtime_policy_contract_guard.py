@@ -32,3 +32,9 @@ def test_every_policy_writing_systemd_unit_runs_guard_before_start():
     for name in names:
         unit = ROOT / 'deploy' / 'systemd' / name
         assert 'runtime_policy_guard.py' in unit.read_text(encoding='utf-8'), name
+
+
+def test_base_sync_preflight_uses_rendered_application_python():
+    unit = (ROOT / 'deploy' / 'systemd' / 'mei-mg-email-base-sync.service').read_text(encoding='utf-8')
+    assert 'ExecStartPre=__PYTHON__ __APP_DIR__/scripts/runtime_policy_guard.py' in unit
+    assert 'ExecStartPre=/usr/bin/python3' not in unit
