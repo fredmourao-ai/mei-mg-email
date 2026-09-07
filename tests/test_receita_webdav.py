@@ -5,18 +5,52 @@ import pytest
 from scripts import receita_webdav as receita
 
 
-SHARE_URL = "https://arquivos.receitafederal.gov.br/index.php/s/TwY6Wd9h4aQ6DdP?dir=/"
+ROOT_URL = "https://arquivos.receitafederal.gov.br/"
+SHARE_URL = "https://arquivos.receitafederal.gov.br/index.php/s/gn672Ad4CF8N6TK"
+CNPJ_DIR = "Dados/Cadastros/CNPJ"
+
+
+class FakeRedirectResponse:
+    def __init__(self, final_url: str):
+        self.final_url = final_url
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def geturl(self):
+        return self.final_url
+
+    def read(self):
+        return b""
 
 
 def _entry(name: str, size: int = 100, is_dir: bool = False):
     return receita.DavEntry(name=name, href=f"/public.php/webdav/2026-08/{name}", size=size, is_dir=is_dir)
 
 
-def test_parse_public_share_url():
+def test_resolve_share_url_follows_official_root_redirect(monkeypatch):
+    monkeypatch.setattr(
+        receita,
+        "urlopen",
+        lambda _request, timeout: FakeRedirectResponse(SHARE_URL),
+    )
+    assert receita.resolve_share_url(ROOT_URL, timeout_seconds=10) == SHARE_URL
+
+
+def test_parse_public_share_url_uses_cnpj_directory_default():
     token, directory, webdav = receita.parse_share_url(SHARE_URL)
-    assert token == "TwY6Wd9h4aQ6DdP"
-    assert directory == ""
+    assert token == "gn672Ad4CF8N6TK"
+    assert directory == CNPJ_DIR
     assert webdav == "https://arquivos.receitafederal.gov.br/public.php/webdav"
+
+
+def test_explicit_dir_query_overrides_default_directory():
+    token, directory, _webdav = receita.parse_share_url(SHARE_URL + "?dir=/Outro/Caminho")
+    assert token == "gn672Ad4CF8N6TK"
+    assert directory == "Outro/Caminho"
 
 
 def test_select_latest_competence_ignores_non_month_directories():
