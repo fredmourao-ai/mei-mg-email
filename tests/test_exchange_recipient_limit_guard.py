@@ -8,6 +8,12 @@ from scripts.ndr_guard import contains_sender_blocked_marker, is_permanent_recip
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _legacy_exchange_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["EMAIL_PROVIDER"] = "microsoft_graph"
+    return env
+
+
 def test_exchange_5_1_90_is_global_sender_circuit_breaker():
     samples = (
         "550 5.1.90 Your message can't be sent because you've reached your daily limit for message recipients. (AS:46601)",
@@ -19,7 +25,7 @@ def test_exchange_5_1_90_is_global_sender_circuit_breaker():
 
 
 def test_exchange_recipient_safety_reserve_caps_old_9950_configuration():
-    env = os.environ.copy()
+    env = _legacy_exchange_env()
     env["META_ENVIOS_POR_DIA"] = "9950"
     env["EXCHANGE_RECIPIENT_SAFETY_RESERVE"] = "1000"
     command = [
@@ -41,7 +47,7 @@ def test_active_send_auditors_do_not_require_9950_anymore():
 
 
 def _effective_meta(**values):
-    env = os.environ.copy()
+    env = _legacy_exchange_env()
     env.update({key: str(value) for key, value in values.items()})
     command = [sys.executable, "-c", "from app.config import settings; print(settings.meta_envios_por_dia)"]
     completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, check=True)
