@@ -1,3 +1,4 @@
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -23,8 +24,26 @@ class FakeRedirectResponse:
     def geturl(self):
         return self.final_url
 
-    def read(self):
+    def read(self, _size=-1):
         return b""
+
+
+class FakeDownloadResponse:
+    def __init__(self, body: bytes, *, status: int, content_range: str | None = None):
+        self.stream = BytesIO(body)
+        self.status = status
+        self.headers = {}
+        if content_range is not None:
+            self.headers["Content-Range"] = content_range
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self, size=-1):
+        return self.stream.read(size)
 
 
 def _entry(name: str, size: int = 100, is_dir: bool = False):
@@ -79,6 +98,65 @@ def test_manifest_rejects_zero_sized_archive():
     entries = [_entry(f"Estabelecimentos{i}.zip", size=0 if i == 4 else 100) for i in range(10)]
     with pytest.raises(RuntimeError, match="Estabelecimentos4.zip"):
         receita.build_manifest("2026-08", entries, "https://host/public.php/webdav/2026-08")
+
+
+def test_download_resumes_existing_part_with_range(monkeypatch, tmp_path: Path):
+    remote = receita.RemoteZip("Estabelecimentos1.zip", "https://host/file.zip", 10)
+    part = tmp_path / "Estabelecimentos1.zip.part"
+    part.write_bytes(b"12345")
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["range"] = request.headers.get("Range")
+        return FakeDownloadResponse(b"67890", status=206, content_range="bytes 5-9/10")
+
+    monkeypatch.setattr(receita, "urlopen", fake_urlopen)
+    monkeypatch.setattr(receita.shutil, "disk_usage", lambda _path: type("D", (), {"free": 1000})())
+    path = receita.download_remote_zip(
+        remote,
+        token="token",
+        cache_dir=tmp_path,
+        timeout_seconds=10,
+        reserve_bytes=0,
+    )
+    assert captured["range"] == "bytes=5-"
+    assert path.read_bytes() == b"1234567890"
+    assert not part.exists()
+
+
+def test_download_retries_after_partial_stream_and_keeps_progress(monkeypatch, tmp_path: Path):
+    remote = receita.RemoteZip("Estabelecimentos2.zip", "https://host/file.zip", 10)
+    ranges = []
+    calls = 0
+
+    class BrokenResponse(FakeDownloadResponse):
+        def read(self, size=-1):
+            data = self.stream.read(size)
+            if data:
+                return data
+            raise OSError("network reset")
+
+    def fake_urlopen(request, timeout):
+        nonlocal calls
+        calls += 1
+        ranges.append(request.headers.get("Range"))
+        if calls == 1:
+            return BrokenResponse(b"12345", status=200)
+        return FakeDownloadResponse(b"67890", status=206, content_range="bytes 5-9/10")
+
+    monkeypatch.setattr(receita, "urlopen", fake_urlopen)
+    monkeypatch.setattr(receita.shutil, "disk_usage", lambda _path: type("D", (), {"free": 1000})())
+    path = receita.download_remote_zip(
+        remote,
+        token="token",
+        cache_dir=tmp_path,
+        timeout_seconds=10,
+        reserve_bytes=0,
+        attempts=2,
+        retry_delay_seconds=0,
+    )
+    assert ranges == [None, "bytes=5-"]
+    assert path.read_bytes() == b"1234567890"
 
 
 def _row(*, status="02", uf="SP", email="empresa@example.com"):
