@@ -74,11 +74,14 @@ def test_canonical_row_filter_rejects_inactive_and_contabil_email():
     assert receita.parse_establishment_row(_row(email="financeiro@contabilidade.com.br")) is None
 
 
-def test_upsert_sql_enforces_shared_email_limit_without_mg_gate():
+def test_upsert_sql_has_no_mg_gate_and_does_not_touch_stateful_columns():
     sql = receita.build_upsert_sql().casefold()
-    assert "having count(distinct cnpj) <= 2" in sql
-    assert "uf='mg'" not in sql.replace(" ", "")
-    assert 'uf = \'mg\'' not in sql
+    compact = sql.replace(" ", "")
+    assert "uf='mg'" not in compact
+    assert "uf=\'mg\'" not in compact
+    update_clause = sql.split("do update set", 1)[1]
+    for forbidden in ("opt_out", "enviado", "marketing_autorizado", "provavel_terceiro"):
+        assert forbidden not in update_clause
 
 
 def test_disk_guard_requires_archive_plus_reserve(monkeypatch, tmp_path: Path):
