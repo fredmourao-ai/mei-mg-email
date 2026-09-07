@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Monitor residente de envios, fila, NDR guard e atualizacao diaria da base.
+"""Monitor residente de envios, fila, Brevo reconciler e atualizacao diaria da base.
 
 Este processo NAO envia e-mails e NAO altera a fila. Ele observa o PostgreSQL,
 o lock do worker, a pausa persistente do remetente e os units systemd, grava
@@ -35,7 +35,7 @@ MONITOR_SEND_STALL_MINUTES = max(int(os.getenv("MONITOR_SEND_STALL_MINUTES", "10
 MONITOR_BASE_MAX_AGE_HOURS = max(float(os.getenv("MONITOR_BASE_MAX_AGE_HOURS", "26")), 1.0)
 MONITOR_STATUS_DIR = Path(os.getenv("MONITOR_STATUS_DIR", str(BASE_DIR / "runtime" / "monitor")))
 MONITOR_WORKER_UNIT = os.getenv("MONITOR_WORKER_UNIT", "mei-mg-email-worker.service").strip()
-MONITOR_NDR_GUARD_UNIT = os.getenv("MONITOR_NDR_GUARD_UNIT", "mei-mg-email-ndr-guard.service").strip()
+MONITOR_BREVO_RECONCILER_UNIT = os.getenv("MONITOR_BREVO_RECONCILER_UNIT", "mei-mg-email-brevo-reconciler.service").strip()
 MONITOR_BASE_TIMER_UNIT = os.getenv("MONITOR_BASE_TIMER_UNIT", "mei-mg-email-base-sync.timer").strip()
 SENDER_BLOCK_SENTINEL_PATH = Path(
     os.getenv("SENDER_BLOCK_SENTINEL_PATH", "/var/lib/mei-mg-email/sender_blocked.pause")
@@ -97,20 +97,20 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
               count(*) filter (where status::text = 'pendente') as pendentes,
               count(*) filter (where status::text = 'enviando') as enviando,
               count(*) filter (
-                where status::text in ('submitted','enviado')
-                  and enviado_em >= now() - interval '24 hours'
+                where provider_message_id like 'brevo:%'
+                  and submitted_at >= now() - interval '24 hours'
               ) as enviados_24h,
               count(*) filter (
-                where status::text in ('submitted','enviado')
-                  and enviado_em >= now() - interval '60 minutes'
+                where provider_message_id like 'brevo:%'
+                  and submitted_at >= now() - interval '60 minutes'
               ) as enviados_60m,
               count(*) filter (
-                where status::text in ('submitted','enviado')
-                  and enviado_em >= now() - interval '15 minutes'
+                where provider_message_id like 'brevo:%'
+                  and submitted_at >= now() - interval '15 minutes'
               ) as enviados_15m,
               count(*) filter (
-                where status::text in ('submitted','enviado')
-                  and enviado_em >= now() - interval '5 minutes'
+                where provider_message_id like 'brevo:%'
+                  and submitted_at >= now() - interval '5 minutes'
               ) as enviados_5m,
               count(*) filter (
                 where status::text = 'falhou'
@@ -120,7 +120,7 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
                 where status::text = 'sender_blocked'
                   and criado_em >= now() - interval '24 hours'
               ) as sender_blocked_24h,
-              max(enviado_em) filter (where status::text in ('submitted','enviado')) as ultimo_envio
+              max(submitted_at) filter (where provider_message_id like 'brevo:%') as ultimo_envio
             from mei_email.envios
             """
         )
@@ -136,7 +136,7 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
              where active
                and scope = 'email'
                and reason = 'hard_bounce'
-               and source = 'async_ndr_graph_guard'
+               and source = 'brevo_event_reconciler'
             """
         )
         bounce = dict(cur.fetchone())
@@ -229,8 +229,8 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
             "systemd_active": _systemctl("is-active", MONITOR_WORKER_UNIT),
             "sender_block_pause_active": SENDER_BLOCK_SENTINEL_PATH.is_file(),
             "sender_block_pause_path": str(SENDER_BLOCK_SENTINEL_PATH),
-            "ndr_guard_active": _systemctl("is-active", MONITOR_NDR_GUARD_UNIT),
-            "ndr_guard_enabled": _systemctl("is-enabled", MONITOR_NDR_GUARD_UNIT),
+            "brevo_reconciler_active": _systemctl("is-active", MONITOR_BREVO_RECONCILER_UNIT),
+            "brevo_reconciler_enabled": _systemctl("is-enabled", MONITOR_BREVO_RECONCILER_UNIT),
         },
         "base_sync": {
             "latest": base,
@@ -284,19 +284,19 @@ def construir_alertas(snapshot: dict) -> list[dict]:
             f"Circuit breaker de remetente esta ativo em {worker.get('sender_block_pause_path')}.",
         )
 
-    ndr_guard_active = worker.get("ndr_guard_active")
-    ndr_guard_enabled = worker.get("ndr_guard_enabled")
-    if ndr_guard_active is not None and ndr_guard_active != "active":
+    reconciler_active = worker.get("brevo_reconciler_active")
+    reconciler_enabled = worker.get("brevo_reconciler_enabled")
+    if reconciler_active is not None and reconciler_active != "active":
         add(
             "critical",
-            "ndr_guard_not_active",
-            f"NDR guard nao esta ativo: {ndr_guard_active}.",
+            "brevo_reconciler_not_active",
+            f"Brevo reconciler nao esta ativo: {reconciler_active}.",
         )
-    if ndr_guard_enabled is not None and ndr_guard_enabled not in {"enabled", "static"}:
+    if reconciler_enabled is not None and reconciler_enabled not in {"enabled", "static"}:
         add(
             "critical",
-            "ndr_guard_not_enabled",
-            f"NDR guard nao esta habilitado: {ndr_guard_enabled}.",
+            "brevo_reconciler_not_enabled",
+            f"Brevo reconciler nao esta habilitado: {reconciler_enabled}.",
         )
 
     hard_bounces_60m = int(sending.get("hard_bounces_60m") or 0)
@@ -387,7 +387,7 @@ def executar_uma_vez() -> dict:
         snapshot = coletar_snapshot(conn)
     persistir_snapshot(snapshot)
     logger.info(
-        "MONITOR_SNAPSHOT health=%s fila=%d enviados_24h=%d enviados_15m=%d hard_bounce_60m=%d hard_bounce_rate_60m=%.2f hard_bounce_rate_24h=%.2f elegiveis=%d base_age_h=%s pause=%s ndr_guard=%s",
+        "MONITOR_SNAPSHOT health=%s fila=%d enviados_24h=%d enviados_15m=%d hard_bounce_60m=%d hard_bounce_rate_60m=%.2f hard_bounce_rate_24h=%.2f elegiveis=%d base_age_h=%s pause=%s brevo_reconciler=%s",
         snapshot["health"],
         snapshot["queue"]["total"],
         snapshot["sending"]["submitted_enviado_24h"],
@@ -398,7 +398,7 @@ def executar_uma_vez() -> dict:
         snapshot["queue"]["elegiveis_restantes"],
         snapshot["base_sync"]["age_hours"],
         snapshot["worker"]["sender_block_pause_active"],
-        snapshot["worker"]["ndr_guard_active"],
+        snapshot["worker"]["brevo_reconciler_active"],
     )
     for alert in snapshot["alerts"]:
         level = logging.CRITICAL if alert["level"] == "critical" else logging.WARNING
@@ -417,13 +417,13 @@ def main() -> int:
         return 2 if snapshot["health"] == "critical" else 0
 
     logger.info(
-        "Monitor iniciado interval=%ss stall=%smin base_max_age=%sh status_dir=%s sentinel=%s ndr_unit=%s",
+        "Monitor iniciado interval=%ss stall=%smin base_max_age=%sh status_dir=%s sentinel=%s brevo_reconciler_unit=%s",
         MONITOR_INTERVAL_SECONDS,
         MONITOR_SEND_STALL_MINUTES,
         MONITOR_BASE_MAX_AGE_HOURS,
         MONITOR_STATUS_DIR,
         SENDER_BLOCK_SENTINEL_PATH,
-        MONITOR_NDR_GUARD_UNIT,
+        MONITOR_BREVO_RECONCILER_UNIT,
     )
     while True:
         started = time.monotonic()

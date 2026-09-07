@@ -94,13 +94,13 @@ def test_sender_pause_explains_intentional_worker_stop():
     assert "sending_stalled" not in result
 
 
-def test_ndr_guard_failure_is_critical():
+def test_brevo_reconciler_failure_is_critical_from_base_snapshot():
     snapshot = snapshot_base()
-    snapshot["worker"]["ndr_guard_active"] = "failed"
-    snapshot["worker"]["ndr_guard_enabled"] = "disabled"
+    snapshot["worker"]["brevo_reconciler_active"] = "failed"
+    snapshot["worker"]["brevo_reconciler_enabled"] = "disabled"
     result = codes(snapshot)
-    assert "ndr_guard_not_active" in result
-    assert "ndr_guard_not_enabled" in result
+    assert "brevo_reconciler_not_active" in result
+    assert "brevo_reconciler_not_enabled" in result
 
 
 def test_base_sync_overdue_and_timer_disabled_are_detected():
@@ -166,3 +166,25 @@ def test_material_hard_bounce_rate_worsening_is_detected():
         "hard_bounce_rate_24h_pct": 7.0,
     })
     assert "hard_bounce_rate_worsening" in codes(snapshot)
+
+
+def test_brevo_reconciler_failure_is_critical():
+    snapshot = snapshot_base()
+    snapshot["worker"].pop("ndr_guard_active", None)
+    snapshot["worker"].pop("ndr_guard_enabled", None)
+    snapshot["worker"]["brevo_reconciler_active"] = "failed"
+    snapshot["worker"]["brevo_reconciler_enabled"] = "disabled"
+    result = codes(snapshot)
+    assert "brevo_reconciler_not_active" in result
+    assert "brevo_reconciler_not_enabled" in result
+
+
+def test_monitor_uses_brevo_hard_bounce_source():
+    source = (ROOT / "scripts" / "monitor_operacao.py").read_text(encoding="utf-8")
+    assert "brevo_event_reconciler" in source
+
+
+def test_monitor_counts_brevo_quota_by_submission_evidence_not_final_status():
+    source = (ROOT / "scripts" / "monitor_operacao.py").read_text(encoding="utf-8").casefold()
+    assert "provider_message_id like 'brevo:%'" in source
+    assert "submitted_at" in source
