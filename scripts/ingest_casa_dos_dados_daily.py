@@ -17,6 +17,7 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -157,11 +158,20 @@ def normalize_company(item: dict) -> dict | None:
     }
 
 
+def _complete_result_url() -> str:
+    parts = urlsplit(API_URL)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["tipo_resultado"] = "completo"
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+    )
+
+
 def request_page(payload: dict) -> dict:
     if not API_KEY:
         raise RuntimeError("CASA_DOS_DADOS_API_KEY nao configurada")
     req = Request(
-        API_URL,
+        _complete_result_url(),
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "api-key": API_KEY,
@@ -288,6 +298,12 @@ def main() -> int:
                 break
         else:
             raise RuntimeError(f"Paginacao excedeu CASA_DOS_DADOS_MAX_PAGES={MAX_PAGES}")
+
+    if stats["received"] > 0 and stats["with_email_in_response"] == 0:
+        raise RuntimeError(
+            "Casa dos Dados retornou registros sem contato de email; "
+            "resultado completo/contrato da API indisponivel"
+        )
 
     print("CASA_DOS_DADOS_STATUS=success", flush=True)
     print("CASA_DOS_DADOS_RESULT=" + json.dumps(stats, ensure_ascii=False, sort_keys=True), flush=True)
