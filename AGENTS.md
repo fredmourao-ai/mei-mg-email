@@ -28,7 +28,7 @@ Se o guard falhar, NAO contorne, NAO edite a lista de proibicoes e NAO force o s
 - Nao religar agentes autonomos durante manutencao do repositorio.
 - Nao remover opt-out ou suppressions tecnicas sem revisao especifica.
 - Nao alterar a meta de fila 14.800-15.000 sem aprovacao explicita.
-- Preserve anti-reenvio e idempotencia do Graph.
+- Preserve anti-reenvio e idempotencia entre provedores; uma submissao anterior nunca pode ser reenviada por troca de provider.
 
 ## Politica obrigatoria de consumo de IA e execucao recorrente
 - Claude, GPT/OpenAI e Codex pagos sao permitidos somente em tarefas finitas e devem encerrar quando a tarefa concluir ou atingir bloqueio real.

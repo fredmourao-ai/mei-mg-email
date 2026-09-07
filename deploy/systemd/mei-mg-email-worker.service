@@ -1,5 +1,5 @@
 [Unit]
-Description=MEI MG Email Microsoft Graph App-Only Worker
+Description=MEI MG Email Brevo Free Worker
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
