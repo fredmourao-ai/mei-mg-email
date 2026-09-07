@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import re
+import time
 
 import duckdb
 import psycopg
@@ -24,6 +25,32 @@ SITUACAO_MAP = {
 }
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+TRANSIENT_HTTP_RE = re.compile(r"HTTP\s+(?:429|5\d\d)\b", re.IGNORECASE)
+
+
+def execute_parquet_query_with_retry(
+    conn_duck,
+    query: str,
+    *,
+    attempts: int = 3,
+    base_delay_seconds: float = 2.0,
+):
+    """Retry only transient HTTP source failures; preserve fail-closed behavior."""
+    attempts = max(int(attempts), 1)
+    for attempt in range(1, attempts + 1):
+        try:
+            return conn_duck.execute(query)
+        except Exception as exc:
+            transient = bool(TRANSIENT_HTTP_RE.search(str(exc)))
+            if not transient or attempt >= attempts:
+                raise
+            delay = base_delay_seconds * attempt
+            print(
+                f"  -> fonte temporariamente indisponivel; retry {attempt}/{attempts - 1} em {delay:.1f}s: {exc}",
+                flush=True,
+            )
+            if delay > 0:
+                time.sleep(delay)
 
 
 def format_date(dt_str: str | None) -> str | None:
@@ -121,7 +148,7 @@ def fetch_and_ingest_mg_data() -> None:
                   and lower(trim(email)) not like '%contabil%'
                   and sit_cadastral = '02'
             """
-            cursor = conn_duck.execute(query)
+            cursor = execute_parquet_query_with_retry(conn_duck, query)
 
             total_lote = 0
             while True:
