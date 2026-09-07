@@ -14,6 +14,7 @@ import io
 import os
 import re
 import shutil
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 import zipfile
@@ -39,6 +40,8 @@ DEFAULT_DISK_RESERVE_BYTES = max(
     256 * 1024**2,
 )
 DEFAULT_BATCH_SIZE = max(int(os.getenv("RECEITA_WEBDAV_BATCH_SIZE", "1000")), 100)
+DEFAULT_DOWNLOAD_ATTEMPTS = max(int(os.getenv("RECEITA_WEBDAV_DOWNLOAD_ATTEMPTS", "4")), 1)
+DEFAULT_RETRY_DELAY_SECONDS = max(float(os.getenv("RECEITA_WEBDAV_RETRY_DELAY_SECONDS", "5")), 0.0)
 USER_AGENT = "ShopVivaliz-MEI-receita-webdav/1.0"
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 COMPETENCE_RE = re.compile(r"^\d{4}-\d{2}$")
@@ -267,6 +270,20 @@ def ensure_disk_headroom(
         )
 
 
+def _range_is_valid(response, start: int, expected_size: int) -> bool:
+    if start <= 0:
+        return True
+    status = int(getattr(response, "status", 0) or 0)
+    content_range = str(response.headers.get("Content-Range") or "")
+    expected_prefix = f"bytes {start}-"
+    expected_suffix = f"/{expected_size}"
+    return status == 206 and content_range.startswith(expected_prefix) and content_range.endswith(expected_suffix)
+
+
+def _retryable_http(code: int) -> bool:
+    return code in {408, 416, 429} or 500 <= code <= 599
+
+
 def download_remote_zip(
     remote: RemoteZip,
     *,
@@ -274,48 +291,88 @@ def download_remote_zip(
     cache_dir: Path = DEFAULT_CACHE_DIR,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     reserve_bytes: int = DEFAULT_DISK_RESERVE_BYTES,
+    attempts: int = DEFAULT_DOWNLOAD_ATTEMPTS,
+    retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
 ) -> Path:
-    ensure_disk_headroom(
-        cache_dir,
-        remote_size=remote.size,
-        reserve_bytes=reserve_bytes,
-    )
+    """Download one ZIP with bounded retry and safe HTTP Range resume."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
     final = cache_dir / remote.name
     part = cache_dir / f"{remote.name}.part"
-    part.unlink(missing_ok=True)
-    req = Request(
-        remote.url,
-        headers={"Authorization": _basic_auth(token), "User-Agent": USER_AGENT},
-        method="GET",
-    )
-    total = 0
-    try:
-        with urlopen(req, timeout=timeout_seconds) as response, part.open("wb") as handle:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                handle.write(chunk)
-                total += len(chunk)
-        if total != remote.size:
-            raise RuntimeError(
-                f"ZIP Receita truncado {remote.name}: recebido={total} esperado={remote.size}"
-            )
+    attempts = max(int(attempts), 1)
+
+    if final.exists():
+        if final.stat().st_size == remote.size:
+            return final
+        final.unlink(missing_ok=True)
+    if part.exists() and part.stat().st_size > remote.size:
+        part.unlink(missing_ok=True)
+    if part.exists() and part.stat().st_size == remote.size:
         part.replace(final)
         return final
-    except HTTPError as exc:
-        part.unlink(missing_ok=True)
-        raise RuntimeError(
-            f"Receita WebDAV HTTP {exc.code} ao baixar {remote.name}"
-        ) from exc
-    except URLError as exc:
-        part.unlink(missing_ok=True)
-        raise RuntimeError(
-            f"Receita WebDAV indisponivel ao baixar {remote.name}: {exc.reason}"
-        ) from exc
-    except Exception:
-        part.unlink(missing_ok=True)
-        raise
+
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        start = part.stat().st_size if part.exists() else 0
+        remaining = max(remote.size - start, 0)
+        ensure_disk_headroom(
+            cache_dir,
+            remote_size=remaining,
+            reserve_bytes=reserve_bytes,
+        )
+        headers = {
+            "Authorization": _basic_auth(token),
+            "User-Agent": USER_AGENT,
+        }
+        if start:
+            headers["Range"] = f"bytes={start}-"
+        req = Request(remote.url, headers=headers, method="GET")
+        try:
+            with urlopen(req, timeout=timeout_seconds) as response:
+                if start and not _range_is_valid(response, start, remote.size):
+                    part.unlink(missing_ok=True)
+                    raise RuntimeError(
+                        f"Receita WebDAV nao confirmou retomada segura de {remote.name}"
+                    )
+                mode = "ab" if start else "wb"
+                with part.open(mode) as handle:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        handle.write(chunk)
+
+            total = part.stat().st_size if part.exists() else 0
+            if total == remote.size:
+                part.replace(final)
+                return final
+            if total > remote.size:
+                part.unlink(missing_ok=True)
+                raise RuntimeError(
+                    f"ZIP Receita excedeu tamanho esperado {remote.name}: recebido={total} esperado={remote.size}"
+                )
+            last_error = RuntimeError(
+                f"ZIP Receita incompleto {remote.name}: recebido={total} esperado={remote.size}"
+            )
+        except HTTPError as exc:
+            if not _retryable_http(exc.code):
+                raise RuntimeError(
+                    f"Receita WebDAV HTTP {exc.code} ao baixar {remote.name}"
+                ) from exc
+            if exc.code == 416:
+                part.unlink(missing_ok=True)
+            last_error = exc
+        except (URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+        except RuntimeError as exc:
+            last_error = exc
+
+        if attempt < attempts and retry_delay_seconds:
+            time.sleep(retry_delay_seconds)
+
+    total = part.stat().st_size if part.exists() else 0
+    raise RuntimeError(
+        f"falha ao baixar {remote.name} apos {attempts} tentativas; bytes_preservados={total}"
+    ) from last_error
 
 
 def _clean(value: object, max_len: int | None = None) -> str | None:
