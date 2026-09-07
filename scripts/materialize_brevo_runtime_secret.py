@@ -18,7 +18,7 @@ CUTOVER_VALUES = {
     "META_ENVIOS_POR_DIA": "295",
     "RATE_LIMIT_ENVIOS_POR_MINUTO": "10",
     "DELIVERABILITY_MAX_ENVIOS_POR_MINUTO": "10",
-    "MAIL_FROM": "Contabilidade Melo <naoresponda@dev.shopvivaliz.com.br>",
+    "MAIL_FROM": "Contabilidade Melo <atendimento@shopvivaliz.com.br>",
     "MAIL_FROM_NAME": "Contabilidade Melo",
     "MONITOR_BREVO_RECONCILER_UNIT": "mei-mg-email-brevo-reconciler.service",
     "TEST_RECIPIENT": "atendimento@shopvivaliz.com.br",

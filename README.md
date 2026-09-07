@@ -7,7 +7,7 @@ Sistema de fila, envio e monitoramento de e-mails para a operação MEI/MG da Co
 - Provedor exclusivo: **Brevo Transactional Email API**.
 - Plano operacional: **Brevo Free**, com hard cap local de **300 e-mails por janela móvel de 24 horas**.
 - Meta operacional: `META_ENVIOS_POR_DIA=295`, mantendo margem abaixo do teto.
-- Remetente permitido: `naoresponda@dev.shopvivaliz.com.br`.
+- Remetente permitido: `atendimento@shopvivaliz.com.br`.
 - HTTP 201 + `messageId` do Brevo é registrado como `submitted`; não representa entrega confirmada.
 - IDs Brevo são persistidos como `brevo:<messageId>` para atribuição inequívoca do provedor.
 - Entrega real e hard bounce são reconciliados por `mei-mg-email-brevo-reconciler.service`.

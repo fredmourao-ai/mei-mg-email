@@ -18,7 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
 from app.config import settings
-from app.email_provider import ALLOWED_SENDER, BrevoEmailProvider
+from app.email_provider import BREVO_ALLOWED_SENDER, BrevoEmailProvider
 from scripts.brevo_event_reconciler import classify_event
 from worker.worker import montar_corpo
 
@@ -119,7 +119,7 @@ def main() -> int:
         raise RuntimeError("Controlled test recipient must be internal ShopVivaLiz")
 
     provider = BrevoEmailProvider()
-    if provider.from_address.casefold() != ALLOWED_SENDER.casefold():
+    if provider.from_address.casefold() != BREVO_ALLOWED_SENDER.casefold():
         raise RuntimeError("Brevo sender differs from allowed sender")
     body = _render_test_body()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")

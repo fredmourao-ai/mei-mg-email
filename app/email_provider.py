@@ -30,6 +30,7 @@ from app.email_quality import recipient_has_obvious_provider_typo
 
 logger = logging.getLogger("mei_mg_email.email_provider")
 ALLOWED_SENDER = "naoresponda@dev.shopvivaliz.com.br"
+BREVO_ALLOWED_SENDER = "atendimento@shopvivaliz.com.br"
 
 
 @dataclass
@@ -119,14 +120,14 @@ class BrevoEmailProvider(EmailProvider):
 
     def __init__(self) -> None:
         self.api_key = os.getenv("BREVO_API_KEY", "").strip()
-        raw_from = os.getenv("MAIL_FROM", ALLOWED_SENDER).strip() or ALLOWED_SENDER
+        raw_from = os.getenv("MAIL_FROM", BREVO_ALLOWED_SENDER).strip() or BREVO_ALLOWED_SENDER
         parsed_name, parsed_address = parseaddr(raw_from)
         self.from_name = parsed_name.strip() or os.getenv("MAIL_FROM_NAME", "").strip() or "Contabilidade Melo"
-        self.from_address = parsed_address.strip() or ALLOWED_SENDER
+        self.from_address = parsed_address.strip() or BREVO_ALLOWED_SENDER
         if not self.api_key:
             raise RuntimeError("BREVO_API_KEY missing")
-        if self.from_address.casefold() != ALLOWED_SENDER.casefold():
-            raise RuntimeError(f"Remetente Brevo bloqueado por fail-closed. Permitido somente {ALLOWED_SENDER}.")
+        if self.from_address.casefold() != BREVO_ALLOWED_SENDER.casefold():
+            raise RuntimeError(f"Remetente Brevo bloqueado por fail-closed. Permitido somente {BREVO_ALLOWED_SENDER}.")
 
     @staticmethod
     def _parse_retry_after(error: HTTPError) -> int | None:
