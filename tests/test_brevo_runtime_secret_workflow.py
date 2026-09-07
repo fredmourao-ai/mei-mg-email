@@ -12,7 +12,8 @@ def test_brevo_secret_workflow_is_manual_local_and_bounded():
     assert "self-hosted" in source
     assert "Linux" in source
     assert "ARM64" in source
-    assert "mei-ci" in source
+    assert "mei-backend" in source
+    assert "mei-ci" not in source
     assert "secrets.BREVO_API_KEY" in source
     assert "timeout-minutes: 5" in source
     assert "MATERIALIZE_BREVO_RUNTIME" in source
