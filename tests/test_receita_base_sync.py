@@ -2,6 +2,14 @@ from scripts import sincronizar_base_diaria as sync
 from scripts.receita_webdav import ImportStats, RemoteZip, SnapshotManifest
 
 
+class CommitOnlyConnection:
+    def __init__(self):
+        self.commits = 0
+
+    def commit(self):
+        self.commits += 1
+
+
 def _manifest(month="2026-08"):
     return SnapshotManifest(
         competence=month,
@@ -43,8 +51,10 @@ def test_receita_new_revision_imports_and_records_success(monkeypatch):
     )
     captured = {}
     monkeypatch.setattr(sync, "finish_run", lambda _c, _r, status, **fields: captured.update(status=status, **fields))
+    conn = CommitOnlyConnection()
 
-    assert sync.sync_receita_webdav(object(), 11) == 0
+    assert sync.sync_receita_webdav(conn, 11) == 0
+    assert conn.commits == 1
     assert captured["status"] == "success"
     assert captured["source_revision"] == "receita:2026-09"
     assert captured["rows_before"] == 100
