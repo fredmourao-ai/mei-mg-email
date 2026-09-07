@@ -66,3 +66,10 @@ def test_existing_cnpj_bloom_has_no_false_negatives_for_added_values():
         bloom.add(value)
     assert all(value in bloom for value in values)
     assert len(bloom.bits) == 1024
+
+
+def test_reconcile_cnpj_predicate_is_index_friendly():
+    sql = receita.build_reconcile_existing_sql().casefold()
+    assert "current.cnpj = incoming.cnpj" in sql
+    assert "current.cnpj::text" not in sql
+    assert "%s::varchar" in sql

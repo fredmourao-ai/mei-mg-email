@@ -143,7 +143,7 @@ def build_upsert_sql(values_clause: str = "(%s,%s,%s,%s,%s,%s,%s,%s,%s)") -> str
     """
 
 
-def build_reconcile_existing_sql(values_clause: str = "(%s,%s,%s)") -> str:
+def build_reconcile_existing_sql(values_clause: str = "(%s::varchar,%s::varchar,%s::varchar)") -> str:
     return f"""
         update mei_email.empresas as current
            set situacao_cadastral = incoming.situacao_cadastral,
@@ -154,7 +154,7 @@ def build_reconcile_existing_sql(values_clause: str = "(%s,%s,%s)") -> str:
                end
           from (values {values_clause})
                as incoming(cnpj, situacao_cadastral, uf)
-         where current.cnpj::text = incoming.cnpj
+         where current.cnpj = incoming.cnpj
            and (current.situacao_cadastral, current.uf, current.email)
                is distinct from
                (incoming.situacao_cadastral,
@@ -180,7 +180,7 @@ def _upsert_batch(conn, rows: list[dict]) -> int:
 def _reconcile_batch(conn, rows: list[dict]) -> int:
     if not rows:
         return 0
-    one = "(%s,%s,%s)"
+    one = "(%s::varchar,%s::varchar,%s::varchar)"
     params: list[object] = []
     for row in rows:
         params.extend([row["cnpj"], row["situacao_cadastral"], row["uf"]])
