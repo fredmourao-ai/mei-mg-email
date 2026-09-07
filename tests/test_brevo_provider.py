@@ -25,10 +25,15 @@ def test_brevo_storage_id_is_provider_attributed():
     assert provider_module.brevo_storage_message_id("<abc@example>") == "brevo:<abc@example>"
 
 
+def test_brevo_and_legacy_graph_senders_are_separate():
+    assert provider_module.BREVO_ALLOWED_SENDER == "atendimento@shopvivaliz.com.br"
+    assert ALLOWED_SENDER == "naoresponda@dev.shopvivaliz.com.br"
+
+
 def test_brevo_provider_posts_transactional_email(monkeypatch):
     seen = {}
     monkeypatch.setenv("BREVO_API_KEY", "secret-test-key")
-    monkeypatch.setenv("MAIL_FROM", ALLOWED_SENDER)
+    monkeypatch.setenv("MAIL_FROM", provider_module.BREVO_ALLOWED_SENDER)
     monkeypatch.setenv("MAIL_FROM_NAME", "Contabilidade Melo")
 
     def fake_urlopen(request, timeout=0):
@@ -48,7 +53,7 @@ def test_brevo_provider_posts_transactional_email(monkeypatch):
     assert request.full_url == "https://api.brevo.com/v3/smtp/email"
     assert request.method == "POST"
     assert headers["api-key"] == "secret-test-key"
-    assert payload["sender"]["email"] == ALLOWED_SENDER
+    assert payload["sender"]["email"] == provider_module.BREVO_ALLOWED_SENDER
     assert payload["replyTo"]["email"] == "fiscalmelo@hotmail.com"
     assert payload["to"] == [{"email": "owner@example.com"}]
     assert payload["htmlContent"].startswith("<html>")
