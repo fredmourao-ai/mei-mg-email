@@ -42,14 +42,24 @@ def montar_corpo(template: str, empresa: dict) -> str:
 
 def obter_envios_ultimas_24h(conn: psycopg.Connection) -> int:
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            select count(*)
-              from mei_email.envios
-             where status::text in ('submitted', 'enviado')
-               and enviado_em >= now() - interval '24 hours'
-            """
-        )
+        if settings.email_provider.strip().lower() in {"brevo", "brevo_api"}:
+            cur.execute(
+                """
+                select count(*)
+                  from mei_email.envios
+                 where provider_message_id like 'brevo:%'
+                   and submitted_at >= now() - interval '24 hours'
+                """
+            )
+        else:
+            cur.execute(
+                """
+                select count(*)
+                  from mei_email.envios
+                 where status::text in ('submitted', 'enviado')
+                   and enviado_em >= now() - interval '24 hours'
+                """
+            )
         return cur.fetchone()[0]
 
 
@@ -156,7 +166,8 @@ def _ja_submetido_ou_entregue(conn: psycopg.Connection, envio_id, email: str) ->
             select 1
               from mei_email.envios
              where id <> %s
-               and status::text in ('submitted', 'enviado')
+               and provider_message_id is not null
+               and submitted_at is not null
                and lower(btrim(email::text)) = lower(btrim(%s))
              limit 1
             """,
@@ -390,6 +401,8 @@ def pegar_proximo_lote(conn: psycopg.Connection, campanha_id: str | None = None)
 
 
 def run() -> None:
+    if settings.email_provider.strip().lower() in {'brevo', 'brevo_api'} and settings.max_envios_por_dia > 300:
+        raise RuntimeError("Brevo Free MAX_ENVIOS_POR_DIA nao pode ultrapassar 300.")
     if settings.max_envios_por_dia > 10000:
         raise RuntimeError("MAX_ENVIOS_POR_DIA nao pode ultrapassar 10000 para Exchange Online.")
     if settings.meta_envios_por_dia <= 0:

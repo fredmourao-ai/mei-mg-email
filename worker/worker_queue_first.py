@@ -69,8 +69,8 @@ def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
             """
             select count(*)
               from mei_email.envios
-             where status in ('submitted', 'enviado')
-               and enviado_em >= statement_timestamp() - interval '24 hours'
+             where provider_message_id like 'brevo:%'
+               and submitted_at >= statement_timestamp() - interval '24 hours'
             """
         )
         row = cur.fetchone()
@@ -81,7 +81,8 @@ def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
                 """
                 select count(*)
                   from mei_email.envios_externos_cota
-                 where sent_at >= statement_timestamp() - interval '24 hours'
+                 where (provider_message_id like 'brevo:%' or source like 'brevo%')
+                   and sent_at >= statement_timestamp() - interval '24 hours'
                 """
             )
             row = cur.fetchone()
@@ -99,7 +100,8 @@ def _ja_submetido_ou_entregue_indexado(
             select 1
               from mei_email.envios
              where id <> %s
-               and status in ('submitted', 'enviado')
+               and provider_message_id is not null
+               and submitted_at is not null
                and lower(btrim(email::text)) = lower(btrim(%s))
              limit 1
             """,
@@ -166,7 +168,7 @@ def _marcar_envio_em_transito(conn: psycopg.Connection, envio_id) -> None:
             """
             update mei_email.envios
                set status = 'enviando',
-                   erro = 'dispatch_started: aguardando resultado do Microsoft Graph'
+                   erro = 'dispatch_started: aguardando resultado do provedor'
              where id = %s
                and status = 'pendente'
             """,
@@ -324,7 +326,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             provider_status = getattr(resultado, "status", None)
             if provider_status != "submitted":
                 raise RuntimeError(
-                    f"status Graph inesperado apos sendMail: {provider_status!r}"
+                    f"status de provedor inesperado apos envio: {provider_status!r}"
                 )
             base_worker._atualizar_envio(
                 conn,
@@ -351,7 +353,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             )
             base_worker._registrar_sender_blocked_pause(resultado.error)
             logger.critical(
-                "SENDER_BLOCKED: circuito persistente aberto em %s. Nenhum novo envio sera tentado ate recuperacao verificada no Exchange.",
+                "SENDER_BLOCKED: circuito persistente aberto em %s. Nenhum novo envio sera tentado ate recuperacao verificada no provedor.",
                 base_worker.SENDER_BLOCK_SENTINEL,
             )
             return
@@ -459,6 +461,8 @@ def _processar_se_disponivel(conn: psycopg.Connection, provider) -> bool:
 
 
 def run() -> None:
+    if settings.email_provider.strip().lower() in {'brevo', 'brevo_api'} and settings.max_envios_por_dia > 300:
+        raise RuntimeError("Brevo Free MAX_ENVIOS_POR_DIA nao pode ultrapassar 300.")
     if settings.max_envios_por_dia > 10000:
         raise RuntimeError("MAX_ENVIOS_POR_DIA nao pode ultrapassar 10000.")
     if settings.meta_envios_por_dia <= 0:
