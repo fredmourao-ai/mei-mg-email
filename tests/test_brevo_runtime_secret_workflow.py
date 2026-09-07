@@ -22,6 +22,17 @@ def test_brevo_secret_workflow_is_manual_local_and_bounded():
     assert "set -x" not in source
 
 
+def test_cutover_uses_full_history_and_safe_local_fast_forward():
+    source = WORKFLOW.read_text(encoding="utf-8")
+    assert "fetch-depth: 0" in source
+    assert "/home/ubuntu/mei-mg-email" in source
+    assert "git diff --quiet" in source
+    assert "git diff --cached --quiet" in source
+    assert "git fetch \"$GITHUB_WORKSPACE\" main" in source
+    assert "git merge --ff-only FETCH_HEAD" in source
+    assert "git reset --hard" not in source
+
+
 def test_materializer_is_fail_closed_and_preserves_backup():
     assert SCRIPT.exists()
     source = SCRIPT.read_text(encoding="utf-8")
