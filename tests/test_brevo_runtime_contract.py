@@ -26,6 +26,9 @@ def test_preflight_fail_closed_requires_brevo_secret_sender_and_cap():
     assert 'MAX_ENVIOS_POR_DIA' in source
     assert 'META_ENVIOS_POR_DIA' in source
     assert '> 300' in source
+    assert 'BASE_URL_DESCADASTRO' in source
+    assert '_validate_public_unsubscribe' in source
+    assert 'urlopen' in source
 
 
 def test_materializer_and_active_docs_use_validated_brevo_sender():
@@ -61,3 +64,25 @@ def test_docs_describe_brevo_as_current_provider_without_changing_filters():
         "MG e apenas prioridade de ordenacao, nunca filtro de elegibilidade",
     ):
         assert marker in agents
+
+
+def test_ci_and_queue_docs_use_current_brevo_300_contract():
+    ci = (ROOT / '.github' / 'workflows' / 'email-safety-ci.yml').read_text(encoding='utf-8')
+    queue_doc = (ROOT / 'docs' / 'fila-continua.md').read_text(encoding='utf-8')
+    assert 'MAX_ENVIOS_POR_DIA: "300"' in ci
+    assert 'META_ENVIOS_POR_DIA: "300"' in ci
+    assert 'MAX_ENVIOS_POR_DIA=300' in queue_doc
+    assert 'META_ENVIOS_POR_DIA=300' in queue_doc
+    assert 'Exchange' not in queue_doc
+
+
+def test_all_runtime_quota_counters_include_regular_and_external_brevo_submissions():
+    for path in (
+        ROOT / 'scripts' / 'monitor_operacao.py',
+        ROOT / 'app' / 'routes' / 'campanhas.py',
+    ):
+        source = path.read_text(encoding='utf-8').casefold()
+        assert "provider_message_id like 'brevo:%'" in source, path
+        assert 'submitted_at' in source, path
+        assert 'envios_externos_cota' in source, path
+        assert 'sent_at' in source, path

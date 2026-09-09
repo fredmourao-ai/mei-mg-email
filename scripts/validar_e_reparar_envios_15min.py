@@ -4,9 +4,9 @@
 Executa a cada 15 minutos via systemd timer para assegurar:
 1. Worker de envio ativo e rodando;
 2. Recuperação automática de lotes/envios travados;
-3. Reposição automática da fila quando o estoque de pendentes estiver baixo;
-4. Monitoramento da integridade do banco de dados e do provedor Microsoft Graph;
-5. Registro detalhado de métricas operacionais.
+3. Supervisao da fila, cuja reposicao pertence ao serviço dedicado;
+4. Monitoramento da integridade do banco de dados e da operacao Brevo;
+5. Registro detalhado de metricas operacionais.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ APP_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(APP_DIR / ".env")
 
 from app.config import settings
-from app.queue_manager import repor_fila_automatica, contar_pendentes
+from app.queue_manager import contar_pendentes
 
 STATE_DIR = Path("/var/lib/mei-mg-email")
 SENTINEL_PATH = STATE_DIR / "sender_blocked.pause"
@@ -89,36 +89,15 @@ def verificar_e_repor_fila(conn: psycopg.Connection) -> dict:
     logger.info("Fila atual de pendentes/processando: %d (min=%d, target=%d)",
                 pendentes, settings.queue_min_pending, settings.queue_target_pending)
 
-    adicionados = 0
-    sent_recent = 0
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            select count(*)
-              from mei_email.envios
-             where status::text in ('submitted','enviado')
-               and enviado_em >= now() - interval '20 minutes'
-            """
-        )
-        sent_recent = int(cur.fetchone()[0] or 0)
-
     if pendentes <= settings.queue_min_pending:
-        if sent_recent > 0:
-            logger.info(
-                "Fila abaixo do minimo, mas throughput real ativo (%d envios/20min). Reposicao delegada ao worker.",
-                sent_recent,
-            )
-        else:
-            logger.info("Estoque de fila abaixo do limite minimo (%d <= %d). Repondo fila...",
-                        pendentes, settings.queue_min_pending)
-            try:
-                adicionados = repor_fila_automatica(conn)
-                logger.info("Autoqueue concluida: %d destinatarios adicionados.", adicionados)
-            except Exception as exc:
-                logger.error("Erro ao repor fila automatica: %s", exc)
+        logger.info(
+            "Fila no gatilho de reposicao (%d <= %d); escrita delegada exclusivamente ao mei-mg-email-queue-replenisher.service.",
+            pendentes,
+            settings.queue_min_pending,
+        )
 
     novo_total = contar_pendentes(conn)
-    return {"antes": pendentes, "adicionados": adicionados, "depois": novo_total}
+    return {"antes": pendentes, "adicionados": 0, "depois": novo_total}
 
 
 def coletar_metricas(conn: psycopg.Connection) -> dict:

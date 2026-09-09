@@ -16,7 +16,8 @@ import re
 import shutil
 import time
 import urllib.parse
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
+from defusedxml.common import DefusedXmlException
 import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -47,6 +48,7 @@ EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 COMPETENCE_RE = re.compile(r"^\d{4}-\d{2}$")
 EXPECTED_ARCHIVES = tuple(f"Estabelecimentos{i}.zip" for i in range(10))
 DAV = "{DAV:}"
+RECEITA_ALLOWED_HOST = "arquivos.receitafederal.gov.br"
 
 
 @dataclass(frozen=True)
@@ -83,9 +85,20 @@ class ImportStats:
         return asdict(self)
 
 
+def _validate_receita_url(url: str) -> urllib.parse.ParseResult:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.casefold() != "https":
+        raise RuntimeError("Receita URL deve usar HTTPS")
+    if (parsed.hostname or "").casefold() != RECEITA_ALLOWED_HOST:
+        raise RuntimeError("Receita URL deve permanecer no host oficial")
+    if parsed.username or parsed.password or parsed.port not in (None, 443):
+        raise RuntimeError("Receita URL contem autoridade/porta nao permitida")
+    return parsed
+
+
 def resolve_share_url(url: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> str:
     """Resolve the stable Receita host to the currently active public share."""
-    parsed = urllib.parse.urlparse(url)
+    parsed = _validate_receita_url(url)
     if "/s/" in parsed.path:
         return url
     req = Request(url, headers={"User-Agent": USER_AGENT}, method="GET")
@@ -96,7 +109,8 @@ def resolve_share_url(url: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) 
         raise RuntimeError(f"Receita HTTP {exc.code} ao resolver share publico") from exc
     except URLError as exc:
         raise RuntimeError(f"Receita indisponivel ao resolver share: {exc.reason}") from exc
-    if "/s/" not in urllib.parse.urlparse(final_url).path:
+    final_parsed = _validate_receita_url(final_url)
+    if "/s/" not in final_parsed.path:
         raise RuntimeError("Receita nao redirecionou para um share publico /s/")
     return final_url
 
@@ -106,7 +120,7 @@ def parse_share_url(
     *,
     default_directory: str = DEFAULT_DIRECTORY,
 ) -> tuple[str, str, str]:
-    parsed = urllib.parse.urlparse(url)
+    parsed = _validate_receita_url(url)
     marker = "/s/"
     if marker not in parsed.path:
         raise RuntimeError("URL publica da Receita sem token /s/")
@@ -149,9 +163,9 @@ def _propfind(url: str, token: str, timeout_seconds: int) -> bytes:
 
 def parse_propfind_entries(payload: bytes) -> list[DavEntry]:
     try:
-        root = ET.fromstring(payload)
-    except ET.ParseError as exc:
-        raise RuntimeError("Receita WebDAV retornou XML invalido") from exc
+        root = ET.fromstring(payload, forbid_dtd=True, forbid_entities=True, forbid_external=True)
+    except (ET.ParseError, DefusedXmlException) as exc:
+        raise RuntimeError("Receita WebDAV retornou XML inseguro ou invalido") from exc
     entries: list[DavEntry] = []
     for response in root.findall(f"{DAV}response"):
         href_el = response.find(f"{DAV}href")

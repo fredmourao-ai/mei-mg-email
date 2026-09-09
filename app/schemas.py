@@ -21,10 +21,10 @@ class CampanhaCreate(BaseModel):
     limite_empresas: int | None = Field(
         default=None,
         ge=1,
-        le=10000,
+        le=300,
         description=(
-            "Limite maximo de contatos enfileirados nesta campanha. Para Exchange Online, "
-            "nao use mais de 10000 destinatarios em uma janela movel de 24 horas."
+            "Limite maximo solicitado por esta criacao de campanha. O runtime Brevo Free "
+            "tambem restringe a capacidade restante da janela movel de 24 horas a 300."
         ),
     )
 

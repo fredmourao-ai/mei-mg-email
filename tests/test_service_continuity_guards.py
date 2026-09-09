@@ -23,3 +23,13 @@ def test_brevo_reconciler_is_resident_and_replaces_exchange_ndr_guard():
     installer = (ROOT / 'scripts' / 'instalar_monitoramento_vm.sh').read_text(encoding='utf-8')
     assert 'enable --now mei-mg-email-brevo-reconciler.service' in installer
     assert 'disable --now mei-mg-email-ndr-guard.service' in installer
+
+
+def test_installer_manages_queue_replenisher_as_required_service():
+    installer = (ROOT / 'scripts' / 'instalar_monitoramento_vm.sh').read_text(encoding='utf-8')
+    assert 'render_unit "$APP_DIR/deploy/systemd/mei-mg-email-queue-replenisher.service"' in installer
+    assert 'enable --now mei-mg-email-queue-replenisher.service' in installer
+    assert 'is-active mei-mg-email-queue-replenisher.service' in installer
+    assert 'is-enabled mei-mg-email-queue-replenisher.service' in installer
+    assert 'systemctl restart mei-mg-email-worker.service' in installer
+    assert 'systemctl restart mei-mg-email-queue-replenisher.service' in installer

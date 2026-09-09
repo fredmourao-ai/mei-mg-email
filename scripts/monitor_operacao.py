@@ -36,6 +36,8 @@ MONITOR_BASE_MAX_AGE_HOURS = max(float(os.getenv("MONITOR_BASE_MAX_AGE_HOURS", "
 MONITOR_STATUS_DIR = Path(os.getenv("MONITOR_STATUS_DIR", str(BASE_DIR / "runtime" / "monitor")))
 MONITOR_WORKER_UNIT = os.getenv("MONITOR_WORKER_UNIT", "mei-mg-email-worker.service").strip()
 MONITOR_BREVO_RECONCILER_UNIT = os.getenv("MONITOR_BREVO_RECONCILER_UNIT", "mei-mg-email-brevo-reconciler.service").strip()
+MONITOR_QUEUE_REPLENISHER_UNIT = os.getenv("MONITOR_QUEUE_REPLENISHER_UNIT", "mei-mg-email-queue-replenisher.service").strip()
+MONITOR_BASE_SERVICE_UNIT = os.getenv("MONITOR_BASE_SERVICE_UNIT", "mei-mg-email-base-sync.service").strip()
 MONITOR_BASE_TIMER_UNIT = os.getenv("MONITOR_BASE_TIMER_UNIT", "mei-mg-email-base-sync.timer").strip()
 SENDER_BLOCK_SENTINEL_PATH = Path(
     os.getenv("SENDER_BLOCK_SENTINEL_PATH", "/var/lib/mei-mg-email/sender_blocked.pause")
@@ -128,6 +130,16 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
 
         cur.execute(
             """
+            select count(*) as externos_24h
+              from mei_email.envios_externos_cota
+             where (provider_message_id like 'brevo:%' or source like 'brevo%')
+               and sent_at >= statement_timestamp() - interval '24 hours'
+            """
+        )
+        externos_24h = int(cur.fetchone()["externos_24h"] or 0)
+
+        cur.execute(
+            """
             select
               count(*) filter (where updated_at >= now() - interval '24 hours') as hard_bounces_24h,
               count(*) filter (where updated_at >= now() - interval '60 minutes') as hard_bounces_60m,
@@ -181,7 +193,8 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
         for key in ("source_last_modified", "started_at", "finished_at"):
             base[key] = _iso(base.get(key))
 
-    sent_24h = int(envio.get("enviados_24h") or 0)
+    sent_regular_24h = int(envio.get("enviados_24h") or 0)
+    sent_24h = sent_regular_24h + externos_24h
     sent_60m = int(envio.get("enviados_60m") or 0)
     hard_bounces_24h = int(bounce.get("hard_bounces_24h") or 0)
     hard_bounces_60m = int(bounce.get("hard_bounces_60m") or 0)
@@ -209,6 +222,8 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
         },
         "sending": {
             "submitted_enviado_24h": sent_24h,
+            "submitted_regular_24h": sent_regular_24h,
+            "submitted_external_24h": externos_24h,
             "submitted_enviado_60m": sent_60m,
             "submitted_enviado_15m": int(envio.get("enviados_15m") or 0),
             "hard_bounces_24h": hard_bounces_24h,
@@ -231,10 +246,13 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
             "sender_block_pause_path": str(SENDER_BLOCK_SENTINEL_PATH),
             "brevo_reconciler_active": _systemctl("is-active", MONITOR_BREVO_RECONCILER_UNIT),
             "brevo_reconciler_enabled": _systemctl("is-enabled", MONITOR_BREVO_RECONCILER_UNIT),
+            "queue_replenisher_active": _systemctl("is-active", MONITOR_QUEUE_REPLENISHER_UNIT),
+            "queue_replenisher_enabled": _systemctl("is-enabled", MONITOR_QUEUE_REPLENISHER_UNIT),
         },
         "base_sync": {
             "latest": base,
             "age_hours": round(base_age_hours, 2) if base_age_hours is not None else None,
+            "service_active": _systemctl("is-active", MONITOR_BASE_SERVICE_UNIT),
             "timer_active": _systemctl("is-active", MONITOR_BASE_TIMER_UNIT),
             "timer_enabled": _systemctl("is-enabled", MONITOR_BASE_TIMER_UNIT),
         },
@@ -299,6 +317,21 @@ def construir_alertas(snapshot: dict) -> list[dict]:
             f"Brevo reconciler nao esta habilitado: {reconciler_enabled}.",
         )
 
+    replenisher_active = worker.get("queue_replenisher_active")
+    replenisher_enabled = worker.get("queue_replenisher_enabled")
+    if replenisher_active is not None and replenisher_active != "active":
+        add(
+            "critical",
+            "queue_replenisher_not_active",
+            f"Repositor da fila nao esta ativo: {replenisher_active}.",
+        )
+    if replenisher_enabled is not None and replenisher_enabled not in {"enabled", "static"}:
+        add(
+            "critical",
+            "queue_replenisher_not_enabled",
+            f"Repositor da fila nao esta habilitado: {replenisher_enabled}.",
+        )
+
     hard_bounces_60m = int(sending.get("hard_bounces_60m") or 0)
     hard_bounce_rate_60m = float(sending.get("hard_bounce_rate_60m_pct") or 0.0)
     hard_bounce_rate_24h = float(sending.get("hard_bounce_rate_24h_pct") or 0.0)
@@ -344,8 +377,12 @@ def construir_alertas(snapshot: dict) -> list[dict]:
         status = latest.get("status")
         if status in {"failed", "source_stale"}:
             add("critical", "base_sync_failed", f"Ultima sincronizacao da base terminou como {status}.")
-        elif status == "running" and (base_sync.get("age_hours") or 0) > 2:
-            add("critical", "base_sync_stuck", "Sincronizacao da base esta running ha mais de 2 horas.")
+        elif status == "running" and base_sync.get("service_active") not in {None, "active"}:
+            add(
+                "critical",
+                "base_sync_orphaned",
+                f"Banco marca sincronizacao como running, mas o servico esta {base_sync.get('service_active')}.",
+            )
         age_hours = base_sync.get("age_hours")
         if age_hours is not None and age_hours > MONITOR_BASE_MAX_AGE_HOURS:
             add(

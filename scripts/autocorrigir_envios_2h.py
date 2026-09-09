@@ -297,8 +297,8 @@ def _execute_locked(*, apply: bool) -> dict:
 
     # Historical sender_blocked rows are telemetry, not a current circuit
     # breaker. Only the canonical/legacy sentinel represents an active block.
-    # If Exchange denies a new submission, the worker recreates the sentinel
-    # immediately and fails closed again.
+    # If the provider denies a new submission systemically, the worker recreates
+    # the sentinel immediately and fails closed again.
     if sentinel_active:
         payload["result"] = "blocked_fail_closed"
         _persist(payload)

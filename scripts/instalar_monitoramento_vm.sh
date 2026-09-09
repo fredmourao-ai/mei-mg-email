@@ -41,6 +41,7 @@ render_unit "$APP_DIR/deploy/systemd/mei-mg-email-base-sync.service" "/etc/syste
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-base-sync.timer" "/etc/systemd/system/mei-mg-email-base-sync.timer"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-brevo-reconciler.service" "/etc/systemd/system/mei-mg-email-brevo-reconciler.service"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-worker.service" "/etc/systemd/system/mei-mg-email-worker.service"
+render_unit "$APP_DIR/deploy/systemd/mei-mg-email-queue-replenisher.service" "/etc/systemd/system/mei-mg-email-queue-replenisher.service"
 
 # Estado operacional persistente fica fora do Git. Se um deploy antigo ainda
 # tiver o sentinel como arquivo regular no repo, preserve seu conteudo antes de
@@ -59,6 +60,7 @@ rm -f "$APP_DIR/runtime/sender_blocked.pause"
 "${SUDO[@]}" systemctl enable --now mei-mg-email-base-sync.timer
 "${SUDO[@]}" systemctl enable --now mei-mg-email-monitor.service
 "${SUDO[@]}" systemctl enable --now mei-mg-email-worker.service
+"${SUDO[@]}" systemctl enable --now mei-mg-email-queue-replenisher.service
 if "${SUDO[@]}" systemctl cat mei-mg-email-ndr-guard.service >/dev/null 2>&1; then
   "${SUDO[@]}" systemctl disable --now mei-mg-email-ndr-guard.service
 fi
@@ -73,6 +75,8 @@ if ! "${SUDO[@]}" systemctl start mei-mg-email-base-sync.service; then
 fi
 
 "${SUDO[@]}" systemctl restart mei-mg-email-monitor.service
+"${SUDO[@]}" systemctl restart mei-mg-email-worker.service
+"${SUDO[@]}" systemctl restart mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl restart mei-mg-email-brevo-reconciler.service
 
 echo "MONITORAMENTO_VM_INSTALADO"
@@ -82,8 +86,10 @@ echo "python=$PYTHON"
 echo "state_dir=$STATE_DIR"
 "${SUDO[@]}" systemctl is-active mei-mg-email-monitor.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-worker.service
+"${SUDO[@]}" systemctl is-active mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-base-sync.timer
+"${SUDO[@]}" systemctl is-enabled mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-base-sync.timer
 "${SUDO[@]}" systemctl list-timers mei-mg-email-base-sync.timer --no-pager

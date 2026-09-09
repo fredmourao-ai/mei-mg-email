@@ -40,24 +40,9 @@ def ler_empresas(caminho: Path | None) -> dict[str, str]:
     return razao_por_basico
 
 
-def ler_simples(caminho: Path | None) -> dict[str, bool]:
-    """Compatibilidade com chamadas antigas; o retorno nao dirige elegibilidade."""
-    if caminho is None:
-        return {}
-    mei_por_basico: dict[str, bool] = {}
-    with open(caminho, encoding="latin-1", newline="") as f:
-        for linha in csv.reader(f, delimiter=";"):
-            cnpj_basico, opcao_mei = linha[0], linha[4]
-            basico = cnpj_basico.strip().strip('"').upper().zfill(8)
-            mei_por_basico[basico] = opcao_mei.strip().strip('"').upper() == "S"
-    return mei_por_basico
-
-
 def ingerir_estabelecimentos(
     caminho: Path,
     razao_por_basico: dict[str, str],
-    mei_por_basico: dict[str, bool],
-    filtrar_mei: bool,
 ) -> list[dict]:
     empresas: list[dict] = []
     total_linhas = 0
@@ -165,7 +150,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--estabelecimentos", type=Path)
     parser.add_argument("--empresas", type=Path)
-    parser.add_argument("--simples", type=Path)
     parser.add_argument("--sample", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -173,21 +157,16 @@ def main() -> None:
     if args.sample:
         estabelecimentos = BASE_DIR / "data" / "sample" / "ESTABELECIMENTOS_fake.csv"
         empresas_arq = BASE_DIR / "data" / "sample" / "EMPRESAS_fake.csv"
-        simples_arq = BASE_DIR / "data" / "sample" / "SIMPLES_fake.csv"
     else:
         if not args.estabelecimentos:
             parser.error("--estabelecimentos e obrigatorio (ou use --sample)")
         estabelecimentos = args.estabelecimentos
         empresas_arq = args.empresas
-        simples_arq = args.simples
 
     razao_por_basico = ler_empresas(empresas_arq)
-    mei_por_basico = ler_simples(simples_arq)
     empresas = ingerir_estabelecimentos(
         estabelecimentos,
         razao_por_basico,
-        mei_por_basico,
-        filtrar_mei=bool(simples_arq),
     )
     remover_emails_compartilhados(empresas)
 

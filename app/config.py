@@ -17,7 +17,7 @@ class Settings:
         "DATABASE_URL",
         "postgresql://postgres:postgres@localhost:5433/mei_mg_email",
     )
-    api_host: str = os.getenv("API_HOST", "0.0.0.0")
+    api_host: str = os.getenv("API_HOST", "127.0.0.1")
     api_port: int = int(os.getenv("API_PORT", "8000"))
 
     email_provider: str = os.getenv("EMAIL_PROVIDER", "dryrun")
@@ -35,26 +35,10 @@ class Settings:
     )
 
     brevo_free_hard_cap: int = 300
-    configured_max_envios_por_dia: int = _positive_int_env("MAX_ENVIOS_POR_DIA", 10000)
-    configured_meta_envios_por_dia: int = _positive_int_env("META_ENVIOS_POR_DIA", 9500)
-    _brevo_active: bool = email_provider.strip().lower() in {"brevo", "brevo_api"}
-    max_envios_por_dia: int = (
-        min(configured_max_envios_por_dia, brevo_free_hard_cap)
-        if _brevo_active
-        else configured_max_envios_por_dia
-    )
-    exchange_recipient_safety_reserve: int = max(
-        500,
-        _positive_int_env("EXCHANGE_RECIPIENT_SAFETY_RESERVE", 500),
-    )
-    meta_envios_por_dia: int = (
-        min(configured_meta_envios_por_dia, max_envios_por_dia)
-        if _brevo_active
-        else min(
-            configured_meta_envios_por_dia,
-            max(1, min(10000, max_envios_por_dia) - exchange_recipient_safety_reserve),
-        )
-    )
+    configured_max_envios_por_dia: int = _positive_int_env("MAX_ENVIOS_POR_DIA", 300)
+    configured_meta_envios_por_dia: int = _positive_int_env("META_ENVIOS_POR_DIA", 300)
+    max_envios_por_dia: int = min(configured_max_envios_por_dia, brevo_free_hard_cap)
+    meta_envios_por_dia: int = min(configured_meta_envios_por_dia, max_envios_por_dia)
     worker_poll_interval_segundos: int = int(
         os.getenv("WORKER_POLL_INTERVAL_SEGUNDOS", "5")
     )

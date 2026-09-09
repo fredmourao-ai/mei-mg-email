@@ -1,9 +1,9 @@
-"""
-Worker que consome a fila de lotes e dispara os e-mails respeitando limites.
+"""Worker base da fila de primeiro envio.
 
-Para Exchange Online, o controle usa janela movel de 24 horas e uma trava
-advisory no Postgres garante somente um worker de envio ativo. HTTP 202 do
-Microsoft Graph e registrado como `submitted`, nunca como entrega comprovada.
+O runtime de producao usa Brevo Transactional Email. A cota e aplicada em
+janela movel de 24 horas e uma trava advisory no Postgres garante somente um
+worker de envio ativo. Uma submissao aceita permanece `submitted` ate que o
+reconciliador registre evidencia de entrega do provedor.
 """
 from __future__ import annotations
 
@@ -95,14 +95,16 @@ def _registrar_sender_blocked_pause(error: str | None) -> None:
     """Abre um circuito persistente para impedir novas tentativas de envio.
 
     O arquivo fica fora do banco e sobrevive a restart do worker. A retomada e
-    deliberadamente manual: somente remova o sentinel apos confirmar no Exchange
-    que o remetente saiu de Restricted entities / AS(42004).
+    deliberadamente manual: somente remova o sentinel depois que o provedor atual
+    e o preflight de envio/descadastro estiverem novamente saudaveis.
     """
     SENDER_BLOCK_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
     detalhe = (error or "sender_blocked sem detalhe").strip()
+    raw_from = os.getenv("MAIL_FROM", "atendimento@shopvivaliz.com.br").strip()
+    sender = raw_from.rsplit("<", 1)[-1].rstrip(">").strip() or "atendimento@shopvivaliz.com.br"
     conteudo = (
         f"blocked_at_utc={datetime.now(timezone.utc).isoformat()}\n"
-        f"sender=naoresponda@dev.shopvivaliz.com.br\n"
+        f"sender={sender}\n"
         f"error={detalhe[:1000]}\n"
     )
     SENDER_BLOCK_SENTINEL.write_text(conteudo, encoding="utf-8")
@@ -233,7 +235,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
         if resultado.success:
             provider_status = getattr(resultado, "status", None)
             if provider_status != "submitted":
-                raise RuntimeError(f"status Graph inesperado apos sendMail: {provider_status!r}")
+                raise RuntimeError(f"status inesperado apos submissao ao provedor: {provider_status!r}")
             _atualizar_envio(
                 conn,
                 envio["envio_id"],
@@ -252,7 +254,7 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
             )
             _registrar_sender_blocked_pause(resultado.error)
             logger.critical(
-                "SENDER_BLOCKED: circuito persistente aberto em %s. Nenhum novo envio sera tentado ate remocao manual apos desbloqueio no Exchange.",
+                "SENDER_BLOCKED: circuito persistente aberto em %s. Nenhum novo envio sera tentado ate recuperacao verificada do provedor e do preflight.",
                 SENDER_BLOCK_SENTINEL,
             )
             return
@@ -402,16 +404,16 @@ def pegar_proximo_lote(conn: psycopg.Connection, campanha_id: str | None = None)
 
 
 def run() -> None:
-    if settings.email_provider.strip().lower() in {'brevo', 'brevo_api'} and settings.max_envios_por_dia > 300:
-        raise RuntimeError("Brevo Free MAX_ENVIOS_POR_DIA nao pode ultrapassar 300.")
-    if settings.max_envios_por_dia > 10000:
-        raise RuntimeError("MAX_ENVIOS_POR_DIA nao pode ultrapassar 10000 para Exchange Online.")
+    if settings.max_envios_por_dia > settings.brevo_free_hard_cap:
+        raise RuntimeError(
+            "MAX_ENVIOS_POR_DIA efetivo nao pode ultrapassar o hard cap Brevo de 300."
+        )
     if settings.meta_envios_por_dia <= 0:
         raise RuntimeError("META_ENVIOS_POR_DIA precisa ser maior que zero.")
     if settings.meta_envios_por_dia > settings.max_envios_por_dia:
         raise RuntimeError("META_ENVIOS_POR_DIA nao pode ultrapassar MAX_ENVIOS_POR_DIA.")
     if settings.rate_limit_envios_por_minuto > 30:
-        raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO nao pode ultrapassar 30 no Exchange Online.")
+        raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO nao pode ultrapassar 30.")
     if settings.rate_limit_envios_por_minuto <= 0:
         raise RuntimeError("RATE_LIMIT_ENVIOS_POR_MINUTO precisa ser maior que zero.")
     if settings.queue_min_pending < 1:
@@ -447,7 +449,7 @@ def run() -> None:
             try:
                 if _sender_blocked_pause_ativo():
                     logger.critical(
-                        "Worker pausado por sender_blocked. Sentinel=%s. Confirme desbloqueio no Exchange antes de remover o arquivo.",
+                        "Worker pausado por sender_blocked. Sentinel=%s. Confirme recuperacao do provedor antes de remover o arquivo.",
                         SENDER_BLOCK_SENTINEL,
                     )
                     time.sleep(max(settings.worker_poll_interval_segundos, 60))

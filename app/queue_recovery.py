@@ -99,7 +99,7 @@ def recuperar_fila_legada_e_lotes_orfaos(
 
     This function is idempotent. The worker calls it while holding the global
     sender advisory lock. The hourly repair service stops the worker before
-    calling it, so a current Graph submission is never moved backwards.
+    calling it, so a current provider submission is never moved backwards.
 
     Recovery is deliberately bounded. Every mutation selects at most a small
     batch with FOR UPDATE SKIP LOCKED, commits that batch and stops after a

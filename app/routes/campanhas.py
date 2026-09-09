@@ -35,15 +35,25 @@ def criar_campanha(payload: CampanhaCreate):
                 """
                 select
                   count(*) filter (
-                    where status::text in ('submitted', 'enviado')
-                      and enviado_em >= now() - interval '24 hours'
+                    where provider_message_id like 'brevo:%'
+                      and submitted_at >= statement_timestamp() - interval '24 hours'
                   ) as consumidos_24h,
-                  count(*) filter (where status::text in ('pendente', 'enviando')) as comprometidos
+                  count(*) filter (where status::text in ('pendente', 'enviando')) as comprometidos,
+                  (
+                    select count(*)
+                      from mei_email.envios_externos_cota x
+                     where (x.provider_message_id like 'brevo:%' or x.source like 'brevo%')
+                       and x.sent_at >= statement_timestamp() - interval '24 hours'
+                  ) as externos_24h
                 from mei_email.envios
                 """
             )
             capacidade = cur.fetchone()
-            ja_comprometido = int(capacidade["consumidos_24h"] or 0) + int(capacidade["comprometidos"] or 0)
+            ja_comprometido = (
+                int(capacidade["consumidos_24h"] or 0)
+                + int(capacidade["externos_24h"] or 0)
+                + int(capacidade["comprometidos"] or 0)
+            )
             limite_operacional = min(settings.meta_envios_por_dia, settings.max_envios_por_dia)
             restante = max(limite_operacional - ja_comprometido, 0)
             if restante <= 0:
@@ -54,23 +64,27 @@ def criar_campanha(payload: CampanhaCreate):
                     ),
                 )
 
-            filtros = ["situacao_cadastral = 'ATIVA'", "email is not null", "btrim(email::text) <> ''", "mei_email.is_valid_email_address(email)", "position('contabil' in lower(btrim(email::text))) = 0"]
-            params: list[object] = []
-            where_clause = " and ".join(filtros)
             requested_limit = payload.limite_empresas if payload.limite_empresas is not None else restante
             effective_limit = min(requested_limit, restante)
-            params.append(effective_limit)
 
             cur.execute(
-                f"""
+                """
                 with candidatas as (
-                    select cnpj, email, data_abertura,
+                    select cnpj, email, data_abertura, uf,
                            row_number() over (
                                partition by lower(btrim(email::text))
-                               order by data_abertura desc nulls last, cnpj
+                               order by case when upper(coalesce(uf::text,''))='MG' then 0 else 1 end,
+                                        data_abertura desc nulls last, cnpj
                            ) as posicao_do_email
                       from mei_email.empresas
-                     where {where_clause}
+                     where situacao_cadastral = 'ATIVA'
+                       and coalesce(opt_out, false) = false
+                       and email is not null
+                       and btrim(email::text) <> ''
+                       and mei_email.is_valid_email_address(email)
+                       and position('contabil' in lower(btrim(email::text))) = 0
+                       and not mei_email.is_email_suppressed(email)
+                       and not mei_email.is_cnpj_suppressed(cnpj::text)
                 )
                 select cnpj, email
                   from candidatas c
@@ -90,10 +104,11 @@ def criar_campanha(payload: CampanhaCreate):
                         where lower(btrim(x.email::text)) = lower(btrim(c.email::text))
                           and x.status::text in ('pendente','enviando','pending','processing','submitted','enviado','delivered','bounced','bounce_permanent')
                    )
-                 order by data_abertura desc nulls last, cnpj
+                 order by case when upper(coalesce(c.uf::text,''))='MG' then 0 else 1 end,
+                          data_abertura desc nulls last, cnpj
                  limit %s
                 """,
-                params,
+                (effective_limit,),
             )
             empresas = cur.fetchall()
 

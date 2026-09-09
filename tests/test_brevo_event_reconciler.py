@@ -93,3 +93,61 @@ def test_unmatched_terminal_event_is_retried_instead_of_marked_seen(monkeypatch)
     monkeypatch.setattr(module, "apply_event", lambda conn, value: False)
     module.process_once()
     assert module.event_key(event) not in saved["seen_event_keys"]
+
+
+def test_external_quota_ledger_delivery_is_reconciled():
+    module = _load_module()
+    event = {
+        "messageId": "<controlled@example>",
+        "event": "delivered",
+        "date": "2026-09-08T12:00:00Z",
+        "email": "owner@example.com",
+    }
+
+    class Cursor:
+        def __init__(self):
+            self.next_row = None
+            self.executed = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, sql, params=None):
+            normalized = " ".join(sql.split())
+            self.executed.append((normalized, params))
+            if "from mei_email.envios_externos_cota" in normalized:
+                self.next_row = ("external-id", "owner@example.com")
+            elif "from mei_email.envios" in normalized:
+                self.next_row = None
+            else:
+                self.next_row = None
+
+        def fetchone(self):
+            return self.next_row
+
+    class Connection:
+        def __init__(self):
+            self.cur = Cursor()
+            self.commits = 0
+            self.rollbacks = 0
+
+        def cursor(self):
+            return self.cur
+
+        def commit(self):
+            self.commits += 1
+
+        def rollback(self):
+            self.rollbacks += 1
+
+    conn = Connection()
+    assert module.apply_event(conn, event) is True
+    assert conn.commits == 1
+    assert conn.rollbacks == 0
+    updates = [sql for sql, _ in conn.cur.executed if "update mei_email.envios_externos_cota" in sql]
+    assert updates
+    assert "brevo_delivery_status" in updates[0]
+    assert "brevo_event_key" in updates[0]

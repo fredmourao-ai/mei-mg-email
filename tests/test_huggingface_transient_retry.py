@@ -56,3 +56,11 @@ def test_non_transient_source_error_is_not_retried():
     else:
         raise AssertionError("expected ValueError")
     assert conn.calls == 1
+
+
+def test_huggingface_parquet_url_is_bound_not_interpolated_into_sql():
+    source = (ROOT / "scripts" / "ingest_from_huggingface.py").read_text(encoding="utf-8")
+    query_block = source.split("query =", 1)[1].split("cursor =", 1)[0]
+    assert "read_parquet(?)" in query_block
+    assert "{parquet_url}" not in query_block
+    assert "parameters=(parquet_url,)" in source

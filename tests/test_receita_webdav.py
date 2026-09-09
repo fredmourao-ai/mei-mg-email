@@ -202,3 +202,31 @@ def test_disk_guard_requires_archive_plus_reserve(monkeypatch, tmp_path: Path):
         receita.ensure_disk_headroom(tmp_path, remote_size=100, reserve_bytes=50)
     monkeypatch.setattr(receita.shutil, "disk_usage", lambda _path: type("D", (), {"free": 150})())
     receita.ensure_disk_headroom(tmp_path, remote_size=100, reserve_bytes=50)
+
+
+def test_share_url_rejects_non_https_or_non_receita_host():
+    for url in (
+        "http://arquivos.receitafederal.gov.br/",
+        "https://127.0.0.1/s/token",
+        "https://example.com/s/token",
+    ):
+        with pytest.raises(RuntimeError, match="Receita"):
+            receita.resolve_share_url(url, timeout_seconds=10)
+
+
+def test_share_redirect_rejects_untrusted_host(monkeypatch):
+    monkeypatch.setattr(
+        receita,
+        "urlopen",
+        lambda _request, timeout: FakeRedirectResponse("https://evil.example/s/token"),
+    )
+    with pytest.raises(RuntimeError, match="Receita"):
+        receita.resolve_share_url(ROOT_URL, timeout_seconds=10)
+
+
+def test_propfind_xml_rejects_entity_expansion():
+    payload = b'''<?xml version="1.0"?>
+<!DOCTYPE lolz [<!ENTITY x "boom">]>
+<d:multistatus xmlns:d="DAV:"><d:response><d:href>&x;</d:href></d:response></d:multistatus>'''
+    with pytest.raises(RuntimeError, match="XML"):
+        receita.parse_propfind_entries(payload)

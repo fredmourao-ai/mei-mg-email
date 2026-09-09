@@ -43,12 +43,12 @@ jobs:
     env:
       EMAIL_PROVIDER: dryrun
       BASE_URL_DESCADASTRO: https://dev.shopvivaliz.com.br/descadastro
-      MAX_ENVIOS_POR_DIA: "10000"
-      META_ENVIOS_POR_DIA: "9950"
+      MAX_ENVIOS_POR_DIA: "300"
+      META_ENVIOS_POR_DIA: "300"
       RATE_LIMIT_ENVIOS_POR_MINUTO: "30"
       DELIVERABILITY_MAX_ENVIOS_POR_MINUTO: "10"
-      QUEUE_MIN_PENDING: "1000"
-      QUEUE_TARGET_PENDING: "5000"
+      QUEUE_MIN_PENDING: "14800"
+      QUEUE_TARGET_PENDING: "15000"
       MONITOR_INTERVAL_SECONDS: "60"
       MONITOR_SEND_STALL_MINUTES: "10"
       MONITOR_BASE_MAX_AGE_HOURS: "26"
@@ -85,7 +85,15 @@ jobs:
           if ($failed) { exit 1 }
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: |
+          python -m pip install --upgrade 'pip>=26.2'
+          python -m pip install -r requirements-dev.txt
+
+      - name: Audit Python dependencies
+        run: pip-audit -r requirements.txt --progress-spinner off
+
+      - name: Reject high-severity Python SAST findings
+        run: bandit -q -lll -r app worker scripts -x tests
 
       - name: Compile application and operational scripts
         run: python -m compileall -q app worker scripts

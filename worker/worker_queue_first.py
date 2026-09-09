@@ -1,15 +1,13 @@
 """Worker operacional que prioriza a fila existente antes de repor autoqueue.
 
-Evita que uma consulta de reposicao lenta bloqueie milhares de envios ja
-prontos. A reposicao ocorre em outra conexao, com timeout, somente depois de
-recuperar estados legados e lotes orfaos. Enderecos com sintaxe invalida sao
-suprimidos e removidos antes de qualquer chamada ao Graph.
+Evita que uma consulta de reposicao lenta bloqueie envios ja prontos. A
+reposicao ocorre em outra conexao e o banco aplica o contrato canonico de
+elegibilidade no checkpoint imediatamente anterior ao side effect externo.
 
-Antes de chamar o Graph, cada envio e persistido como ``enviando``. Isso fecha
-a janela de duplicidade em que o Graph podia aceitar a mensagem e o processo
-morrer antes de gravar ``submitted``. A migration V034 trata uma recuperacao
-de ``enviando`` marcada por este worker como entrega de resultado incerto e a
-contabiliza conservadoramente como ``submitted``, em vez de reenviar.
+Antes de chamar o provedor, cada envio e persistido como ``enviando``. Isso
+fecha a janela de duplicidade em que o provedor pode aceitar a mensagem e o
+processo morrer antes de gravar ``submitted``; a recuperacao trata esse estado
+como resultado incerto e nunca o reenvia cegamente.
 """
 from __future__ import annotations
 
@@ -159,9 +157,9 @@ def _purgar_invalidos_do_lote(conn: psycopg.Connection, lote_id) -> int:
 def _marcar_envio_em_transito(conn: psycopg.Connection, envio_id) -> None:
     """Persist a durable pre-send checkpoint before the external side effect.
 
-    A Graph ``202`` and the database commit cannot be made atomic. Persisting
-    ``enviando`` first turns a process crash into an explicit uncertain state,
-    instead of leaving a ``pendente`` row that could be sent again blindly.
+    The provider acknowledgement and database commit cannot be atomic.
+    Persisting ``enviando`` first turns a crash into an explicit uncertain
+    state instead of leaving a ``pendente`` row that could be resent blindly.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -463,8 +461,6 @@ def _processar_se_disponivel(conn: psycopg.Connection, provider) -> bool:
 def run() -> None:
     if settings.email_provider.strip().lower() in {'brevo', 'brevo_api'} and settings.max_envios_por_dia > 300:
         raise RuntimeError("Brevo Free MAX_ENVIOS_POR_DIA nao pode ultrapassar 300.")
-    if settings.max_envios_por_dia > 10000:
-        raise RuntimeError("MAX_ENVIOS_POR_DIA nao pode ultrapassar 10000.")
     if settings.meta_envios_por_dia <= 0:
         raise RuntimeError("META_ENVIOS_POR_DIA precisa ser maior que zero.")
     if settings.meta_envios_por_dia > settings.max_envios_por_dia:
@@ -527,6 +523,7 @@ def run() -> None:
                         envios_24h,
                         limite_24h,
                     )
+                    conn.rollback()
                     time.sleep(max(settings.worker_poll_interval_segundos, 60))
                     continue
 
@@ -541,6 +538,7 @@ def run() -> None:
 
                 # Queue replenishment runs in a separate lightweight service.
                 if not _processar_se_disponivel(conn, provider):
+                    conn.rollback()
                     time.sleep(settings.worker_poll_interval_segundos)
             except Exception:
                 logger.exception("Erro no ciclo do worker; conexao sera recuperada")

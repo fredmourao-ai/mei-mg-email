@@ -32,6 +32,7 @@ def execute_parquet_query_with_retry(
     conn_duck,
     query: str,
     *,
+    parameters: tuple[object, ...] | None = None,
     attempts: int = 3,
     base_delay_seconds: float = 2.0,
 ):
@@ -39,7 +40,9 @@ def execute_parquet_query_with_retry(
     attempts = max(int(attempts), 1)
     for attempt in range(1, attempts + 1):
         try:
-            return conn_duck.execute(query)
+            if parameters is None:
+                return conn_duck.execute(query)
+            return conn_duck.execute(query, parameters)
         except Exception as exc:
             transient = bool(TRANSIENT_HTTP_RE.search(str(exc)))
             if not transient or attempt >= attempts:
@@ -129,7 +132,7 @@ def fetch_and_ingest_mg_data() -> None:
     for idx, parquet_url in enumerate(PARQUET_FILES, 1):
         print(f"\n[Fonte] Lendo lote {idx}/10...", flush=True)
         try:
-            query = f"""
+            query = """
                 select
                     lpad(cast(cnpj_base as varchar), 8, '0')
                     || lpad(cast(ordem as varchar), 4, '0')
@@ -142,13 +145,15 @@ def fetch_and_ingest_mg_data() -> None:
                     ddd1 as ddd_1,
                     tel1 as telefone_1,
                     data_sit_cad as data_abertura
-                from '{parquet_url}'
+                from read_parquet(?)
                 where email is not null
                   and trim(email) != ''
                   and lower(trim(email)) not like '%contabil%'
                   and sit_cadastral = '02'
             """
-            cursor = execute_parquet_query_with_retry(conn_duck, query)
+            cursor = execute_parquet_query_with_retry(
+                conn_duck, query, parameters=(parquet_url,)
+            )
 
             total_lote = 0
             while True:
