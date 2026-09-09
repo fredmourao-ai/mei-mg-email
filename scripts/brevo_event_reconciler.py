@@ -153,6 +153,7 @@ def apply_event(conn: psycopg.Connection, event: dict) -> bool:
         return False
     event_at = _event_time(event)
     reason = str(event.get("reason") or event.get("event") or "Brevo delivery event")[:1000]
+    key = event_key(event)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -166,13 +167,44 @@ def apply_event(conn: psycopg.Connection, event: dict) -> bool:
             (stored_id,),
         )
         row = cur.fetchone()
+        target = "envios"
+        if row is None:
+            cur.execute(
+                """
+                select id, email::text
+                  from mei_email.envios_externos_cota
+                 where provider_message_id = %s
+                 limit 1
+                 for update
+                """,
+                (stored_id,),
+            )
+            row = cur.fetchone()
+            target = "external"
         if row is None:
             conn.rollback()
             return False
+
         envio_id, stored_email = _row_values(row)
         event_email = str(event.get("email") or "").strip().casefold()
         recipient = event_email or stored_email
-        if outcome.status == "delivered":
+
+        if target == "external":
+            cur.execute(
+                """
+                update mei_email.envios_externos_cota
+                   set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+                       'brevo_delivery_status', %s,
+                       'brevo_event_key', %s,
+                       'brevo_event_at', coalesce(%s::timestamptz, now()),
+                       'brevo_reconciled_at', now(),
+                       'brevo_reason', %s
+                   )
+                 where id = %s
+                """,
+                (outcome.status, key, event_at, reason, envio_id),
+            )
+        elif outcome.status == "delivered":
             cur.execute(
                 """
                 update mei_email.envios
@@ -199,6 +231,7 @@ def apply_event(conn: psycopg.Connection, event: dict) -> bool:
                 """,
                 (event_at, str(event.get("event") or "")[:100], reason, reason, envio_id),
             )
+
         if outcome.suppress and recipient:
             cur.execute(
                 """
@@ -211,7 +244,7 @@ def apply_event(conn: psycopg.Connection, event: dict) -> bool:
                     coalesce(%s::timestamptz, now())
                 )
                 """,
-                (recipient, event_key(event), event_at),
+                (recipient, key, event_at),
             )
     conn.commit()
     return True

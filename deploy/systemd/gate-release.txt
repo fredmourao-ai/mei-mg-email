@@ -1,23 +1,21 @@
 RETIRED HISTORICAL RELEASE - DO NOT EXECUTE
 
-This file previously described the August 2026 hardening release and is kept only to prevent old automation from treating it as current instructions.
+This marker replaces the August 2026 release instructions. It must never be used to restore retired provider limits or eligibility gates.
 
-Current operational sources of truth:
+Current sources of truth:
 - AGENTS.md
 - db/policy/canonical_operational_policy.sql
 - docs/fila-continua.md
 - docs/contabilidade-melo-disparo.md
 - ops/README.md
 
-Do not execute the old hardening deploy or restore archived eligibility gates from this file.
-
 Current mandatory invariants:
-- canonical first-contact policy from AGENTS.md;
+- production provider is Brevo Transactional Email;
+- effective hard cap and target are at most 300 submissions per rolling 24h;
+- external/control submissions count through `mei_email.envios_externos_cota`;
+- canonical first-contact policy comes only from AGENTS.md;
 - MG is ordering priority, not an eligibility filter;
-- queue buffer 14,800-15,000 with replenishment batches capped at 200;
-- effective local Exchange recipient target 9,000/24h, hard ceiling 10,000, safety reserve at least 1,000;
-- HTTP 202 from Graph means submitted, not confirmed delivery;
-- NDR `5.1.90` / `AS:46601` is a systemic recipient-limit circuit-breaker;
-- `mei-mg-email-ndr-guard.service` may be declared active only after `scripts/auditar_graph_mail_read.py` passes with Graph `Mail.Read`;
-- if Mail.Read preflight returns 403, leave the NDR guard disabled and retain the local safety reserve;
-- never remove technical suppressions, anti-replay history, or the sender-block sentinel automatically.
+- queue buffer is controlled by `QUEUE_MIN_PENDING`/`QUEUE_TARGET_PENDING` and a single global replenishment lock;
+- accepted provider submission is `submitted` until reconciled delivery evidence exists;
+- `mei-mg-email-ndr-guard.service` remains disabled;
+- never remove technical suppressions, anti-replay history, opt-outs, or the sender-block sentinel automatically.

@@ -1,29 +1,26 @@
-# Operacoes Microsoft 365
+# Operacoes do MEI MG Email
 
-## Exchange Online administrativo
+## Runtime atual
 
-O desbloqueio de remetente restrito usa Exchange Online PowerShell com o mesmo App Registration administrativo e certificado X.509 protegido na VM.
+A producao usa exclusivamente **Brevo Transactional Email API**. A fonte de verdade de elegibilidade e `AGENTS.md`; este runbook nao redefine filtros.
 
-Arquivos de credencial esperados na VM:
-- `/home/ubuntu/.shopvivaliz/m365/graph-auth.crt`
-- `/home/ubuntu/.shopvivaliz/m365/graph-auth.key`
+Servicos esperados:
+- `mei-mg-email-worker.service`
+- `mei-mg-email-queue-replenisher.service`
+- `mei-mg-email-brevo-reconciler.service`
+- `mei-mg-email-monitor.service`
+- `mei-mg-email-autorepair.timer`
 
-Nunca grave token, chave privada ou senha no GitHub. O procedimento suportado e:
+A cota efetiva e fail-closed em **300 submissões por janela móvel de 24h**, incluindo o ledger `mei_email.envios_externos_cota`. A fila pendente e apenas estoque e nao aumenta essa cota ate a submissao real.
 
-```powershell
-pwsh ./scripts/desbloquear_exchange_app_cert.ps1 -ConfirmUnblock
-```
+O sentinel `/var/lib/mei-mg-email/sender_blocked.pause` continua sendo o circuit breaker canonico. Nenhum monitor ou autorreparo pode remove-lo automaticamente.
 
-O script consulta `Get-BlockedSenderAddress`, executa `Remove-BlockedSenderAddress` somente com confirmacao explicita e exige que o remetente deixe de aparecer em Restricted entities antes de reportar sucesso.
+## Microsoft 365 legado
 
-O desbloqueio nao remove automaticamente `/var/lib/mei-mg-email/sender_blocked.pause`. A retomada do worker e uma etapa separada, posterior a propagacao e teste controlado.
+Microsoft Graph/Exchange Online nao faz parte do runtime de envio. Scripts `auditar_graph_*`, `auditar_dns_microsoft.py`, `desbloquear_exchange_app_cert.ps1` e equivalentes existem apenas para investigacao historica/administrativa e nao autorizam reativar Graph como provider.
 
-## NDR guard
+`mei-mg-email-ndr-guard.service` deve permanecer **desabilitado**. Nao use limites, reservas, TERRL ou filtros descritos em documentos historicos de Exchange como politica atual.
 
-`mei-mg-email-ndr-guard.service` observa NDRs assincronos da caixa configurada via Microsoft Graph `Mail.Read`. O guard abre `/var/lib/mei-mg-email/sender_blocked.pause` para bloqueios sistemicos, incluindo `AS(42004)`, `5.1.8`, `5.1.90`, `AS:46601` e mensagens de limite de destinatarios em 24 horas.
+## Validacao antes de liberar envio
 
-Antes de habilitar o servico, execute `python scripts/auditar_graph_mail_read.py`. Se o preflight retornar `403 ErrorAccessDenied`, o guard esta cego e deve permanecer desabilitado; nao declare monitoramento de NDR ativo nessa condicao.
-
-Enquanto a leitura autoritativa de NDR nao estiver disponivel, a protecao obrigatoria e o limite local efetivo de 9.000 destinatarios/24h com reserva minima de 1.000 abaixo do teto Exchange de 10.000, alem do gate imediatamente antes de cada submissao Graph.
-
-O worker continua fail-closed quando existir sentinel de pausa. O sentinel nunca deve ser removido automaticamente por um NDR guard, monitor ou rotina de reparo.
+Execute `scripts/runtime_policy_guard.py` e `scripts/runtime_sender_preflight.py`, confirme worker/replenisher/reconciliador/monitor ativos, reconciliacao Brevo sem erro, cota <=300/24h e endpoint publico de descadastro funcional. Segredos nunca devem ser impressos, commitados ou copiados para logs.

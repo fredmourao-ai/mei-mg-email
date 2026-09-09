@@ -1,8 +1,8 @@
-"""ShopVivaliz e-mail provider.
+"""ShopVivaliz e-mail providers.
 
-Production delivery is restricted to Microsoft Graph app-only using the X.509
-certificate/key installed on the Oracle VM. HTTP 202 means only that Exchange
-accepted the message for processing.
+Production delivery is Brevo-only. Dry-run exists for deterministic tests.
+The Microsoft Graph implementation is retained solely for disabled legacy audit
+tools and cannot be selected by ``get_email_provider``.
 """
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ from app.email_quality import recipient_has_obvious_provider_typo
 logger = logging.getLogger("mei_mg_email.email_provider")
 ALLOWED_SENDER = "naoresponda@dev.shopvivaliz.com.br"
 BREVO_ALLOWED_SENDER = "atendimento@shopvivaliz.com.br"
+OPENSSL_BIN = "/usr/bin/openssl"
 
 
 @dataclass
@@ -227,10 +228,10 @@ class MicrosoftGraphEmailProvider(EmailProvider):
 
     def _certificate_thumbprint_b64url(self) -> str:
         try:
-            der = subprocess.check_output(["openssl", "x509", "-in", str(self.cert_path), "-outform", "DER"], timeout=15)
+            der = subprocess.check_output([OPENSSL_BIN, "x509", "-in", str(self.cert_path), "-outform", "DER"], timeout=15)
         except (OSError, subprocess.SubprocessError) as exc:
             raise RuntimeError(f"Falha ao ler certificado Graph: {exc}") from exc
-        return _b64url(hashlib.sha1(der).digest())
+        return _b64url(hashlib.sha1(der, usedforsecurity=False).digest())
 
     def _client_assertion(self) -> str:
         now = int(time.time())
@@ -245,7 +246,7 @@ class MicrosoftGraphEmailProvider(EmailProvider):
         }, separators=(",", ":")).encode())
         unsigned = f"{header}.{payload}".encode("ascii")
         try:
-            signature = subprocess.check_output(["openssl", "dgst", "-sha256", "-sign", str(self.key_path)], input=unsigned, timeout=15)
+            signature = subprocess.check_output([OPENSSL_BIN, "dgst", "-sha256", "-sign", str(self.key_path)], input=unsigned, timeout=15)
         except (OSError, subprocess.SubprocessError) as exc:
             raise RuntimeError(f"Falha ao assinar client assertion Graph: {exc}") from exc
         return unsigned.decode("ascii") + "." + _b64url(signature)

@@ -36,3 +36,12 @@ def test_public_imports_do_not_grant_legacy_authorization_or_mei_status():
         assert "mei_verificado = true" not in lowered
         assert '"tipo_regime": "mei_candidato"' not in lowered
         assert '"tipo_regime": "mei"' not in lowered
+
+
+def test_active_receita_import_has_no_legacy_mei_filter_switch():
+    for path in (
+        ROOT / 'scripts' / 'ingest_estabelecimentos.py',
+        ROOT / 'app' / 'routes' / 'empresas.py',
+    ):
+        source = path.read_text(encoding='utf-8')
+        assert 'filtrar_mei' not in source, path

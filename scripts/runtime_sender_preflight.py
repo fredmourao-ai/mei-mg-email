@@ -6,6 +6,9 @@ import json
 import os
 from email.utils import parseaddr
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 import psycopg
 from dotenv import load_dotenv
@@ -21,6 +24,30 @@ REQUIRED_EMPRESA_COLUMNS = (
     "opt_out",
     "situacao_cadastral",
 )
+ALLOWED_UNSUBSCRIBE_HOSTS = {"dev.shopvivaliz.com.br", "shopvivaliz.com.br"}
+
+
+def _validate_public_unsubscribe() -> dict[str, object]:
+    raw_url = os.getenv("BASE_URL_DESCADASTRO", "").strip()
+    parsed = urlsplit(raw_url)
+    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_UNSUBSCRIBE_HOSTS:
+        raise RuntimeError("BASE_URL_DESCADASTRO must be public HTTPS on ShopVivaliz")
+    req = Request(raw_url, headers={"User-Agent": "mei-mg-email-preflight/1.0"}, method="GET")
+    try:
+        with urlopen(req, timeout=8) as response:
+            status = int(response.status)
+            final = urlsplit(response.geturl())
+            content_type = str(response.headers.get("Content-Type") or "")
+            response.read(512)
+    except HTTPError as exc:
+        raise RuntimeError(f"unsubscribe endpoint HTTP {exc.code}") from exc
+    except (URLError, OSError) as exc:
+        raise RuntimeError(f"unsubscribe endpoint unavailable: {exc}") from exc
+    if status != 200 or final.scheme != "https" or final.hostname not in ALLOWED_UNSUBSCRIBE_HOSTS:
+        raise RuntimeError("unsubscribe endpoint did not remain healthy public HTTPS")
+    if "text/html" not in content_type.casefold():
+        raise RuntimeError("unsubscribe endpoint must return HTML")
+    return {"unsubscribe_url": raw_url, "unsubscribe_http_status": status}
 
 
 def _validate_runtime_config() -> dict[str, object]:
@@ -58,6 +85,7 @@ def _validate_runtime_config() -> dict[str, object]:
 def main() -> int:
     out: dict[str, object] = {"runtime_sender_preflight": "ok"}
     out.update(_validate_runtime_config())
+    out.update(_validate_public_unsubscribe())
     database_url = os.environ["DATABASE_URL"]
     with psycopg.connect(database_url, connect_timeout=5) as conn:
         with conn.cursor() as cur:

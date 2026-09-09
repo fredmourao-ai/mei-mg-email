@@ -12,18 +12,24 @@ from zoneinfo import ZoneInfo
 import psycopg
 from dotenv import load_dotenv
 
-from app.email_quality import recipient_has_obvious_provider_typo
-from app.queue_manager import AUTOQUEUE_LOT_SIZE, AUTOQUEUE_SUBJECT, carregar_template_html
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / '.env')
 
-ROOT = Path('/home/ubuntu/mei-mg-email')
+from app.config import settings
+from app.email_quality import recipient_has_obvious_provider_typo
+from app.queue_manager import (
+    AUTOQUEUE_LOT_SIZE,
+    AUTOQUEUE_SUBJECT,
+    CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID,
+    carregar_template_html,
+    validar_config_fila,
+)
 STATE_PATH = ROOT / 'runtime' / 'queue_replenisher_state.json'
 PAUSE_PATH = Path('/var/lib/mei-mg-email/sender_blocked.pause')
 LEGACY_PAUSE_PATH = ROOT / 'runtime' / 'sender_blocked.pause'
 REPLENISHER_PAUSE_PATH = ROOT / 'runtime' / 'queue_replenisher.pause'
-LOCK_ID = 99502027
-TARGET = 15000
-MINIMUM = 14800
-BATCH = 200
+LOCK_ID = CAMPAIGN_ENQUEUE_ADVISORY_LOCK_ID
+BATCH = min(200, max(settings.queue_target_pending, 1))
 PAGE = 1000
 MAX_PAGES = 40
 POLL = 5
@@ -262,22 +268,28 @@ def replenish_once(conn) -> int:
             conn.rollback()
             return 0
         pending = open_count(cur)
-        if pending > MINIMUM:
+        if pending > settings.queue_min_pending:
             conn.rollback()
             return 0
-        needed = min(BATCH, max(TARGET - pending, 0))
+        needed = min(BATCH, max(settings.queue_target_pending - pending, 0))
         selected = collect_candidates(cur, needed, state)
         added = insert_batch(cur, selected)
         conn.commit()
         if added:
-            log.warning('QUEUE open_before=%d added=%d target=%d cursor=%s', pending, added, TARGET, state.get('cursor'))
+            log.warning(
+                'QUEUE open_before=%d added=%d target=%d cursor=%s',
+                pending,
+                added,
+                settings.queue_target_pending,
+                state.get('cursor'),
+            )
         elif pending == 0:
             log.error('REFILL_EMPTY no canonical candidates found in bounded scan')
         return added
 
 
 def main() -> int:
-    load_dotenv(ROOT / '.env')
+    validar_config_fila()
     database_url = os.environ['DATABASE_URL']
     once = os.getenv('QUEUE_REPLENISHER_ONCE') == '1'
     while True:

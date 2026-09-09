@@ -8,23 +8,23 @@ ROOT = Path(__file__).resolve().parents[1]
 def snapshot_base():
     return {
         "limits": {
-            "meta_24h": 9950,
-            "max_24h": 10000,
+            "meta_24h": 300,
+            "max_24h": 300,
             "rate_per_minute": 10,
-            "queue_min_pending": 1000,
-            "queue_target_pending": 5000,
+            "queue_min_pending": 14800,
+            "queue_target_pending": 15000,
         },
         "queue": {
-            "total": 3000,
-            "pendentes": 3000,
+            "total": 14900,
+            "pendentes": 14900,
             "enviando": 0,
             "elegiveis_restantes": 50000,
         },
         "sending": {
-            "submitted_enviado_24h": 4000,
-            "submitted_enviado_60m": 600,
-            "submitted_enviado_15m": 150,
-            "submitted_enviado_5m": 50,
+            "submitted_enviado_24h": 200,
+            "submitted_enviado_60m": 20,
+            "submitted_enviado_15m": 5,
+            "submitted_enviado_5m": 2,
             "last_submission_at": "2026-08-12T12:00:00+00:00",
             "last_submission_age_minutes": 0.2,
             "failures_24h": 2,
@@ -35,8 +35,6 @@ def snapshot_base():
             "systemd_active": "active",
             "sender_block_pause_active": False,
             "sender_block_pause_path": "/var/lib/mei-mg-email/sender_blocked.pause",
-            "ndr_guard_active": "active",
-            "ndr_guard_enabled": "enabled",
         },
         "base_sync": {
             "latest": {"status": "success"},
@@ -70,7 +68,7 @@ def test_stalled_send_with_queue_and_capacity_is_detected():
 
 def test_quota_reached_does_not_report_stalled_send():
     snapshot = snapshot_base()
-    snapshot["sending"]["submitted_enviado_24h"] = 9950
+    snapshot["sending"]["submitted_enviado_24h"] = 300
     snapshot["sending"]["submitted_enviado_15m"] = 0
     snapshot["sending"]["last_submission_age_minutes"] = 60.0
     assert "sending_stalled" not in codes(snapshot)
@@ -170,8 +168,6 @@ def test_material_hard_bounce_rate_worsening_is_detected():
 
 def test_brevo_reconciler_failure_is_critical():
     snapshot = snapshot_base()
-    snapshot["worker"].pop("ndr_guard_active", None)
-    snapshot["worker"].pop("ndr_guard_enabled", None)
     snapshot["worker"]["brevo_reconciler_active"] = "failed"
     snapshot["worker"]["brevo_reconciler_enabled"] = "disabled"
     result = codes(snapshot)
@@ -188,3 +184,29 @@ def test_monitor_counts_brevo_quota_by_submission_evidence_not_final_status():
     source = (ROOT / "scripts" / "monitor_operacao.py").read_text(encoding="utf-8").casefold()
     assert "provider_message_id like 'brevo:%'" in source
     assert "submitted_at" in source
+
+
+def test_long_running_base_sync_is_healthy_while_service_is_active():
+    snapshot = snapshot_base()
+    snapshot["base_sync"]["latest"] = {"status": "running"}
+    snapshot["base_sync"]["age_hours"] = 7.0
+    snapshot["base_sync"]["service_active"] = "active"
+    assert "base_sync_stuck" not in codes(snapshot)
+    assert "base_sync_orphaned" not in codes(snapshot)
+
+
+def test_running_base_sync_without_service_is_orphaned():
+    snapshot = snapshot_base()
+    snapshot["base_sync"]["latest"] = {"status": "running"}
+    snapshot["base_sync"]["age_hours"] = 7.0
+    snapshot["base_sync"]["service_active"] = "inactive"
+    assert "base_sync_orphaned" in codes(snapshot)
+
+
+def test_queue_replenisher_service_failure_is_critical():
+    snapshot = snapshot_base()
+    snapshot["worker"]["queue_replenisher_active"] = "inactive"
+    snapshot["worker"]["queue_replenisher_enabled"] = "disabled"
+    result = codes(snapshot)
+    assert "queue_replenisher_not_active" in result
+    assert "queue_replenisher_not_enabled" in result
