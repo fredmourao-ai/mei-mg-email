@@ -51,3 +51,7 @@ Se o guard falhar, NAO contorne, NAO edite a lista de proibicoes e NAO force o s
 - Depois do merge, verificar Actions do SHA resultante e corrigir falhas regressivas antes de declarar conclusao.
 
 O arquivo `AGENTS.md` e parte da politica do repositorio e deve ser lido antes de qualquer alteracao automatizada.
+
+## Isolamento obrigatorio de sessao CLI por chat
+
+Antes de qualquer operacao em terminal/CLI, leia e cumpra a secao `Isolamento obrigatorio de sessao CLI por chat` de `AI-TO-CLI-PROTOCOL.md`. Cada chat deve usar sessao/namespace CLI exclusivo; reutilizacao de sessao entre chats e proibida. Estado necessario para retomada deve ser persistido fora da memoria do shell.

@@ -145,3 +145,17 @@ Registro final mínimo: branch, SHA/base inicial, SHA/merge final, arquivos alte
 ## 12. Regra de ouro
 
 **Evidência antes de afirmação; preservação antes de sobrescrita; causa raiz antes de tentativa; merge validado antes de conclusão.**
+
+## Isolamento obrigatorio de sessao CLI por chat
+
+- Cada chat/conversa deve possuir um namespace de sessao CLI exclusivo. E proibido reutilizar shell, REPL, terminal, PID, pane tmux/screen, sessao remota interativa ou identificador pertencente a outro chat.
+- Antes do primeiro comando CLI, crie e registre um `CHAT_CLI_SESSION_ID` nao secreto e unico para o chat. Toda operacao CLI deve ser atribuivel a esse namespace.
+- Por padrao, mantenha uma sessao CLI interativa ativa por chat. Se ela morrer ou ficar inutilizavel, crie uma substituta dedicada ao mesmo chat; nunca conecte o chat a sessao de outro chat.
+- Subagentes podem usar processos filhos ou sessoes filhas apenas dentro do namespace do mesmo chat e nunca podem adotar sessao pertencente a outro chat.
+- Antes de mutar arquivos, Git, infraestrutura ou sistemas externos, confirme identidade da sessao, diretorio atual, repositorio e branch/alvo.
+- Memoria do shell nao e estado duravel. Persista retomada em repositorio, branch/commit, issue/tarefa ou checkpoint explicito para que um turno interrompido possa continuar sem emprestar a sessao CLI de outro chat.
+- Todo processo em background iniciado por um chat deve ser rastreado por esse chat e encerrado quando nao for mais necessario, ou transferido explicitamente para um servico deterministico aprovado. Nao deixar processos orfaos nem sessoes interativas ocultas.
+- Identificadores de sessao nao podem conter senhas, tokens, chaves, cookies, dados pessoais/sensiveis ou outros secrets.
+- Ao terminar a tarefa, feche ou marque a sessao interativa do chat como concluida. Sessao concluida nunca pode ser reatribuida a outro chat.
+
+Regra principal: **um chat = um namespace de sessao CLI isolado; nunca reutilizar sessao entre chats.**
