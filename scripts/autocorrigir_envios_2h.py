@@ -316,6 +316,7 @@ def _execute_locked(*, apply: bool) -> dict:
                     "queue_recovery": {
                         "normalized_legacy": recovery.normalized_legacy,
                         "recovered_stale_sending": recovery.recovered_stale_sending,
+                        "quarantined_uncertain_dispatches": recovery.quarantined_uncertain_dispatches,
                         "reopened_lots": recovery.reopened_lots,
                     }
                 }
