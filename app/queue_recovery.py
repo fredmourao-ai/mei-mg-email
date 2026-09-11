@@ -24,6 +24,7 @@ class QueueRecoveryResult:
     normalized_legacy: int
     recovered_stale_sending: int
     reopened_lots: int
+    quarantined_uncertain_dispatches: int = 0
     discarded_ineligible: int = 0
     discarded_already_suppressed: int = 0
     discarded_open_duplicates: int = 0
@@ -35,6 +36,7 @@ class QueueRecoveryResult:
             self.normalized_legacy
             + self.recovered_stale_sending
             + self.reopened_lots
+            + self.quarantined_uncertain_dispatches
             + self.discarded_ineligible
             + self.discarded_already_suppressed
             + self.discarded_open_duplicates
@@ -257,6 +259,64 @@ def recuperar_fila_legada_e_lotes_orfaos(
         label="close_empty_lots",
     )
 
+    quarantined_uncertain_dispatches = _run_batched_update(
+        conn,
+        """
+        with target as (
+            select e.id, e.email, c.assunto,
+                   coalesce(
+                       greatest(
+                           l.iniciado_em,
+                           (
+                               select max(coalesce(h.submitted_at, h.enviado_em))
+                                 from mei_email.envios h
+                                where h.lote_id = e.lote_id
+                                  and h.id <> e.id
+                                  and (
+                                      h.submitted_at is not null
+                                      or h.enviado_em is not null
+                                  )
+                           )
+                       ),
+                       now()
+                   ) as quota_sent_at
+              from mei_email.envios e
+              join mei_email.lotes l on l.id = e.lote_id
+              join mei_email.campanhas c on c.id = e.campanha_id
+             where e.status = 'enviando'
+               and coalesce(e.erro, '') like 'dispatch_started:%%'
+               and (
+                   l.iniciado_em is null
+                   or l.iniciado_em < now() - interval '15 minutes'
+               )
+             order by e.id
+             for update of e skip locked
+             limit %s
+        ),
+        quota_reservation as (
+            insert into mei_email.envios_externos_cota
+                (email, subject, sent_at, source, provider_message_id, metadata)
+            select t.email,
+                   coalesce(t.assunto, 'Resultado de envio incerto'),
+                   t.quota_sent_at,
+                   'brevo_uncertain_dispatch_recovery',
+                   null,
+                   jsonb_build_object(
+                       'purpose', 'anti_replay_quota_reservation',
+                       'envio_id', t.id::text
+                   )
+              from target t
+            returning id
+        )
+        update mei_email.envios e
+           set status = 'bloqueado'::mei_email.status_envio,
+               erro = 'delivery_uncertain: checkpoint dispatch_started recuperado fail-closed; reenvio proibido; cota Brevo reservada'
+          from target t
+         where t.id = e.id
+        """,
+        label="quarantine_uncertain_dispatch",
+    )
+
     recovered_stale_sending = _run_batched_update(
         conn,
         """
@@ -265,6 +325,7 @@ def recuperar_fila_legada_e_lotes_orfaos(
               from mei_email.envios e
               join mei_email.lotes l on l.id = e.lote_id
              where e.status = 'enviando'
+               and coalesce(e.erro, '') not like 'dispatch_started:%%'
                and (
                    l.iniciado_em is null
                    or l.iniciado_em < now() - interval '15 minutes'
@@ -336,6 +397,7 @@ def recuperar_fila_legada_e_lotes_orfaos(
         normalized_legacy=normalized_legacy,
         recovered_stale_sending=recovered_stale_sending,
         reopened_lots=reopened_lots,
+        quarantined_uncertain_dispatches=quarantined_uncertain_dispatches,
         discarded_ineligible=discarded_ineligible,
         discarded_already_suppressed=discarded_already_suppressed,
         discarded_open_duplicates=discarded_open_duplicates,
@@ -343,9 +405,10 @@ def recuperar_fila_legada_e_lotes_orfaos(
     )
     if result.changed:
         logger.warning(
-            "QUEUE_RECOVERY normalized_legacy=%d stale_sending=%d reopened_lots=%d total_changes=%d",
+            "QUEUE_RECOVERY normalized_legacy=%d stale_sending=%d uncertain_quarantined=%d reopened_lots=%d total_changes=%d",
             result.normalized_legacy,
             result.recovered_stale_sending,
+            result.quarantined_uncertain_dispatches,
             result.reopened_lots,
             result.changed,
         )

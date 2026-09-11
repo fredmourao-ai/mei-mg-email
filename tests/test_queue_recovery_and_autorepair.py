@@ -129,3 +129,36 @@ def test_stale_sending_recovery_handles_reopened_lot():
     block = source[source.index("recovered_stale_sending ="):source.index("reopened_lots =")]
     assert "l.status =" not in block
     assert "l.iniciado_em is null" in block
+
+
+def test_uncertain_dispatch_checkpoint_is_quarantined_instead_of_requeued():
+    source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
+    normalized = " ".join(source.casefold().split())
+    assert "quarantine_uncertain_dispatch" in normalized
+    assert "coalesce(e.erro, '') like 'dispatch_started:%%'" in normalized
+    assert "set status = 'bloqueado'::mei_email.status_envio" in normalized
+    stale_block = source[source.index("recovered_stale_sending ="):source.index("reopened_lots =")]
+    assert "not like 'dispatch_started:%%'" in stale_block.casefold()
+
+
+def test_uncertain_dispatch_reserves_one_slot_in_external_brevo_quota_ledger():
+    source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
+    normalized = " ".join(source.casefold().split())
+    assert "insert into mei_email.envios_externos_cota" in normalized
+    assert "brevo_uncertain_dispatch_recovery" in normalized
+    assert "delivery_uncertain" in normalized
+
+
+def test_queue_recovery_reports_uncertain_dispatch_quarantine_separately():
+    source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
+    assert "quarantined_uncertain_dispatches" in source
+
+
+
+def test_uncertain_dispatch_quota_uses_best_durable_dispatch_time_before_now_fallback():
+    source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
+    normalized = " ".join(source.casefold().split())
+    assert "max(coalesce(h.submitted_at, h.enviado_em))" in normalized
+    assert "greatest(" in normalized
+    assert "l.iniciado_em" in normalized
+    assert "t.quota_sent_at" in normalized
