@@ -13,12 +13,12 @@ permissions:
   contents: write
   pull-requests: write
   checks: read
-  actions: read
+  actions: write
   statuses: read
 
 concurrency:
   group: pr-auto-merge-${{ github.event.workflow_run.head_sha }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   merge-if-green:
@@ -41,7 +41,16 @@ jobs:
           pulls="$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls")"
           pr_json="$(jq --arg sha "$HEAD_SHA" '[.[] | select(.state == "open") | select(.head.repo.full_name == .base.repo.full_name) | select(.base.ref == "main") | select(.head.sha == $sha)][0]' <<<"$pulls")"
           if [ "$pr_json" = "null" ]; then
-            echo 'No eligible open same-repository PR for this exact head SHA.'
+            merged_json="$(jq --arg sha "$HEAD_SHA" '[.[] | select(.merged_at != null) | select(.head.repo.full_name == .base.repo.full_name) | select(.base.ref == "main") | select(.head.sha == $sha)][0]' <<<"$pulls")"
+            if [ "$merged_json" != "null" ]; then
+              merged_main_sha="$(jq -r '.merge_commit_sha // empty' <<<"$merged_json")"
+              if [ -n "$merged_main_sha" ]; then
+                echo "merged_main_sha=$merged_main_sha" >> "$GITHUB_OUTPUT"
+                echo "Exact PR head was already merged as main@$merged_main_sha."
+              fi
+            else
+              echo 'No eligible open same-repository PR for this exact head SHA.'
+            fi
             exit 0
           fi
           pr_number="$(jq -r '.number' <<<"$pr_json")"
@@ -100,6 +109,7 @@ jobs:
           echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
 
       - name: Merge validated PR
+        id: merge
         if: steps.gate.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ github.token }}
@@ -112,4 +122,35 @@ jobs:
           set -Eeuo pipefail
           result="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$HEAD_SHA")"
           jq -e '.merged == true' <<<"$result" >/dev/null
+          merged_main_sha="$(jq -r '.sha // empty' <<<"$result")"
+          test -n "$merged_main_sha"
+          echo "merged_main_sha=$merged_main_sha" >> "$GITHUB_OUTPUT"
           gh api -X DELETE "repos/$REPO/git/refs/heads/$HEAD_REF" >/dev/null 2>&1 || true
+
+      - name: Re-validate merged main at its exact SHA
+        if: steps.gate.outputs.pr_number != '' || steps.gate.outputs.merged_main_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MERGED_SHA: ${{ steps.merge.outputs.merged_main_sha || steps.gate.outputs.merged_main_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sha="$MERGED_SHA"
+          test -n "$sha"
+          current_main="$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)"
+          if [ "$current_main" != "$sha" ]; then
+            echo "Main advanced to $current_main; refusing to revalidate stale merge $sha."
+            exit 0
+          fi
+
+          existing="$(gh api "repos/$REPO/actions/runs?head_sha=$sha&event=workflow_dispatch&per_page=100")"
+          echo "Ensuring post-merge validation for main@$sha"
+          for workflow in email-safety-ci.yml repo-policy-guard.yml repository-governance.yml ai-conflict-resolver.yml; do
+            path=".github/workflows/$workflow"
+            if jq -e --arg path "$path" '.workflow_runs[] | select(.path == $path)' <<<"$existing" >/dev/null; then
+              echo "Skipping already-dispatched $workflow for main@$sha"
+              continue
+            fi
+            gh api --method POST "repos/$REPO/actions/workflows/$workflow/dispatches" -f ref=main
+          done
