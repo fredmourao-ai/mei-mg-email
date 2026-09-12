@@ -40,3 +40,11 @@ def test_repo_guard_hard_blocks_future_active_migrations():
     src = (ROOT / 'scripts' / 'repo_policy_guard.py').read_text(encoding='utf-8')
     assert 'MAX_ACTIVE_MIGRATION = 20' in src
     assert 'active migration above canonical ceiling' in src
+
+
+def test_safe_entrypoint_light_recovery_quarantines_uncertain_dispatches_without_full_recovery():
+    src = (ROOT / 'worker' / 'safe_entrypoint.py').read_text(encoding='utf-8')
+    body = src.split('def _light_recovery(conn):', 1)[1].split('worker._marcar_envio_em_transito', 1)[0]
+    assert 'quarentenar_dispatches_incertos(conn)' in body
+    assert 'changed=quarantined' in body.replace(' ', '')
+    assert 'recuperar_fila_legada_e_lotes_orfaos(conn)' not in body
