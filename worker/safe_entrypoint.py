@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import psycopg
 from psycopg.rows import dict_row
+from app.queue_recovery import quarentenar_dispatches_incertos
 from worker import worker_queue_first as worker
 
 logger = logging.getLogger("mei_mg_email.safe_entrypoint")
@@ -107,7 +108,11 @@ def _safe_processar_lote(conn, lote, provider):
 from types import SimpleNamespace
 
 def _light_recovery(conn):
-    return SimpleNamespace(changed=0)
+    quarantined = quarentenar_dispatches_incertos(conn)
+    return SimpleNamespace(
+        changed=quarantined,
+        quarantined_uncertain_dispatches=quarantined,
+    )
 
 worker._marcar_envio_em_transito=_safe_mark
 worker.processar_lote=_safe_processar_lote

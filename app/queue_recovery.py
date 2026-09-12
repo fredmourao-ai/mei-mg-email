@@ -94,6 +94,72 @@ def _run_batched_update(
     return total
 
 
+def quarentenar_dispatches_incertos(conn: psycopg.Connection) -> int:
+    """Quarantine stale pre-send checkpoints without running heavy queue repair.
+
+    A persisted ``dispatch_started`` row may already have reached the provider.
+    It must never be blindly replayed. Reserve one conservative quota slot at
+    the best durable dispatch timestamp and block the row atomically.
+    """
+    return _run_batched_update(
+        conn,
+        """
+        with target as (
+            select e.id, e.email, c.assunto,
+                   coalesce(
+                       greatest(
+                           l.iniciado_em,
+                           (
+                               select max(coalesce(h.submitted_at, h.enviado_em))
+                                 from mei_email.envios h
+                                where h.lote_id = e.lote_id
+                                  and h.id <> e.id
+                                  and (
+                                      h.submitted_at is not null
+                                      or h.enviado_em is not null
+                                  )
+                           )
+                       ),
+                       now()
+                   ) as quota_sent_at
+              from mei_email.envios e
+              join mei_email.lotes l on l.id = e.lote_id
+              join mei_email.campanhas c on c.id = e.campanha_id
+             where e.status = 'enviando'
+               and coalesce(e.erro, '') like 'dispatch_started:%%'
+               and (
+                   l.iniciado_em is null
+                   or l.iniciado_em < now() - interval '15 minutes'
+               )
+             order by e.id
+             for update of e skip locked
+             limit %s
+        ),
+        quota_reservation as (
+            insert into mei_email.envios_externos_cota
+                (email, subject, sent_at, source, provider_message_id, metadata)
+            select t.email,
+                   coalesce(t.assunto, 'Resultado de envio incerto'),
+                   t.quota_sent_at,
+                   'brevo_uncertain_dispatch_recovery',
+                   null,
+                   jsonb_build_object(
+                       'purpose', 'anti_replay_quota_reservation',
+                       'envio_id', t.id::text
+                   )
+              from target t
+            returning id
+        )
+        update mei_email.envios e
+           set status = 'bloqueado'::mei_email.status_envio,
+               erro = 'delivery_uncertain: checkpoint dispatch_started recuperado fail-closed; reenvio proibido; cota Brevo reservada'
+          from target t
+         where t.id = e.id
+        """,
+        label="quarantine_uncertain_dispatch",
+    )
+
+
 def recuperar_fila_legada_e_lotes_orfaos(
     conn: psycopg.Connection,
 ) -> QueueRecoveryResult:
@@ -259,63 +325,7 @@ def recuperar_fila_legada_e_lotes_orfaos(
         label="close_empty_lots",
     )
 
-    quarantined_uncertain_dispatches = _run_batched_update(
-        conn,
-        """
-        with target as (
-            select e.id, e.email, c.assunto,
-                   coalesce(
-                       greatest(
-                           l.iniciado_em,
-                           (
-                               select max(coalesce(h.submitted_at, h.enviado_em))
-                                 from mei_email.envios h
-                                where h.lote_id = e.lote_id
-                                  and h.id <> e.id
-                                  and (
-                                      h.submitted_at is not null
-                                      or h.enviado_em is not null
-                                  )
-                           )
-                       ),
-                       now()
-                   ) as quota_sent_at
-              from mei_email.envios e
-              join mei_email.lotes l on l.id = e.lote_id
-              join mei_email.campanhas c on c.id = e.campanha_id
-             where e.status = 'enviando'
-               and coalesce(e.erro, '') like 'dispatch_started:%%'
-               and (
-                   l.iniciado_em is null
-                   or l.iniciado_em < now() - interval '15 minutes'
-               )
-             order by e.id
-             for update of e skip locked
-             limit %s
-        ),
-        quota_reservation as (
-            insert into mei_email.envios_externos_cota
-                (email, subject, sent_at, source, provider_message_id, metadata)
-            select t.email,
-                   coalesce(t.assunto, 'Resultado de envio incerto'),
-                   t.quota_sent_at,
-                   'brevo_uncertain_dispatch_recovery',
-                   null,
-                   jsonb_build_object(
-                       'purpose', 'anti_replay_quota_reservation',
-                       'envio_id', t.id::text
-                   )
-              from target t
-            returning id
-        )
-        update mei_email.envios e
-           set status = 'bloqueado'::mei_email.status_envio,
-               erro = 'delivery_uncertain: checkpoint dispatch_started recuperado fail-closed; reenvio proibido; cota Brevo reservada'
-          from target t
-         where t.id = e.id
-        """,
-        label="quarantine_uncertain_dispatch",
-    )
+    quarantined_uncertain_dispatches = quarentenar_dispatches_incertos(conn)
 
     recovered_stale_sending = _run_batched_update(
         conn,
