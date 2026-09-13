@@ -1,0 +1,5 @@
+---
+description: Continuidade obrigatoria de tarefas para todos os agentes
+alwaysApply: true
+---
+Leia `AGENTS.md` e `AI-TO-CLI-PROTOCOL.md`. Siga obrigatoriamente `Continuidade obrigatoria diante de falha de ferramenta ou comando`: falha de ferramenta nao e estado terminal; escolha fallback seguro, persista checkpoint e continue a tarefa original.

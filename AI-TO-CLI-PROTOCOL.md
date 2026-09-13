@@ -159,3 +159,23 @@ Registro final mínimo: branch, SHA/base inicial, SHA/merge final, arquivos alte
 - Ao terminar a tarefa, feche ou marque a sessao interativa do chat como concluida. Sessao concluida nunca pode ser reatribuida a outro chat.
 
 Regra principal: **um chat = um namespace de sessao CLI isolado; nunca reutilizar sessao entre chats.**
+
+## Continuidade obrigatoria diante de falha de ferramenta ou comando
+
+Falha de ferramenta, comando, API, CLI, runner, sessao ou sintaxe **nao e estado terminal da tarefa**. O agente deve tratar a falha como evento de diagnostico e continuar autonomamente pelo proximo caminho seguro que preserve a intencao original.
+
+Regras obrigatorias:
+
+1. Ao receber `command not found`, `unknown option/subcommand`, argumento incompatível, timeout, erro transitorio, runner ocupado, branch desatualizada ou recurso indisponivel no host atual, **nao encerrar a tarefa** e nao devolver apenas o erro ao usuario.
+2. Inspecionar imediatamente versao/capacidades (`--help`, `--version`, schema/API/docs locais) e tentar a sintaxe suportada pela ferramenta instalada.
+3. Se a operacao continuar indisponivel, usar esta ordem de fallback quando segura: mesma ferramenta com sintaxe suportada -> API nativa/conector -> Git/CLI equivalente -> outro host autorizado com a capacidade necessaria -> script deterministico/servico persistente aprovado.
+4. Depois que um fallback resolver o obstaculo, **retomar a tarefa original no passo seguinte**. Nunca confundir “encontrei uma alternativa” com “conclui a tarefa”.
+5. Antes de declarar BLOQUEADO, esgotar alternativas autonomas razoaveis e provar que o impedimento e externo, real e incontornavel com os acessos disponiveis. Ausencia de um subcomando especifico nao e bloqueio se houver API ou Git equivalente.
+6. Persistir checkpoint recuperavel depois de cada mutacao material: repositorio/branch, SHA/base, PR/issue/run quando aplicavel, validacoes ja executadas e proxima acao exata. Memoria do chat/shell nao pode ser a unica fonte de retomada.
+7. Se a ferramenta atual travar, encerrar/recriar apenas o processo/sessao pertencente a este chat; preservar sessoes e trabalho de outros agentes.
+8. Nao pedir confirmacao intermediaria quando a intencao do usuario ja estiver clara e existir alternativa segura que nao aumente escopo ou risco.
+9. Estados finais permitidos: **CONCLUIDO**, com verificacao fresca e objetivo efetivamente realizado; ou **BLOQUEADO**, somente por impedimento externo real, com checkpoint e acao externa necessaria descritos.
+
+Fallback GitHub obrigatorio para incompatibilidade de CLI: se um comando como `gh pr update-branch` nao existir na versao instalada, primeiro consultar `gh ... --help`; depois usar a API GitHub equivalente quando disponivel. Se a API nao estiver disponivel, atualizar a branch em worktree isolado com `git fetch`, merge seguro de `origin/main`, resolucao de conflitos, validacao e push normal sem sobrescrever trabalho concorrente. O agente deve entao continuar checks -> merge -> pos-merge, e nao parar no erro da CLI.
+
+Regra principal: **erro de ferramenta e progresso de diagnostico, nao conclusao nem bloqueio por si so. Sempre escolher o proximo caminho executavel e continuar.**
