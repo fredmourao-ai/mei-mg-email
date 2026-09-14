@@ -34,3 +34,13 @@ def test_supervisor_measures_real_throughput_and_keeps_safety_guards():
     assert "provider.send" not in src
     assert ("marketing_" + "autorizado = true") not in src.lower()
     assert "mei_verificado = true" not in src.lower()
+
+
+def test_supervisor_uses_same_rolling_quota_ledger_as_worker():
+    src = (ROOT / "scripts/nonstop_supervisor_15m.py").read_text()
+    assert "envios_externos_cota" in src
+    assert "quota_24h" in src
+    assert "statement_timestamp() - interval '24 hours'" in src
+    decision_tail = src.split("below_target =", 1)[1]
+    assert 'before["quota_24h"]' in decision_tail
+    assert 'after["quota_24h"]' in decision_tail
