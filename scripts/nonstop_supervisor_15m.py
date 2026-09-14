@@ -295,6 +295,10 @@ def _collect() -> dict[str, object]:
                 """
                 select
                   count(*) filter (
+                    where provider_message_id like 'brevo:%'
+                      and submitted_at >= statement_timestamp() - interval '24 hours'
+                  ) as quota_24h,
+                  count(*) filter (
                     where status::text in ('submitted','enviado')
                       and enviado_em >= now() - interval '24 hours'
                   ) as sent_24h,
@@ -312,6 +316,14 @@ def _collect() -> dict[str, object]:
                 """
             )
             row = dict(cur.fetchone())
+            cur.execute("select to_regclass('mei_email.envios_externos_cota')")
+            if cur.fetchone()[0] is not None:
+                cur.execute("""
+                    select count(*) from mei_email.envios_externos_cota
+                     where (provider_message_id like 'brevo:%' or source like 'brevo%')
+                       and sent_at >= statement_timestamp() - interval '24 hours'
+                """)
+                row["quota_24h"] = int(row.get("quota_24h") or 0) + int(cur.fetchone()[0] or 0)
             cur.execute(
                 """
                 select exists (
@@ -321,7 +333,7 @@ def _collect() -> dict[str, object]:
                 """
             )
             row["active_campaign"] = bool(cur.fetchone()["active_campaign"])
-    for key in ("sent_24h", "sent_10m", "open_queue"):
+    for key in ("quota_24h", "sent_24h", "sent_10m", "open_queue"):
         row[key] = int(row.get(key) or 0)
     if row.get("last_sent_at") is not None:
         row["last_sent_at"] = row["last_sent_at"].isoformat()
@@ -423,7 +435,7 @@ def main() -> int:
     before = _collect()
     result["before"] = before
 
-    below_target = int(before["sent_24h"]) < int(settings.meta_envios_por_dia)
+    below_target = int(before["quota_24h"]) < int(settings.meta_envios_por_dia)
     stalled = bool(before["active_campaign"]) and below_target and int(before["sent_10m"]) == 0
     empty = int(before["open_queue"]) == 0
 
@@ -452,7 +464,7 @@ def main() -> int:
         result["result"] = "degraded_api_unavailable_or_unsupervised"
     elif result["worker_after"] != "active":
         result["result"] = "degraded_worker_inactive"
-    elif bool(after["active_campaign"]) and int(after["sent_24h"]) < int(settings.meta_envios_por_dia):
+    elif bool(after["active_campaign"]) and int(after["quota_24h"]) < int(settings.meta_envios_por_dia):
         if int(after["sent_10m"]) > 0:
             result["result"] = "healthy_real_throughput"
         elif int(after["open_queue"]) > 0:
