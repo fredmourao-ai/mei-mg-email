@@ -1,0 +1,30 @@
+name: Weekly database backups
+
+on:
+  schedule:
+    - cron: '30 4 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-database-backups
+  cancel-in-progress: false
+
+jobs:
+  main-host:
+    name: Backup main host databases
+    runs-on: [self-hosted, mei-backend]
+    timeout-minutes: 60
+    steps:
+      - name: Run verified main database backups
+        run: /home/ubuntu/.local/bin/shopvivaliz-db-backup.py --profile main
+
+  secondary-host:
+    name: Backup secondary host databases
+    runs-on: [self-hosted, mei-ci]
+    timeout-minutes: 30
+    steps:
+      - name: Run verified secondary database backups
+        run: /home/ubuntu/.local/bin/shopvivaliz-db-backup.py --profile secondary
