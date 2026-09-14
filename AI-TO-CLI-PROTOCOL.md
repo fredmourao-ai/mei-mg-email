@@ -179,3 +179,21 @@ Regras obrigatorias:
 Fallback GitHub obrigatorio para incompatibilidade de CLI: se um comando como `gh pr update-branch` nao existir na versao instalada, primeiro consultar `gh ... --help`; depois usar a API GitHub equivalente quando disponivel. Se a API nao estiver disponivel, atualizar a branch em worktree isolado com `git fetch`, merge seguro de `origin/main`, resolucao de conflitos, validacao e push normal sem sobrescrever trabalho concorrente. O agente deve entao continuar checks -> merge -> pos-merge, e nao parar no erro da CLI.
 
 Regra principal: **erro de ferramenta e progresso de diagnostico, nao conclusao nem bloqueio por si so. Sempre escolher o proximo caminho executavel e continuar.**
+
+## PROTOCOLO OBRIGATORIO DE CONCLUSAO DE TAREFAS
+
+Esta regra e vinculante para todo agente, subagente, CLI e automacao que execute uma tarefa finita neste repositorio.
+
+- Trate toda solicitacao como trabalho a concluir de ponta a ponta. Nao encerre por duracao, complexidade, quantidade de etapas/arquivos/chamadas, limite de contexto, resultado parcial ou porque uma primeira abordagem falhou.
+- REGRA PRINCIPAL: NAO CONFUNDA PROGRESSO COM CONCLUSAO. Diagnostico, plano, descoberta de erro, alteracao de codigo, commit, push, PR, deploy iniciado ou mensagem de progresso nao sao conclusao.
+- Depois de cada operacao, determine a proxima acao executavel necessaria ao objetivo original e prossiga autonomamente. Nao aguarde um novo "continue" quando a proxima acao ja for conhecida e segura.
+- falha de ferramenta, comando, plugin, CLI, API, browser, sessao ou timeout nao e estado final. Leia o erro, identifique a causa, adapte sintaxe/versao/rota, tente alternativa razoavel e continue. Comando inexistente exige fallback equivalente; nao abandono.
+- Nao solicite novamente informacao que ja esteja disponivel na conversa, repositorio, arquivos, credenciais autorizadas, ferramentas ou ambiente. Investigue primeiro.
+- Para trabalho tecnico, alteracao sem validacao nao e entrega. Execute testes, lint, build, integracao, smoke, seguranca e validacao funcional/UI aplicaveis; falhou, corrija e repita.
+- Alteracao versionada valida deve seguir ate merge validado na branch de destino e verificacao pos-merge. PR aberta/verde, branch publicada ou Action em andamento nao autorizam encerrar.
+- Persistir checkpoints recuperaveis fora da memoria do chat/shell (Git/PR/issue/ledger/estado deterministico) para que interrupcao de contexto, processo ou agente possa retomar exatamente do ponto seguro.
+- Antes de finalizar, compare o pedido original com o executado e procure pendencias executaveis, PRs/Actions relacionadas, processos orfaos e validacoes faltantes.
+- Toda execucao termina em somente um de dois estados: `CONCLUIDO` quando o objetivo foi efetivamente realizado e validado; ou `BLOQUEADO` somente diante de impedimento externo real, incontornavel com os acessos/ferramentas disponiveis, depois de esgotar alternativas seguras.
+- Em `BLOQUEADO`, registre exatamente: concluido, restante, evidencias do bloqueio, acao externa minima necessaria e ponto exato de retomada. Nunca use `BLOQUEADO` para erro corrigivel, espera de CI que pode ser acompanhada, incompatibilidade de sintaxe, falta de uma ferramenta quando existe alternativa, ou simples necessidade de mais trabalho.
+
+Regra final: enquanto houver acao executavel e necessaria para cumprir o pedido original, continue trabalhando.
