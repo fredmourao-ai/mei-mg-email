@@ -56,6 +56,12 @@ STATE_PATH = Path(
 )
 
 
+def _first_value(row):
+    if isinstance(row, dict):
+        return next(iter(row.values()))
+    return row[0]
+
+
 def _systemctl(*args: str, timeout: int = 20) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["systemctl", *args],
@@ -317,13 +323,13 @@ def _collect() -> dict[str, object]:
             )
             row = dict(cur.fetchone())
             cur.execute("select to_regclass('mei_email.envios_externos_cota')")
-            if cur.fetchone()[0] is not None:
+            if _first_value(cur.fetchone()) is not None:
                 cur.execute("""
                     select count(*) from mei_email.envios_externos_cota
                      where (provider_message_id like 'brevo:%' or source like 'brevo%')
                        and sent_at >= statement_timestamp() - interval '24 hours'
                 """)
-                row["quota_24h"] = int(row.get("quota_24h") or 0) + int(cur.fetchone()[0] or 0)
+                row["quota_24h"] = int(row.get("quota_24h") or 0) + int(_first_value(cur.fetchone()) or 0)
             cur.execute(
                 """
                 select exists (
