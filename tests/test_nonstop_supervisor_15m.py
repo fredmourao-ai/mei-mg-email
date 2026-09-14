@@ -44,3 +44,13 @@ def test_supervisor_uses_same_rolling_quota_ledger_as_worker():
     decision_tail = src.split("below_target =", 1)[1]
     assert 'before["quota_24h"]' in decision_tail
     assert 'after["quota_24h"]' in decision_tail
+
+
+def test_supervisor_first_value_handles_dict_row_and_sequence():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("supervisor", ROOT / "scripts/nonstop_supervisor_15m.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    assert module._first_value({"to_regclass": "mei_email.envios_externos_cota"}) == "mei_email.envios_externos_cota"
+    assert module._first_value((300,)) == 300
