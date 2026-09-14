@@ -8,3 +8,4 @@ Antes de qualquer alteração em código, configuração, documentação version
 Este `AGENTS.override.md` existe somente como ponto de entrada para garantir essa leitura; ele não substitui semanticamente a governança de `AGENTS.md`.
 
 Nenhuma alteração válida da tarefa pode ser abandonada sem merge validado na branch de destino.
+Regra de continuidade: leia e cumpra `AI-TO-CLI-PROTOCOL.md`, especialmente `Continuidade obrigatoria diante de falha de ferramenta ou comando`; erro de ferramenta nao autoriza encerrar a tarefa.
