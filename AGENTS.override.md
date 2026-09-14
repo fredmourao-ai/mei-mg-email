@@ -9,3 +9,5 @@ Este `AGENTS.override.md` existe somente como ponto de entrada para garantir ess
 
 Nenhuma alteração válida da tarefa pode ser abandonada sem merge validado na branch de destino.
 Regra de continuidade: leia e cumpra `AI-TO-CLI-PROTOCOL.md`, especialmente `Continuidade obrigatoria diante de falha de ferramenta ou comando`; erro de ferramenta nao autoriza encerrar a tarefa.
+
+Antes de finalizar qualquer tarefa, cumpra tambem o `PROTOCOLO OBRIGATORIO DE CONCLUSAO DE TAREFAS` de `AI-TO-CLI-PROTOCOL.md`.

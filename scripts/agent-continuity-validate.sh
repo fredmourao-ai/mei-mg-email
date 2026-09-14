@@ -12,4 +12,8 @@ for f in AGENTS.md AGENTS.override.md CLAUDE.md GEMINI.md .github/copilot-instru
 done
 grep -Fq 'unknown option/subcommand' "$protocol" || { echo 'BLOCKED: command incompatibility fallback rule missing' >&2; exit 65; }
 grep -Fq 'nao e estado terminal da tarefa' "$protocol" || { echo 'BLOCKED: non-terminal tool failure rule missing' >&2; exit 66; }
+grep -Fq 'PROTOCOLO OBRIGATORIO DE CONCLUSAO DE TAREFAS' "$protocol" || { echo 'BLOCKED: end-to-end completion protocol missing' >&2; exit 67; }
+grep -Fq 'falha de ferramenta, comando, plugin, CLI, API, browser, sessao ou timeout nao e estado final' "$protocol" || { echo 'BLOCKED: broad tool fallback rule missing' >&2; exit 68; }
+grep -Fq 'CONCLUIDO' "$protocol" || { echo 'BLOCKED: CONCLUIDO terminal state missing' >&2; exit 69; }
+grep -Fq 'BLOQUEADO' "$protocol" || { echo 'BLOCKED: BLOQUEADO terminal state missing' >&2; exit 70; }
 echo 'agent continuity protocol: PASS'
