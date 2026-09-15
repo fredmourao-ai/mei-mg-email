@@ -18,7 +18,7 @@ Execute integralmente `docs/quality/EXTREME_AUDIT_PROTOCOL.md` quando houver qua
 3. Procure não apenas código incorreto, mas também rotinas ausentes, estados sem saída, produtor sem consumidor, consumidor sem produtor, dados sem reconciliação e operações sem recuperação.
 4. Não declare 100% auditado se qualquer área crítica permanecer não validada.
 5. Toda auditoria deve estar ligada a um commit/release identificável. Mudança material posterior invalida a cobertura correspondente.
-6. Achados críticos devem ser reproduzidos e, quando seguro/autorizado, corrigidos, testados, regredidos e reaud itados.
+6. Achados críticos devem ser reproduzidos e, quando seguro/autorizado, corrigidos, testados, regredidos e reauditados.
 7. Produção só é considerada validada quando houver evidência de que o artefato/release auditado é o que realmente está executando.
 8. Não faça mudança destrutiva apenas para satisfazer a auditoria; classifique a correção como SAFE, REVIEW, MIGRATION ou DESTRUCTIVE.
 
