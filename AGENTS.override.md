@@ -11,3 +11,6 @@ Nenhuma alteração válida da tarefa pode ser abandonada sem merge validado na 
 Regra de continuidade: leia e cumpra `AI-TO-CLI-PROTOCOL.md`, especialmente `Continuidade obrigatoria diante de falha de ferramenta ou comando`; erro de ferramenta nao autoriza encerrar a tarefa.
 
 Antes de finalizar qualquer tarefa, cumpra tambem o `PROTOCOLO OBRIGATORIO DE CONCLUSAO DE TAREFAS` de `AI-TO-CLI-PROTOCOL.md`.
+
+## Gate obrigatório de auditoria
+Leia `AUDIT_POLICY.md`. Quando um projeto, módulo ou release for declarado pronto/finalizado/apto para produção, quando houver solicitação de auditoria completa, ou quando ocorrer mudança material definida nessa política, execute integralmente `docs/quality/EXTREME_AUDIT_PROTOCOL.md` e `docs/quality/AUDIT_OVERLAY.md`. Não declare cobertura total com área crítica não validada. Ao concluir auditoria formal, atualize `docs/quality/AUDIT_STATUS.md` com o SHA/release efetivamente coberto e as evidências do Gate Final de Completude.
