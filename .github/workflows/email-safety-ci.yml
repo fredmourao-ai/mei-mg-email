@@ -4,34 +4,8 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
-    paths:
-      - "app/**"
-      - "worker/**"
-      - "scripts/**"
-      - "deploy/systemd/**"
-      - "templates/**"
-      - "db/migrations/**"
-      - "db/policy/**"
-      - "ops/**"
-      - "tests/**"
-      - "requirements*.txt"
-      - "docker-compose.yml"
-      - ".github/workflows/email-safety-ci.yml"
   push:
     branches: [main]
-    paths:
-      - "app/**"
-      - "worker/**"
-      - "scripts/**"
-      - "deploy/systemd/**"
-      - "templates/**"
-      - "db/migrations/**"
-      - "db/policy/**"
-      - "ops/**"
-      - "tests/**"
-      - "requirements*.txt"
-      - "docker-compose.yml"
-      - ".github/workflows/email-safety-ci.yml"
 
 permissions:
   contents: read
