@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 AUTO = (ROOT / ".github" / "workflows" / "pr-auto-merge.yml").read_text(encoding="utf-8")
 GOVERNANCE = (ROOT / ".github" / "workflows" / "repository-governance.yml").read_text(encoding="utf-8")
+SAFETY = (ROOT / ".github" / "workflows" / "email-safety-ci.yml").read_text(encoding="utf-8")
 
 
 def test_duplicate_merge_triggers_are_coalesced_safely():
@@ -27,3 +28,7 @@ def test_auto_merge_revalidates_the_exact_merged_main_sha():
 
 def test_governance_gate_supports_post_merge_dispatch():
     assert "workflow_dispatch:" in GOVERNANCE
+
+
+def test_required_email_safety_gate_is_not_path_filtered():
+    assert "\n    paths:" not in SAFETY
