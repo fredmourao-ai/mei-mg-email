@@ -33,8 +33,9 @@ MAX_PAGES = min(max(int(os.getenv("BREVO_EVENT_MAX_PAGES", "10")), 1), 10)
 LOOKBACK_DAYS = min(max(int(os.getenv("BREVO_EVENT_LOOKBACK_DAYS", "2")), 1), 30)
 REQUEST_TIMEOUT_SECONDS = min(max(int(os.getenv("BREVO_EVENT_TIMEOUT_SECONDS", "30")), 5), 60)
 MAX_SEEN_KEYS = min(max(int(os.getenv("BREVO_EVENT_MAX_SEEN_KEYS", "5000")), 500), 20000)
-STATE_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 3
 PERMANENT_EVENTS = {"hardbounce", "hardbounces", "invalid", "blocked", "spam"}
+TRANSIENT_EVENTS = {"softbounce", "softbounces", "deferred", "error"}
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,11 @@ def classify_event(event: dict) -> EventOutcome:
     if name in PERMANENT_EVENTS:
         return EventOutcome("bounce_permanent", True)
     return EventOutcome(None, False)
+
+
+def is_transient_event(event: dict) -> bool:
+    name = str(event.get("event") or "").strip().casefold()
+    return name in TRANSIENT_EVENTS
 
 
 def storage_message_id(event: dict) -> str:
@@ -265,6 +271,80 @@ def apply_event(conn: psycopg.Connection, event: dict) -> bool:
     return True
 
 
+def apply_transient_event(conn: psycopg.Connection, event: dict) -> bool:
+    if not is_transient_event(event):
+        return False
+    try:
+        stored_id = storage_message_id(event)
+    except ValueError:
+        return False
+    event_at = _event_time(event)
+    event_name = str(event.get("event") or "").strip().casefold()
+    reason = str(event.get("reason") or event.get("event") or "Brevo transient event")[:1000]
+    key = event_key(event)
+    diagnostic = f"BREVO transient {event_name}: {reason}"[:2000]
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select id
+              from mei_email.envios
+             where provider_message_id = %s
+               and submitted_at is not null
+             limit 1
+             for update
+            """,
+            (stored_id,),
+        )
+        row = cur.fetchone()
+        target = "envios"
+        if row is None:
+            cur.execute(
+                """
+                select id
+                  from mei_email.envios_externos_cota
+                 where provider_message_id = %s
+                 limit 1
+                 for update
+                """,
+                (stored_id,),
+            )
+            row = cur.fetchone()
+            target = "external"
+        if row is None:
+            conn.rollback()
+            return False
+
+        envio_id = row.get("id") if isinstance(row, dict) else row[0]
+        if target == "external":
+            cur.execute(
+                """
+                update mei_email.envios_externos_cota
+                   set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+                       'brevo_transient_event', %s,
+                       'brevo_transient_event_key', %s,
+                       'brevo_transient_event_at', coalesce(%s::timestamptz, now()),
+                       'brevo_transient_reason', %s
+                   )
+                 where id = %s
+                   and coalesce(metadata->>'brevo_transient_event_key', '') <> %s
+                """,
+                (event_name, key, event_at, reason, envio_id, key),
+            )
+        else:
+            cur.execute(
+                """
+                update mei_email.envios
+                   set last_error = %s
+                 where id = %s
+                   and status::text = 'submitted'
+                   and coalesce(last_error, '') <> %s
+                """,
+                (diagnostic, envio_id, diagnostic),
+            )
+    conn.commit()
+    return True
+
+
 def process_once() -> dict:
     state = _load_state()
     raw_seen = [str(value) for value in state.get("seen_event_keys") or []]
@@ -289,10 +369,19 @@ def process_once() -> dict:
     matched = 0
     terminal = 0
     with psycopg.connect(settings.database_url, connect_timeout=10) as conn:
+        transient = 0
+        diagnostic_matched = 0
         for event in reversed(unique):
             key = event_key(event)
-            if classify_event(event).status is None:
-                confirm_seen(key)
+            outcome = classify_event(event)
+            if outcome.status is None:
+                if is_transient_event(event):
+                    transient += 1
+                    if apply_transient_event(conn, event):
+                        diagnostic_matched += 1
+                        confirm_seen(key)
+                else:
+                    confirm_seen(key)
                 continue
             terminal += 1
             if apply_event(conn, event):
@@ -305,6 +394,8 @@ def process_once() -> dict:
     state["last_unique"] = len(unique)
     state["last_terminal"] = terminal
     state["last_matched"] = matched
+    state["last_transient"] = transient
+    state["last_diagnostic_matched"] = diagnostic_matched
     _save_state(state)
     return state
 
@@ -329,11 +420,13 @@ def main() -> int:
         try:
             state = process_once()
             logger.info(
-                "BREVO_RECONCILE fetched=%s unique=%s terminal=%s matched=%s",
+                "BREVO_RECONCILE fetched=%s unique=%s terminal=%s matched=%s transient=%s diagnostic_matched=%s",
                 state.get("last_fetched"),
                 state.get("last_unique"),
                 state.get("last_terminal"),
                 state.get("last_matched"),
+                state.get("last_transient"),
+                state.get("last_diagnostic_matched"),
             )
         except Exception:
             logger.exception("BREVO_RECONCILE_FAILED")
