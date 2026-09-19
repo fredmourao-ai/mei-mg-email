@@ -18,6 +18,7 @@ def snapshot_base():
             "total": 14900,
             "pendentes": 14900,
             "enviando": 0,
+            "ineligible_open": 0,
             "elegiveis_restantes": 50000,
         },
         "sending": {
@@ -51,6 +52,14 @@ def codes(snapshot):
 
 def test_healthy_monitor_has_no_alerts():
     assert construir_alertas(snapshot_base()) == []
+
+
+
+
+def test_ineligible_open_queue_is_critical():
+    snapshot = snapshot_base()
+    snapshot["queue"]["ineligible_open"] = 3
+    assert "queue_ineligible_open" in codes(snapshot)
 
 
 def test_empty_queue_is_critical():

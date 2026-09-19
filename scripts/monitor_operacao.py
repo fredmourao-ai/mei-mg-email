@@ -130,6 +130,23 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
 
         cur.execute(
             """
+            select count(*) as ineligible_open
+              from mei_email.envios v
+              join mei_email.empresas e on e.cnpj = v.cnpj
+             where v.status::text in ('pendente','enviando','pending','processing')
+               and (
+                   e.situacao_cadastral <> 'ATIVA'
+                   or v.email is null
+                   or btrim(v.email::text) = ''
+                   or not mei_email.is_valid_email_address(v.email)
+                   or position('contabil' in lower(btrim(v.email::text))) > 0
+               )
+            """
+        )
+        ineligible_open = int(cur.fetchone()["ineligible_open"] or 0)
+
+        cur.execute(
+            """
             select count(*) as externos_24h
               from mei_email.envios_externos_cota
              where (provider_message_id like 'brevo:%' or source like 'brevo%')
@@ -218,6 +235,7 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
             "total": int(envio.get("fila") or 0),
             "pendentes": int(envio.get("pendentes") or 0),
             "enviando": int(envio.get("enviando") or 0),
+            "ineligible_open": ineligible_open,
             "elegiveis_restantes": elegiveis,
         },
         "sending": {
@@ -282,6 +300,13 @@ def construir_alertas(snapshot: dict) -> list[dict]:
             "warning",
             "queue_low",
             f"Fila em {queue['total']}, no/abaixo do gatilho {limits['queue_min_pending']}.",
+        )
+
+    if queue.get("ineligible_open", 0) > 0:
+        add(
+            "critical",
+            "queue_ineligible_open",
+            f"Existem {queue['ineligible_open']} envios abertos que ja nao cumprem a politica canonica.",
         )
 
     if queue["elegiveis_restantes"] == 0:

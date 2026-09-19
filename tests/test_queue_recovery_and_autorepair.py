@@ -162,3 +162,14 @@ def test_uncertain_dispatch_quota_uses_best_durable_dispatch_time_before_now_fal
     assert "greatest(" in normalized
     assert "l.iniciado_em" in normalized
     assert "t.quota_sent_at" in normalized
+
+def test_hourly_autorepair_detects_and_repairs_open_ineligible_rows():
+    source = (ROOT / "scripts" / "autocorrigir_envios_2h.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'row["ineligible_open"]' in source
+    assert 'before["ineligible_open"] > 0' in source
+    assert 'after["ineligible_open"]' in source
+    assert "position('contabil'" in source
+    assert "situacao_cadastral <> 'ATIVA'" in source
+
