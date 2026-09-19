@@ -1,0 +1,27 @@
+name: Ops Cancel Solange Recovery Selfhosted
+on:
+  push:
+    branches:
+      - ops/cancel-solange-recovery-selfhosted-20260919
+permissions:
+  actions: write
+  contents: read
+jobs:
+  cancel:
+    runs-on: [self-hosted, Linux, ARM64, mei-backend]
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Cancel obsolete probes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for id in 35472443915 35472476370; do
+            status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq .status 2>/dev/null || echo missing)"
+            echo "RUN=$id STATUS=$status"
+            if [ "$status" = "queued" ] || [ "$status" = "in_progress" ]; then
+              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/cancel" >/dev/null
+              echo "CANCELLED=$id"
+            fi
+          done
