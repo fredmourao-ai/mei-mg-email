@@ -1,0 +1,51 @@
+name: Secondary Restore Capacity Audit 2026-09-19
+
+on:
+  push:
+    branches:
+      - audit/secondary-restore-capacity-20260919
+
+permissions:
+  contents: read
+
+concurrency:
+  group: secondary-restore-capacity-20260919
+  cancel-in-progress: true
+
+jobs:
+  capacity:
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    timeout-minutes: 20
+    steps:
+      - name: Inspect and safely reclaim secondary capacity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "DF_BEFORE"
+          df -hT
+          echo "HOME_TOP"
+          du -xhd1 /home/ubuntu 2>/dev/null | sort -h | tail -35 || true
+          echo "CACHE"
+          du -sh /home/ubuntu/.npm /home/ubuntu/.cache /home/ubuntu/.local /home/ubuntu/.venvs 2>/dev/null || true
+          du -sh /home/ubuntu/.cache/* 2>/dev/null | sort -h | tail -30 || true
+          rm -rf /home/ubuntu/.cache/pip
+          shopt -s nullglob
+          for d in /home/ubuntu/.cache/ms-playwright/*; do
+            [ -d "$d" ] || continue
+            users="$(ps -eo pid,args | grep -F "$d/" | grep -v grep || true)"
+            if [ -z "$users" ]; then
+              bytes="$(du -sb "$d" 2>/dev/null | awk '{print $1}')"
+              rm -rf -- "$d"
+              echo "REMOVED_INACTIVE_PLAYWRIGHT bytes=$bytes path=$d"
+            else
+              echo "PRESERVED_ACTIVE_PLAYWRIGHT path=$d"
+            fi
+          done
+          docker rm -f mei-restore-proof-20260919 mei-restore-verify-20260919 >/dev/null 2>&1 || true
+          rm -rf /home/ubuntu/.audit-runtime/mei-restore-proof-20260919 /home/ubuntu/.audit-runtime/mei-restore-verify-20260919
+          docker builder prune -f --filter 'until=168h' || true
+          docker image prune -f || true
+          echo "DOCKER_DF"
+          docker system df || true
+          echo "DF_AFTER"
+          df -hT
