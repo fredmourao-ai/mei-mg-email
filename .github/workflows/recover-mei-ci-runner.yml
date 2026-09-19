@@ -1,0 +1,18 @@
+name: Recover MEI CI Runner 2026-09-19
+on:
+  push:
+    branches: [ops/recover-mei-ci-runner-20260919]
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: [self-hosted, Linux, ARM64, mei-backend]
+    timeout-minutes: 10
+    steps:
+      - name: Restart mei-ci runner on shopvivaliz-free-a1
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          key=/home/ubuntu/.ssh/shopvivaliz-free-a1-monitor
+          host=10.0.1.112
+          ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes ubuntu@"$host" 'set -e; echo HOST=$(hostname); df -h /; pgrep -af "Runner.Listener|Runner.Worker" || true; for s in actions.runner.*.service; do :; done; systemctl list-units --type=service --all "actions.runner.*" --no-pager; sudo -n systemctl restart actions.runner.fredmourao-ai-mei-mg-email.mei-ci-a1.service || sudo -n systemctl restart "$(systemctl list-units --type=service --all "actions.runner.*mei-ci*" --no-legend | awk "NR==1{print \\$1}")"; sleep 3; systemctl list-units --type=service --all "actions.runner.*" --no-pager; pgrep -af "Runner.Listener|Runner.Worker" || true'
