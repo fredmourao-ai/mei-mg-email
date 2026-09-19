@@ -21,4 +21,4 @@ jobs:
           python3 scripts/repo_policy_guard.py
           bash -n scripts/instalar_monitoramento_vm.sh
           bash -n scripts/instalar_autorepair_vm.sh
-          python3 -m pytest -q tests/test_service_continuity_guards.py tests/test_brevo_runtime_contract.py tests/test_runtime_policy_contract_guard.py tests/test_sender_blocked_circuit.py
+          /home/ubuntu/mei-mg-email/.venv/bin/python -m pytest -q tests/test_service_continuity_guards.py tests/test_brevo_runtime_contract.py tests/test_runtime_policy_contract_guard.py tests/test_sender_blocked_circuit.py
