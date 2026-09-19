@@ -208,11 +208,23 @@ def recuperar_fila_legada_e_lotes_orfaos(
               join mei_email.empresas emp on emp.cnpj = e.cnpj
              where e.status in ('pendente', 'enviando', 'pending', 'processing')
                and (
-                   emp.situacao_cadastral <> 'ATIVA'
+                   coalesce(emp.opt_out, false)
+                   or emp.situacao_cadastral <> 'ATIVA'
                    or e.email is null
                    or btrim(e.email::text) = ''
                    or not mei_email.is_valid_email_address(e.email)
                    or position('contabil' in lower(btrim(e.email::text))) > 0
+                   or mei_email.is_email_suppressed(e.email)
+                   or mei_email.is_cnpj_suppressed(e.cnpj::text)
+                   or (
+                       select count(*)
+                         from (
+                           select 1
+                             from mei_email.empresas emp2
+                            where lower(btrim(emp2.email::text)) = lower(btrim(e.email::text))
+                            limit 3
+                         ) shared
+                   ) > 2
                )
              order by e.id
              for update of e skip locked
@@ -245,7 +257,10 @@ def recuperar_fila_legada_e_lotes_orfaos(
                          from mei_email.envios h
                         where h.id <> e.id
                           and h.status in ('submitted', 'enviado', 'delivered', 'bounced')
-                          and lower(btrim(h.email::text)) = lower(btrim(e.email::text))
+                          and (
+                              h.cnpj = e.cnpj
+                              or lower(btrim(h.email::text)) = lower(btrim(e.email::text))
+                          )
                    )
              order by e.id
              for update of e skip locked
@@ -272,7 +287,11 @@ def recuperar_fila_legada_e_lotes_orfaos(
                    row_number() over (
                        partition by lower(btrim(email::text))
                        order by criado_em, id
-                   ) as rn
+                   ) as email_rn,
+                   row_number() over (
+                       partition by cnpj
+                       order by criado_em, id
+                   ) as cnpj_rn
               from mei_email.envios
              where status in ('pendente', 'enviando', 'pending', 'processing')
         ),
@@ -280,7 +299,7 @@ def recuperar_fila_legada_e_lotes_orfaos(
             select e.id
               from mei_email.envios e
               join ranked r on r.id = e.id
-             where r.rn > 1
+             where r.email_rn > 1 or r.cnpj_rn > 1
              order by e.id
              for update of e skip locked
              limit %s
