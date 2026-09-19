@@ -219,3 +219,19 @@ def test_queue_replenisher_service_failure_is_critical():
     result = codes(snapshot)
     assert "queue_replenisher_not_active" in result
     assert "queue_replenisher_not_enabled" in result
+
+
+def test_absolute_hard_bounce_rate_above_brevo_limit_is_critical():
+    snapshot = snapshot_base()
+    snapshot["sending"].update({
+        "submitted_enviado_24h": 100,
+        "hard_bounces_24h": 3,
+        "hard_bounce_rate_24h_pct": 3.0,
+        "hard_bounces_60m": 0,
+        "hard_bounce_rate_60m_pct": 0.0,
+    })
+    alerts = construir_alertas(snapshot)
+    assert any(
+        item["code"] == "hard_bounce_rate_excessive" and item["level"] == "critical"
+        for item in alerts
+    )
