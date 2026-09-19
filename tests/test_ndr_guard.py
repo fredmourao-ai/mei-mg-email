@@ -103,7 +103,7 @@ def test_monitoring_installer_deploys_worker_fail_closed_with_rendered_paths():
     script = (ROOT / "scripts" / "instalar_monitoramento_vm.sh").read_text(encoding="utf-8")
     unit = (ROOT / "deploy" / "systemd" / "mei-mg-email-worker.service").read_text(encoding="utf-8")
 
-    assert "render_unit \"\\u0024APP_DIR/deploy/systemd/mei-mg-email-worker.service\"" in script
+    assert 'render_unit "$APP_DIR/deploy/systemd/mei-mg-email-worker.service"' in script
     assert "enable mei-mg-email-worker.service" in script
     assert 'if [[ -f "$STATE_DIR/sender_blocked.pause" ]]; then' in script
     assert "systemctl stop mei-mg-email-worker.service" in script
