@@ -169,6 +169,23 @@ def _collect(conn: psycopg.Connection) -> dict:
 
         cur.execute(
             """
+            select count(*) as ineligible_open
+              from mei_email.envios v
+              join mei_email.empresas e on e.cnpj = v.cnpj
+             where v.status::text in ('pendente','enviando','pending','processing')
+               and (
+                   e.situacao_cadastral <> 'ATIVA'
+                   or v.email is null
+                   or btrim(v.email::text) = ''
+                   or not mei_email.is_valid_email_address(v.email)
+                   or position('contabil' in lower(btrim(v.email::text))) > 0
+               )
+            """
+        )
+        row["ineligible_open"] = int(cur.fetchone()["ineligible_open"] or 0)
+
+        cur.execute(
+            """
             select to_regclass('mei_email.envios_externos_cota') is not null as exists
             """
         )
@@ -265,7 +282,12 @@ def _execute_locked(*, apply: bool) -> dict:
     )
     queue_broken = before["legacy_open"] > 0 or before["orphan_lots"] > 0
     worker_broken = worker_before != "active"
-    repair_needed = queue_broken or worker_broken or stalled
+    repair_needed = (
+        queue_broken
+        or worker_broken
+        or stalled
+        or before["ineligible_open"] > 0
+    )
     sentinel_active = _sentinel_active()
 
     payload = {
@@ -282,6 +304,7 @@ def _execute_locked(*, apply: bool) -> dict:
         "repair_needed": repair_needed,
         "reasons": {
             "queue_broken": queue_broken,
+            "ineligible_open": before["ineligible_open"] > 0,
             "worker_broken": worker_broken,
             "sending_stalled": stalled,
         },
@@ -345,7 +368,7 @@ def _execute_locked(*, apply: bool) -> dict:
 
     if payload["worker_after"] != "active":
         payload["result"] = "failed_worker_inactive"
-    elif after["legacy_open"] or after["orphan_lots"]:
+    elif after["legacy_open"] or after["orphan_lots"] or after["ineligible_open"]:
         payload["result"] = "failed_queue_invariant"
     elif (
         after["sent_24h"] < settings.meta_envios_por_dia
