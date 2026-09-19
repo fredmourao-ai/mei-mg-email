@@ -43,6 +43,8 @@ render_unit "$APP_DIR/deploy/systemd/mei-mg-email-base-sync.timer" "/etc/systemd
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-brevo-reconciler.service" "/etc/systemd/system/mei-mg-email-brevo-reconciler.service"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-worker.service" "/etc/systemd/system/mei-mg-email-worker.service"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-queue-replenisher.service" "/etc/systemd/system/mei-mg-email-queue-replenisher.service"
+render_unit "$APP_DIR/deploy/systemd/mei-mg-email-autorepair.service" "/etc/systemd/system/mei-mg-email-autorepair.service"
+"${SUDO[@]}" cp "$APP_DIR/deploy/systemd/mei-mg-email-autorepair.timer" /etc/systemd/system/mei-mg-email-autorepair.timer
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-site-tunnel.service" "/etc/systemd/system/mei-mg-email-site-tunnel.service"
 
 # Estado operacional persistente fica fora do Git. Se um deploy antigo ainda
@@ -61,6 +63,7 @@ rm -f "$APP_DIR/runtime/sender_blocked.pause"
 "${SUDO[@]}" systemctl daemon-reload
 "${SUDO[@]}" systemctl enable --now mei-mg-email-api.service
 "${SUDO[@]}" systemctl enable --now mei-mg-email-base-sync.timer
+"${SUDO[@]}" systemctl enable --now mei-mg-email-autorepair.timer
 "${SUDO[@]}" systemctl enable --now mei-mg-email-monitor.service
 "${SUDO[@]}" systemctl enable mei-mg-email-worker.service
 if [[ -f "$STATE_DIR/sender_blocked.pause" ]]; then
@@ -114,6 +117,7 @@ fi
 "${SUDO[@]}" systemctl is-active mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-base-sync.timer
+"${SUDO[@]}" systemctl is-active mei-mg-email-autorepair.timer
 "${SUDO[@]}" systemctl is-active mei-mg-email-site-tunnel.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-brevo-reconciler.service
