@@ -1,0 +1,48 @@
+name: Safe Cache Cleanup Audit 2026-09-19
+
+on:
+  push:
+    branches:
+      - audit/cache-cleanup-20260919
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cache-cleanup-audit-20260919
+  cancel-in-progress: true
+
+jobs:
+  cleanup:
+    runs-on: [self-hosted, Linux, ARM64, mei-backend]
+    timeout-minutes: 15
+    steps:
+      - name: Remove only regenerable unused caches
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "DISK_BEFORE=$(df -P / | awk 'NR==2{print $5}')"
+          echo "NPM_BEFORE=$(du -sb /home/ubuntu/.npm 2>/dev/null | awk '{print $1}' || echo 0)"
+          npm_users="$(ps -eo pid,args | grep -F '/home/ubuntu/.npm/' | grep -v grep || true)"
+          if [ -z "$npm_users" ]; then
+            rm -rf /home/ubuntu/.npm/_cacache /home/ubuntu/.npm/_npx
+            echo "NPM_CACHE_CLEANED=true"
+          else
+            echo "NPM_CACHE_CLEANED=false active_paths_detected=true"
+            printf '%s\n' "$npm_users" | head -20
+          fi
+          pip_users="$(ps -eo pid,args | grep -E '[p]ip(3)? .*' || true)"
+          if [ -z "$pip_users" ]; then
+            rm -rf /home/ubuntu/.cache/pip
+            echo "PIP_CACHE_CLEANED=true"
+          else
+            echo "PIP_CACHE_CLEANED=false active_pip=true"
+          fi
+          docker builder prune -f --filter 'until=168h' || true
+          docker image prune -f || true
+          if sudo -n true 2>/dev/null; then
+            sudo -n systemctl start shopvivaliz-disk-guard.service
+            sudo -n cat /var/lib/shopvivaliz-ops/disk-status.env || true
+          fi
+          echo "NPM_AFTER=$(du -sb /home/ubuntu/.npm 2>/dev/null | awk '{print $1}' || echo 0)"
+          echo "DISK_AFTER=$(df -P / | awk 'NR==2{print $5}')"
