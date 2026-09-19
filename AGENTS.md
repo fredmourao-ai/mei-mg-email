@@ -6,6 +6,9 @@
 
 Este repositorio opera envio de primeiro contato em lote. Agentes, automacoes, PR-healers e scripts autonomos NAO podem alterar a politica de elegibilidade sem aprovacao explicita do usuario.
 
+## Gate obrigatorio de Auditoria Extrema
+Leia `AUDIT_POLICY.md` e execute o conjunto global inseparavel quando houver gatilho de auditoria: `docs/quality/EXTREME_AUDIT_PROTOCOL.md`, `docs/quality/AUDIT_RUNTIME_PARITY_V1.md`, `docs/quality/AUDIT_UNIVERSAL_COVERAGE_V1.md`, `docs/quality/ARCHITECTURE_DEPLOY_AUDIT_V1.md`, `docs/quality/AUDIT_SELF_TEST_V1.md` quando aplicavel e `docs/quality/AUDIT_OVERLAY.md`. O self-test local e `python3 scripts/validate-audit-governance.py`.
+
 ## Acesso a infraestrutura e VMs
 Antes de executar qualquer comando em VM Oracle Cloud, leia e siga obrigatoriamente [`AGENTS-VM-ACCESS.md`](AGENTS-VM-ACCESS.md). O fluxo canonico e Remote Desktop Commander -> SSH validado -> OCI Compute Instance Run Command pelo perfil `AGENTS` -> serial console como ultimo recurso. Nunca versione credenciais nem presuma root no Run Command.
 
