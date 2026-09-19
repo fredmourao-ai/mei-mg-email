@@ -23,14 +23,17 @@ jobs:
           set -Eeuo pipefail
           echo "DISK_BEFORE=$(df -P / | awk 'NR==2{print $5}')"
           echo "NPM_BEFORE=$(du -sb /home/ubuntu/.npm 2>/dev/null | awk '{print $1}' || echo 0)"
-          npm_users="$(ps -eo pid,args | grep -F '/home/ubuntu/.npm/' | grep -v grep || true)"
-          if [ -z "$npm_users" ]; then
-            rm -rf /home/ubuntu/.npm/_cacache /home/ubuntu/.npm/_npx
-            echo "NPM_CACHE_CLEANED=true"
+          echo "NPM_SUBDIRS_BEFORE"
+          du -sh /home/ubuntu/.npm/* 2>/dev/null | sort -h || true
+          cacache_users="$(ps -eo pid,args | grep -F '/home/ubuntu/.npm/_cacache/' | grep -v grep || true)"
+          if [ -z "$cacache_users" ]; then
+            rm -rf /home/ubuntu/.npm/_cacache
+            echo "NPM_CACACHE_CLEANED=true"
           else
-            echo "NPM_CACHE_CLEANED=false active_paths_detected=true"
-            printf '%s\n' "$npm_users" | head -20
+            echo "NPM_CACACHE_CLEANED=false active_cacache=true"
+            printf '%s\n' "$cacache_users" | head -20
           fi
+          echo "NPM_NPX_PRESERVED=true"
           pip_users="$(ps -eo pid,args | grep -E '[p]ip(3)? .*' || true)"
           if [ -z "$pip_users" ]; then
             rm -rf /home/ubuntu/.cache/pip
