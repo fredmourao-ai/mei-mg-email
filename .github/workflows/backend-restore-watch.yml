@@ -1,0 +1,19 @@
+name: Backend Restore Watch 2026-09-19
+on:
+  push:
+    branches: [audit/backend-restore-watch-20260919]
+permissions:
+  contents: read
+jobs:
+  watch:
+    runs-on: [self-hosted, Linux, ARM64, mei-backend]
+    timeout-minutes: 10
+    steps:
+      - name: Inspect restore process and disk
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          df -h /
+          docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Size}}' | grep -E 'mei-restore|NAMES' || true
+          docker exec mei-restore-backend-20260919 psql -U postgres -d restoredb -Atc "select pid,state,wait_event_type,wait_event,left(query,120) from pg_stat_activity where datname='restoredb' order by pid;" || true
+          docker exec mei-restore-backend-20260919 psql -U postgres -d restoredb -Atc "select pg_size_pretty(pg_database_size('restoredb'));" || true
