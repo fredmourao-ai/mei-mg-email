@@ -56,6 +56,7 @@ def test_active_service_units_are_relocatable_and_installer_provisions_api():
         'mei-mg-email-api.service',
         'mei-mg-email-monitor.service',
         'mei-mg-email-queue-replenisher.service',
+        'mei-mg-email-autorepair.service',
     ):
         text = (ROOT / 'deploy' / 'systemd' / name).read_text(encoding='utf-8')
         assert '/home/ubuntu/mei-mg-email' not in text, name
@@ -74,6 +75,8 @@ def test_active_service_units_are_relocatable_and_installer_provisions_api():
     assert 'enable --now mei-mg-email-api.service' in installer
     assert 'restart mei-mg-email-api.service' in installer
     assert 'is-active mei-mg-email-api.service' in installer
+    assert 'render_unit "$APP_DIR/deploy/systemd/mei-mg-email-autorepair.service"' in installer
+    assert 'enable --now mei-mg-email-autorepair.timer' in installer
 
 
 def test_installers_preserve_sender_circuit_breaker_and_repo_relocatability():
