@@ -42,6 +42,7 @@ render_unit "$APP_DIR/deploy/systemd/mei-mg-email-base-sync.timer" "/etc/systemd
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-brevo-reconciler.service" "/etc/systemd/system/mei-mg-email-brevo-reconciler.service"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-worker.service" "/etc/systemd/system/mei-mg-email-worker.service"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-queue-replenisher.service" "/etc/systemd/system/mei-mg-email-queue-replenisher.service"
+render_unit "$APP_DIR/deploy/systemd/mei-mg-email-site-tunnel.service" "/etc/systemd/system/mei-mg-email-site-tunnel.service"
 
 # Estado operacional persistente fica fora do Git. Se um deploy antigo ainda
 # tiver o sentinel como arquivo regular no repo, preserve seu conteudo antes de
@@ -61,6 +62,7 @@ rm -f "$APP_DIR/runtime/sender_blocked.pause"
 "${SUDO[@]}" systemctl enable --now mei-mg-email-monitor.service
 "${SUDO[@]}" systemctl enable --now mei-mg-email-worker.service
 "${SUDO[@]}" systemctl enable --now mei-mg-email-queue-replenisher.service
+"${SUDO[@]}" systemctl enable --now mei-mg-email-site-tunnel.service
 if "${SUDO[@]}" systemctl cat mei-mg-email-ndr-guard.service >/dev/null 2>&1; then
   "${SUDO[@]}" systemctl disable --now mei-mg-email-ndr-guard.service
 fi
@@ -78,6 +80,7 @@ fi
 "${SUDO[@]}" systemctl restart mei-mg-email-worker.service
 "${SUDO[@]}" systemctl restart mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl restart mei-mg-email-brevo-reconciler.service
+"${SUDO[@]}" systemctl restart mei-mg-email-site-tunnel.service
 
 echo "MONITORAMENTO_VM_INSTALADO"
 echo "app_dir=$APP_DIR"
@@ -89,6 +92,7 @@ echo "state_dir=$STATE_DIR"
 "${SUDO[@]}" systemctl is-active mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-base-sync.timer
+"${SUDO[@]}" systemctl is-active mei-mg-email-site-tunnel.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-base-sync.timer
