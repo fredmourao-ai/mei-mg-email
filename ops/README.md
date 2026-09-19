@@ -15,6 +15,8 @@ A cota efetiva e fail-closed em **300 submissões por janela móvel de 24h**, in
 
 O sentinel `/var/lib/mei-mg-email/sender_blocked.pause` continua sendo o circuit breaker canonico. Nenhum monitor ou autorreparo pode remove-lo automaticamente.
 
+O worker tambem abre o circuit breaker de forma fail-closed quando o coorte Brevo das ultimas 24h, com pelo menos 50 envios, excede 2% de `bounce_permanent`. A medicao usa `submitted_at` do proprio envio, nao `updated_at` de suppressions, para evitar falso positivo por reconciliacao tardia.
+
 ## Microsoft 365 legado
 
 Microsoft Graph/Exchange Online nao faz parte do runtime de envio. Scripts `auditar_graph_*`, `auditar_dns_microsoft.py`, `desbloquear_exchange_app_cert.ps1` e equivalentes existem apenas para investigacao historica/administrativa e nao autorizam reativar Graph como provider.
