@@ -55,7 +55,7 @@ A rotina `scripts/sincronizar_base_diaria.py` registra cada execução em `mei_e
 `mei-mg-email-brevo-reconciler.service` consulta de forma paginada e limitada `/v3/smtp/statistics/events`.
 
 - `delivered` → `delivered`;
-- `hardBounce`, `invalid`, `blocked` e `spam` → `bounce_permanent` + suppression técnica;
+- `hardBounce`/`hardbounces`, `invalid`, `blocked` e `spam` → `bounce_permanent` + suppression técnica;
 - eventos transitórios/engagement não tornam o destinatário reenviável.
 
 ## Monitoramento residente

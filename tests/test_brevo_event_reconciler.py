@@ -25,7 +25,7 @@ def test_delivered_event_maps_to_delivered():
 
 def test_permanent_brevo_failures_create_hard_bounce():
     module = _load_module()
-    for event in ("hardBounce", "invalid", "blocked", "spam"):
+    for event in ("hardBounce", "hardbounces", "invalid", "blocked", "spam"):
         outcome = module.classify_event({"event": event, "reason": "x"})
         assert outcome.status == "bounce_permanent"
         assert outcome.suppress is True
@@ -151,3 +151,43 @@ def test_external_quota_ledger_delivery_is_reconciled():
     assert updates
     assert "brevo_delivery_status" in updates[0]
     assert "brevo_event_key" in updates[0]
+
+def test_state_upgrade_reprocesses_once_and_then_converges(monkeypatch):
+    module = _load_module()
+    monkeypatch.setattr(module, "MAX_SEEN_KEYS", 3)
+    event = {
+        "messageId": "<fresh@example>",
+        "event": "requests",
+        "date": "2026-09-19T05:00:00Z",
+        "email": "owner@example.com",
+    }
+    store = {"seen_event_keys": ["old-a", "old-b", "old-c"]}
+
+    class DummyConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(module, "fetch_events", lambda: [event])
+    monkeypatch.setattr(module, "_load_state", lambda: dict(store))
+    monkeypatch.setattr(module, "_save_state", lambda state: (store.clear(), store.update(state)))
+    monkeypatch.setattr(module.psycopg, "connect", lambda *args, **kwargs: DummyConnection())
+
+    first = module.process_once()
+    assert first["schema_version"] == module.STATE_SCHEMA_VERSION
+    assert first["last_unique"] == 1
+    assert module.event_key(event) in first["seen_event_keys"]
+
+    second = module.process_once()
+    assert second["last_unique"] == 0
+    assert second["seen_event_keys"] == first["seen_event_keys"]
+
+
+def test_reconciler_preserves_first_reconciliation_evidence():
+    source = SCRIPT.read_text(encoding="utf-8")
+    normalized = " ".join(source.split())
+    assert "reconciled_at = coalesce(reconciled_at, now())" in normalized
+    assert "metadata->'brevo_reconciled_at'" in normalized
+    assert "coalesce(metadata->>'brevo_event_key', '') <> %s" in normalized
