@@ -4,7 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStartPre=/usr/bin/python3 /home/ubuntu/mei-mg-email/scripts/repo_policy_guard.py
+ExecStartPre=__PYTHON__ __APP_DIR__/scripts/repo_policy_guard.py
 Type=simple
 User=__RUN_USER__
 WorkingDirectory=__APP_DIR__
