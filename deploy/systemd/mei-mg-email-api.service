@@ -5,10 +5,10 @@ Wants=mei-mg-email-site-tunnel.service
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/mei-mg-email
-EnvironmentFile=/home/ubuntu/mei-mg-email/.env
-ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010
+User=__RUN_USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__APP_DIR__/.env
+ExecStart=__PYTHON__ -m uvicorn app.main:app --host 127.0.0.1 --port 8010
 Restart=always
 RestartSec=5
 
