@@ -198,12 +198,16 @@ def apply_event(conn: psycopg.Connection, event: dict) -> bool:
                        'brevo_delivery_status', %s,
                        'brevo_event_key', %s,
                        'brevo_event_at', coalesce(%s::timestamptz, now()),
-                       'brevo_reconciled_at', now(),
+                       'brevo_reconciled_at', coalesce(
+                           metadata->'brevo_reconciled_at',
+                           to_jsonb(now())
+                       ),
                        'brevo_reason', %s
                    )
                  where id = %s
+                   and coalesce(metadata->>'brevo_event_key', '') <> %s
                 """,
-                (outcome.status, key, event_at, reason, envio_id),
+                (outcome.status, key, event_at, reason, envio_id, key),
             )
         elif outcome.status == "delivered":
             cur.execute(
@@ -211,10 +215,15 @@ def apply_event(conn: psycopg.Connection, event: dict) -> bool:
                 update mei_email.envios
                    set status = 'delivered'::mei_email.status_envio,
                        delivered_at = coalesce(delivered_at, coalesce(%s::timestamptz, now())),
-                       reconciled_at = now(),
+                       reconciled_at = coalesce(reconciled_at, now()),
                        last_error = null
                  where id = %s
                    and status::text not in ('bounce_permanent','bounced')
+                   and (
+                       status::text <> 'delivered'
+                       or delivered_at is null
+                       or reconciled_at is null
+                   )
                 """,
                 (event_at, envio_id),
             )
@@ -227,8 +236,13 @@ def apply_event(conn: psycopg.Connection, event: dict) -> bool:
                        ndr_code = %s,
                        ndr_reason = %s,
                        last_error = %s,
-                       reconciled_at = now()
+                       reconciled_at = coalesce(reconciled_at, now())
                  where id = %s
+                   and (
+                       status::text <> 'bounce_permanent'
+                       or bounced_at is null
+                       or reconciled_at is null
+                   )
                 """,
                 (event_at, str(event.get("event") or "")[:100], reason, reason, envio_id),
             )
