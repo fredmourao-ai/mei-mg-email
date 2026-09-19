@@ -1,0 +1,46 @@
+name: Secondary Safe Cache Cleanup 2026-09-19
+on:
+  push:
+    branches: [audit/secondary-cache-cleanup-20260919]
+permissions:
+  contents: read
+jobs:
+  cleanup:
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    timeout-minutes: 20
+    steps:
+      - name: Reclaim only regenerable caches
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "DF_BEFORE=$(df -P / | awk 'NR==2{print $5}')"
+          echo "CACHE_BEFORE"
+          du -sh /home/ubuntu/.npm /home/ubuntu/.cache 2>/dev/null || true
+          rm -rf /home/ubuntu/.cache/pip
+          cacache_users="$(ps -eo pid,args | grep -F '/home/ubuntu/.npm/_cacache/' | grep -v grep || true)"
+          if [ -z "$cacache_users" ]; then
+            find /home/ubuntu/.npm/_cacache -mindepth 1 -delete 2>/dev/null || true
+            echo "NPM_CACACHE_CLEANED=true"
+          else
+            echo "NPM_CACACHE_CLEANED=false"
+          fi
+          shopt -s nullglob
+          for d in /home/ubuntu/.cache/ms-playwright/*; do
+            [ -d "$d" ] || continue
+            users="$(ps -eo pid,args | grep -F "$d/" | grep -v grep || true)"
+            if [ -z "$users" ]; then
+              bytes="$(du -sb "$d" 2>/dev/null | awk '{print $1}')"
+              rm -rf -- "$d"
+              echo "PLAYWRIGHT_REMOVED bytes=$bytes path=$d"
+            else
+              echo "PLAYWRIGHT_PRESERVED_ACTIVE path=$d"
+            fi
+          done
+          rm -rf /home/ubuntu/.audit-runtime/mei-restore-proof-20260919 /home/ubuntu/.audit-runtime/mei-restore-verify-20260919
+          docker rm -f mei-restore-proof-20260919 mei-restore-verify-20260919 >/dev/null 2>&1 || true
+          docker builder prune -f --filter 'until=168h' || true
+          docker image prune -f || true
+          echo "CACHE_AFTER"
+          du -sh /home/ubuntu/.npm /home/ubuntu/.cache 2>/dev/null || true
+          echo "DF_AFTER=$(df -P / | awk 'NR==2{print $5}')"
+          df -h /
