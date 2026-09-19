@@ -1,0 +1,32 @@
+name: Ops Probe GitHub Admin Auth
+on:
+  push:
+    branches:
+      - ops/probe-gh-admin-auth-20260919
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: [self-hosted, Linux, ARM64, mei-backend]
+    timeout-minutes: 3
+    steps:
+      - name: Probe persisted gh session and unarchive target if authorized
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          unset GH_TOKEN GITHUB_TOKEN
+          echo "HOST=$(hostname)"
+          if ! gh auth status --hostname github.com 2>&1 | sed -E 's/(Token:).*/\1 [REDACTED]/I'; then
+            echo "GH_PERSISTED_AUTH=unavailable"
+            exit 2
+          fi
+          echo "GH_PERSISTED_AUTH=available"
+          repo="fredmourao-ai/solange-rolla"
+          before="$(gh api "repos/$repo" --jq '.archived')"
+          echo "ARCHIVED_BEFORE=$before"
+          if [ "$before" = "true" ]; then
+            gh api -X PATCH "repos/$repo" -F archived=false >/dev/null
+          fi
+          after="$(gh api "repos/$repo" --jq '.archived')"
+          echo "ARCHIVED_AFTER=$after"
+          test "$after" = "false"
