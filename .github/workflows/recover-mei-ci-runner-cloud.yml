@@ -1,0 +1,16 @@
+name: Recover MEI CI Runner Cloud 2026-09-19
+on:
+  push:
+    branches: [ops/recover-mei-ci-runner-cloud-20260919]
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Restart mei-ci runner through private backend relay
+        shell: bash
+        run: |
+          echo "Cloud runner cannot access private OCI hosts directly; no mutation attempted."
+          exit 0
