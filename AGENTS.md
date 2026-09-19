@@ -63,3 +63,8 @@ Regra de continuidade: leia e cumpra `AI-TO-CLI-PROTOCOL.md`, especialmente `Con
 
 ## Continuidade obrigatoria
 Todo agente deve cumprir o `PROTOCOLO OBRIGATORIO DE CONCLUSAO DE TAREFAS` em `AI-TO-CLI-PROTOCOL.md`; erro de ferramenta ou resultado parcial nunca e motivo para parar.
+
+<!-- EXECUTION_PROVENANCE_POLICY_V1 -->
+## Assinatura e origem obrigatorias de toda execucao
+
+Antes de qualquer acao material, leia e cumpra EXECUTION-PROVENANCE-POLICY.md. Toda execucao automatizada ou operacional deve carregar identidade, origem e execution_id verificaveis; recursos temporarios devem ter owner/origin e cleanup. Use scripts/emit-execution-provenance.py como formato de referencia. Nunca registre secrets.
