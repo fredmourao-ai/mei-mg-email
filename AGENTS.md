@@ -10,11 +10,13 @@ Este repositorio opera envio de primeiro contato em lote. Agentes, automacoes, P
 Antes de executar qualquer comando em VM Oracle Cloud, leia e siga obrigatoriamente [`AGENTS-VM-ACCESS.md`](AGENTS-VM-ACCESS.md). O fluxo canonico e Remote Desktop Commander -> SSH validado -> OCI Compute Instance Run Command pelo perfil `AGENTS` -> serial console como ultimo recurso. Nunca versione credenciais nem presuma root no Run Command.
 
 ## Politica atual de exclusao
-Nao entram na fila ou no envio apenas:
+Os **unicos filtros de negocio/segmentacao** que excluem destinatarios da fila ou do envio sao:
 - empresa com situacao cadastral diferente de ATIVA;
 - email contendo a palavra `contabil`;
 - email compartilhado por mais de 2 cadastros;
 - destinatario/CNPJ ja enviado ou ja enfileirado.
+
+Protecoes tecnicas obrigatorias **nao sao filtros de negocio novos** e devem permanecer fail-closed: email ausente/invalido, opt-out, suppression tecnica e divergencia entre o email atual da empresa e o email enfileirado. Elas protegem consentimento, entregabilidade, integridade e anti-replay; nao autorizam reintroduzir criterios antigos de classificacao comercial.
 
 MG e apenas prioridade de ordenacao, nunca filtro de elegibilidade.
 ## Campos e gates proibidos no fluxo operacional
