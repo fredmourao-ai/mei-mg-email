@@ -113,7 +113,12 @@ jobs:
           print("DB_EVIDENCE="+json.dumps(out,sort_keys=True))
           PY
           echo "MONITOR_BEGIN"
+          set +e
           .venv/bin/python scripts/monitor_operacao.py --once
+          monitor_rc=$?
+          set -e
+          echo "MONITOR_RC=$monitor_rc"
+          test "$monitor_rc" -eq 2
           echo "MONITOR_END"
 
       - name: Assert stop-the-line remains fail closed
@@ -125,3 +130,17 @@ jobs:
           systemctl is-active --quiet mei-mg-email-brevo-reconciler.service
           systemctl is-active --quiet mei-mg-email-monitor.service
           echo "STOP_THE_LINE_ASSERTION=ok"
+
+      - name: Inspect and apply canonical disk guard
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "DISK_BEFORE=$(df -P / | awk 'NR==2{print $5}')"
+          du -sh /home/ubuntu/.npm /home/ubuntu/.cache /home/ubuntu/chat-workspaces /home/ubuntu/actions-runner-mei-backend/_work 2>/dev/null || true
+          if sudo -n true 2>/dev/null; then
+            sudo -n systemctl start shopvivaliz-disk-guard.service
+            sudo -n cat /var/lib/shopvivaliz-ops/disk-status.env || true
+          else
+            echo "DISK_GUARD_SUDO_UNAVAILABLE=true"
+          fi
+          echo "DISK_AFTER=$(df -P / | awk 'NR==2{print $5}')"
