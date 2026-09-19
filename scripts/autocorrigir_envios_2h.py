@@ -174,11 +174,33 @@ def _collect(conn: psycopg.Connection) -> dict:
               join mei_email.empresas e on e.cnpj = v.cnpj
              where v.status::text in ('pendente','enviando','pending','processing')
                and (
-                   e.situacao_cadastral <> 'ATIVA'
+                   coalesce(e.opt_out, false)
+                   or e.situacao_cadastral <> 'ATIVA'
                    or v.email is null
                    or btrim(v.email::text) = ''
                    or not mei_email.is_valid_email_address(v.email)
                    or position('contabil' in lower(btrim(v.email::text))) > 0
+                   or mei_email.is_email_suppressed(v.email)
+                   or mei_email.is_cnpj_suppressed(v.cnpj::text)
+                   or (
+                       select count(*)
+                         from (
+                           select 1
+                             from mei_email.empresas e2
+                            where lower(btrim(e2.email::text)) = lower(btrim(v.email::text))
+                            limit 3
+                         ) shared
+                   ) > 2
+                   or exists (
+                       select 1
+                         from mei_email.envios h
+                        where h.id <> v.id
+                          and h.status in ('submitted','enviado','delivered','bounced')
+                          and (
+                              h.cnpj = v.cnpj
+                              or lower(btrim(h.email::text)) = lower(btrim(v.email::text))
+                          )
+                   )
                )
             """
         )
