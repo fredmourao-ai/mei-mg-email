@@ -51,3 +51,13 @@ def test_auto_merge_pins_main_pr_to_exact_validated_head_and_uses_rest_merge():
     assert 'repos/$REPO/pulls/$PR_NUMBER/merge' in workflow
     assert '-f sha="$HEAD_SHA"' in workflow
     assert "gh pr merge" not in workflow
+
+def test_auto_merge_requires_materialized_resolver_job():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'actions/runs/$ai_run_id/jobs?per_page=100' in workflow
+    assert 'select(.name == "resolve")' in workflow
+    assert '$job.status == "completed"' in workflow
+    assert '$job.conclusion == "success"' in workflow
+    assert '$job.conclusion == "skipped"' in workflow
+    assert "resolve job is not materialized and green yet" in workflow
