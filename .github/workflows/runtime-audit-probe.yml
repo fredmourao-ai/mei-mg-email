@@ -144,3 +144,127 @@ jobs:
             echo "DISK_GUARD_SUDO_UNAVAILABLE=true"
           fi
           echo "DISK_AFTER=$(df -P / | awk 'NR==2{print $5}')"
+
+
+  cleanup-capacity:
+    runs-on: [self-hosted, Linux, ARM64, mei-backend]
+    needs: probe
+    timeout-minutes: 20
+    steps:
+      - name: Remove only old recoverable inactive chat workspaces
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          root=/home/ubuntu/chat-workspaces
+          cutoff="$(date -u -d '2026-09-19 12:00:00 UTC' +%s)"
+          removed=0
+          preserved=0
+          freed=0
+          shopt -s nullglob
+          for d in "$root"/*; do
+            [ -d "$d" ] || continue
+            mt="$(stat -c %Y "$d" 2>/dev/null || echo 0)"
+            [ "$mt" -lt "$cutoff" ] || { preserved=$((preserved+1)); continue; }
+            if ! git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+              echo "PRESERVE not_git $d"
+              preserved=$((preserved+1))
+              continue
+            fi
+            if [ -n "$(git -C "$d" status --porcelain=v1 2>/dev/null)" ]; then
+              echo "PRESERVE dirty $d"
+              preserved=$((preserved+1))
+              continue
+            fi
+            active=0
+            for p in /proc/[0-9]*/cwd; do
+              target="$(readlink "$p" 2>/dev/null || true)"
+              case "$target" in "$d"|"$d"/*) active=1; break;; esac
+            done
+            if [ "$active" -eq 1 ]; then
+              echo "PRESERVE active $d"
+              preserved=$((preserved+1))
+              continue
+            fi
+            head="$(git -C "$d" rev-parse HEAD)"
+            git -C "$d" fetch --all --prune --quiet 2>/dev/null || true
+            if ! git -C "$d" branch -r --contains "$head" 2>/dev/null | grep -q .; then
+              echo "PRESERVE unpushed_head $d $head"
+              preserved=$((preserved+1))
+              continue
+            fi
+            bytes="$(du -sb "$d" 2>/dev/null | awk '{print $1}')"
+            if [ -f "$d/.git" ]; then
+              common="$(git -C "$d" rev-parse --path-format=absolute --git-common-dir)"
+              if git --git-dir="$common" worktree remove "$d" --force; then
+                echo "REMOVE worktree bytes=$bytes $d"
+              else
+                echo "PRESERVE worktree_remove_failed $d"
+                preserved=$((preserved+1))
+                continue
+              fi
+            else
+              rm -rf -- "$d"
+              echo "REMOVE clone bytes=$bytes $d"
+            fi
+            freed=$((freed+bytes))
+            removed=$((removed+1))
+          done
+          echo "CLEANUP_SUMMARY removed=$removed preserved=$preserved freed_bytes=$freed"
+          echo "DISK_POST_WORKSPACE_CLEANUP=$(df -P / | awk 'NR==2{print $5}')"
+          if sudo -n true 2>/dev/null; then
+            sudo -n systemctl start shopvivaliz-disk-guard.service
+            sudo -n cat /var/lib/shopvivaliz-ops/disk-status.env || true
+          fi
+          echo "DISK_FINAL=$(df -P / | awk 'NR==2{print $5}')"
+
+  restore-proof:
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    timeout-minutes: 90
+    steps:
+      - name: Restore latest MEI backup into isolated PostgreSQL
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          OCI=/home/ubuntu/.venvs/oci-cli/bin/oci
+          NS=gruilpqsbqqb
+          BUCKET=shopvivaliz-free-archive
+          OBJ=db-backups/main/mei-email-latest.dump
+          WORK=/home/ubuntu/.audit-runtime/mei-restore-proof-20260919
+          CONTAINER=mei-restore-proof-20260919
+          rm -rf "$WORK"
+          mkdir -p "$WORK"
+          cleanup() {
+            docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+            rm -rf "$WORK"
+          }
+          trap cleanup EXIT
+          "$OCI" os object get --auth instance_principal --namespace-name "$NS" --bucket-name "$BUCKET" --name "$OBJ" --file "$WORK/mei-email-latest.dump" >/dev/null
+          "$OCI" os object get --auth instance_principal --namespace-name "$NS" --bucket-name "$BUCKET" --name "$OBJ.sha256" --file "$WORK/mei-email-latest.dump.sha256" >/dev/null
+          cd "$WORK"
+          sha256sum -c mei-email-latest.dump.sha256
+          entries="$(pg_restore -l mei-email-latest.dump | awk 'BEGIN{n=0} /^[^;]/ && NF {n++} END{print n}')"
+          echo "RESTORE_ENTRIES=$entries"
+          docker run -d --name "$CONTAINER" --cpus 2 --memory 3g -e POSTGRES_HOST_AUTH_METHOD=trust -v "$WORK:/restore:ro" postgres:16-alpine >/dev/null
+          ready=0
+          for i in $(seq 1 90); do
+            if docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          docker exec "$CONTAINER" createdb -U postgres restoredb
+          echo "RESTORE_STARTED_AT=$(date -u +%FT%TZ)"
+          docker exec "$CONTAINER" pg_restore -j 2 -U postgres -d restoredb --no-owner --no-privileges --exit-on-error /restore/mei-email-latest.dump
+          echo "RESTORE_FINISHED_AT=$(date -u +%FT%TZ)"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_TABLES='||count(*) from information_schema.tables where table_schema='mei_email';"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_EMPRESAS='||count(*) from mei_email.empresas;"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_ENVIOS='||count(*) from mei_email.envios;"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_OPEN_QUEUE='||count(*) from mei_email.envios where status::text in ('pendente','enviando','pending','processing');"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_FLYWAY_SUCCESS='||count(*) from mei_email.flyway_schema_history where success=true;"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_DB_SIZE='||pg_size_pretty(pg_database_size('restoredb'));"
+          echo "RESTORE_AUDIT_OK"
+          cleanup
+          trap - EXIT
+          echo "RESTORE_CLEANUP_OK"
