@@ -1,0 +1,37 @@
+name: Ops Recover Solange Runners
+on:
+  push:
+    branches:
+      - ops/recover-solange-runners-20260919
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect and recover local Solange runner services
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "HOST=$(hostname)"
+          echo "USER=$(id -un)"
+          echo "== runner processes =="
+          ps -eo pid,user,comm,args | grep -E '[R]unner\.(Listener|Worker)|actions-runner' || true
+          echo "== runner services =="
+          systemctl list-unit-files --type=service --no-pager | grep -E 'actions\.runner\..*(solange|mei)' || true
+          mapfile -t units < <(systemctl list-unit-files --type=service --no-legend --no-pager | awk '{print $1}' | grep -E '^actions\.runner\..*solange.*\.service$' || true)
+          if [ "${#units[@]}" -eq 0 ]; then
+            echo "SOLANGE_RUNNER_SERVICES_FOUND=0"
+            exit 0
+          fi
+          echo "SOLANGE_RUNNER_SERVICES_FOUND=${#units[@]}"
+          for unit in "${units[@]}"; do
+            echo "RECOVERING=$unit"
+            if sudo -n systemctl restart "$unit"; then
+              echo "RESTART_OK=$unit"
+            else
+              echo "RESTART_FAILED=$unit"
+            fi
+            systemctl --no-pager --full status "$unit" | sed -n '1,12p' || true
+          done
