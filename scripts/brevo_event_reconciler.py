@@ -33,7 +33,8 @@ MAX_PAGES = min(max(int(os.getenv("BREVO_EVENT_MAX_PAGES", "10")), 1), 10)
 LOOKBACK_DAYS = min(max(int(os.getenv("BREVO_EVENT_LOOKBACK_DAYS", "2")), 1), 30)
 REQUEST_TIMEOUT_SECONDS = min(max(int(os.getenv("BREVO_EVENT_TIMEOUT_SECONDS", "30")), 5), 60)
 MAX_SEEN_KEYS = min(max(int(os.getenv("BREVO_EVENT_MAX_SEEN_KEYS", "5000")), 500), 20000)
-PERMANENT_EVENTS = {"hardbounce", "invalid", "blocked", "spam"}
+STATE_SCHEMA_VERSION = 2
+PERMANENT_EVENTS = {"hardbounce", "hardbounces", "invalid", "blocked", "spam"}
 
 
 @dataclass(frozen=True)
@@ -252,23 +253,39 @@ def apply_event(conn: psycopg.Connection, event: dict) -> bool:
 
 def process_once() -> dict:
     state = _load_state()
-    seen = {str(value) for value in state.get("seen_event_keys") or []}
+    raw_seen = [str(value) for value in state.get("seen_event_keys") or []]
+    state_version = int(state.get("schema_version") or 0)
+    if state_version == STATE_SCHEMA_VERSION:
+        seen_order = list(dict.fromkeys(raw_seen))
+    else:
+        # Classification/dedupe semantics changed. Re-evaluate the bounded
+        # provider lookback exactly once, then persist the new state version.
+        seen_order = []
+    seen = set(seen_order)
     fetched = fetch_events()
     unique, _ = dedupe_events(fetched, seen)
     confirmed_seen = set(seen)
+    confirmed_order = list(seen_order)
+
+    def confirm_seen(key: str) -> None:
+        if key not in confirmed_seen:
+            confirmed_seen.add(key)
+            confirmed_order.append(key)
+
     matched = 0
     terminal = 0
     with psycopg.connect(settings.database_url, connect_timeout=10) as conn:
         for event in reversed(unique):
             key = event_key(event)
             if classify_event(event).status is None:
-                confirmed_seen.add(key)
+                confirm_seen(key)
                 continue
             terminal += 1
             if apply_event(conn, event):
                 matched += 1
-                confirmed_seen.add(key)
-    state["seen_event_keys"] = sorted(confirmed_seen)[-MAX_SEEN_KEYS:]
+                confirm_seen(key)
+    state["schema_version"] = STATE_SCHEMA_VERSION
+    state["seen_event_keys"] = confirmed_order[-MAX_SEEN_KEYS:]
     state["last_poll_epoch"] = int(time.time())
     state["last_fetched"] = len(fetched)
     state["last_unique"] = len(unique)
