@@ -79,6 +79,22 @@ jobs:
             exit 0
           fi
 
+          ai_run_id="$(jq -r '[.workflow_runs[] | select(.name == "AI Conflict Resolver")] | sort_by(.created_at) | last | .id // empty' <<<"$workflow_runs")"
+          if [ -z "$ai_run_id" ]; then
+            echo 'AI Conflict Resolver run is missing.'
+            exit 0
+          fi
+          ai_jobs="$(gh api "repos/$REPO/actions/runs/$ai_run_id/jobs?per_page=100")"
+          if ! jq -e '
+            ([.jobs[] | select(.name == "resolve")] | last) as $job |
+            ($job != null) and
+            ($job.status == "completed") and
+            ($job.conclusion == "success" or $job.conclusion == "skipped")
+          ' <<<"$ai_jobs" >/dev/null; then
+            echo 'AI Conflict Resolver resolve job is not materialized and green yet.'
+            exit 0
+          fi
+
           checks="$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?filter=latest&per_page=100")"
           if ! jq -e '
             (.total_count > 0) and
