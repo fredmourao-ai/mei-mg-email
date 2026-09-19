@@ -176,18 +176,21 @@ def _collect(conn: psycopg.Connection) -> dict:
                and (
                    coalesce(e.opt_out, false)
                    or e.situacao_cadastral <> 'ATIVA'
+                   or e.email is null
+                   or btrim(e.email::text) = ''
                    or v.email is null
                    or btrim(v.email::text) = ''
-                   or not mei_email.is_valid_email_address(v.email)
-                   or position('contabil' in lower(btrim(v.email::text))) > 0
-                   or mei_email.is_email_suppressed(v.email)
+                   or lower(btrim(e.email::text)) <> lower(btrim(v.email::text))
+                   or not mei_email.is_valid_email_address(e.email)
+                   or position('contabil' in lower(btrim(e.email::text))) > 0
+                   or mei_email.is_email_suppressed(e.email)
                    or mei_email.is_cnpj_suppressed(v.cnpj::text)
                    or (
                        select count(*)
                          from (
                            select 1
                              from mei_email.empresas e2
-                            where lower(btrim(e2.email::text)) = lower(btrim(v.email::text))
+                            where lower(btrim(e2.email::text)) = lower(btrim(e.email::text))
                             limit 3
                          ) shared
                    ) > 2

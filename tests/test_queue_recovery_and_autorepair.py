@@ -178,7 +178,7 @@ def test_queue_recovery_prunes_full_canonical_policy_drift():
     source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
     normalized = " ".join(source.casefold().split())
     assert "coalesce(emp.opt_out, false)" in normalized
-    assert "is_email_suppressed(e.email)" in normalized
+    assert "is_email_suppressed(emp.email)" in normalized
     assert "is_cnpj_suppressed(e.cnpj::text)" in normalized
     assert "limit 3" in normalized
     assert "h.cnpj = e.cnpj" in normalized
@@ -191,8 +191,28 @@ def test_hourly_autorepair_detects_shared_suppressed_and_replay_drift():
     )
     normalized = " ".join(source.casefold().split())
     assert "coalesce(e.opt_out, false)" in normalized
-    assert "is_email_suppressed(v.email)" in normalized
+    assert "is_email_suppressed(e.email)" in normalized
     assert "is_cnpj_suppressed(v.cnpj::text)" in normalized
     assert "limit 3" in normalized
     assert "h.cnpj = v.cnpj" in normalized
     assert "h.status in ('submitted','enviado','delivered','bounced')" in normalized
+
+
+def test_recovery_mirrors_live_company_email_contract():
+    source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
+    normalized = " ".join(source.casefold().split())
+    assert "emp.email is null" in normalized
+    assert "lower(btrim(emp.email::text)) <> lower(btrim(e.email::text))" in normalized
+    assert "is_valid_email_address(emp.email)" in normalized
+    assert "is_email_suppressed(emp.email)" in normalized
+    assert "lower(btrim(emp2.email::text)) = lower(btrim(emp.email::text))" in normalized
+
+
+def test_autorepair_mirrors_live_company_email_contract():
+    source = (ROOT / "scripts" / "autocorrigir_envios_2h.py").read_text(encoding="utf-8")
+    normalized = " ".join(source.casefold().split())
+    assert "e.email is null" in normalized
+    assert "lower(btrim(e.email::text)) <> lower(btrim(v.email::text))" in normalized
+    assert "is_valid_email_address(e.email)" in normalized
+    assert "is_email_suppressed(e.email)" in normalized
+    assert "lower(btrim(e2.email::text)) = lower(btrim(e.email::text))" in normalized
