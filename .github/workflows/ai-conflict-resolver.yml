@@ -43,15 +43,30 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, mei-ci]
     timeout-minutes: 25
     steps:
-      - name: Checkout PR branch
+      - name: Checkout immutable PR head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Verify PR branch is still live
+        id: head
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "$HEAD_REF" >/dev/null 2>&1; then
+            echo "active=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "active=false" >> "$GITHUB_OUTPUT"
+            echo "### AI conflict resolver: PR branch already removed" >> "$GITHUB_STEP_SUMMARY"
+            echo "The immutable head was checked out, but the source branch no longer exists. Treating this delayed job as a no-op." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Merge base and classify conflicts
         id: merge
+        if: steps.head.outputs.active == 'true'
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
@@ -134,4 +149,9 @@ jobs:
         run: |
           git status --short
           git commit -m "chore: resolve merge conflicts with local AI"
+          if ! git ls-remote --exit-code --heads origin "$HEAD_REF" >/dev/null 2>&1; then
+            echo "PR branch disappeared before push; refusing to recreate a merged/deleted branch."
+            git merge --abort >/dev/null 2>&1 || true
+            exit 0
+          fi
           git push origin "HEAD:$HEAD_REF"
