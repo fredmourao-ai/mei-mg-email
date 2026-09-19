@@ -21,7 +21,7 @@ Auditoria extrema concluída em 2026-09-19 segundo `EXTREME_AUDIT_PROTOCOL.md`, 
 6. Dedupe Brevo: ledger de eventos passou a preservar ordem recente e convergiu de reaplicações repetidas para `last_unique=0`.
 7. Evidência de reconciliação: primeiro `reconciled_at` é preservado; eventos transitórios recebem diagnóstico sem reabrir possibilidade de replay.
 8. Circuit breaker de entregabilidade: envio para automaticamente quando a taxa de hard bounce excede 2% com amostra mínima de 50.
-9. Capacidade: root filesystem saiu de 95% crítico para 89% warning após limpeza conservadora de caches e workspaces Git limpos/inativos.
+9. Capacidade: root filesystem saiu de 95% crítico para 89% warning após limpeza conservadora de caches e workspaces Git limpos/inativos.\n10. Governança de merge: corrigida corrida em que o auto-merge podia apagar a branch antes do job final do AI Conflict Resolver; o resolver agora usa SHA imutável e o auto-merge exige o job `resolve` materializado e verde.
 
 ## Evidência real de produção
 - `runtime_policy_guard.py`: OK; contrato de banco/repositório e Flyway 20 alinhados.
@@ -53,7 +53,7 @@ Auditoria extrema concluída em 2026-09-19 segundo `EXTREME_AUDIT_PROTOCOL.md`, 
 | Jobs/filas/cron | Sim | 4 | 4 | envio suspenso por circuit breaker | systemd, timers, monitor |
 | Integração Brevo | Sim | 4 | 4 | 18 transitórios aguardam eventual evento terminal, sem replay | API events + DB |
 | Segurança/política | Sim | 2 | 2 | nenhuma regressão ativa conhecida | policy guards + CI |
-| Testes/CI/CD | Sim | 2 | 2 | nenhuma | PRs #134–#140 verdes |
+| Testes/CI/CD | Sim | 3 | 3 | nenhuma | PRs #134–#140 + guard de corrida do resolver |
 | Infraestrutura | Sim | 2 | 2 | disco 89% = warning | disk guard + df |
 | Logs/monitoramento | Sim | 2 | 2 | health crítico intencional até recuperação | journald + monitor |
 | Backup/restore | Sim | 2 | 1 | RPO semanal; stdout terminal do restore não retido | dump/sha/restore harness |
@@ -80,7 +80,7 @@ O restore integral foi executado pelo harness fail-fast e atingiu cleanup de suc
 - Tentativa de provar que o reconciliador Brevo repete eventos: estado convergiu para `last_unique=0`.
 - Tentativa de provar envio após stop-the-line: **0 submissões** após abertura do sentinel.
 - Tentativa de atribuir hard bounce a falha de sender: motivos 550/552 apontam caixas inexistentes/indisponíveis, não bloqueio do remetente.
-- Tentativa de provar drift de release: checkout produtivo limpo e alinhado ao SHA auditado antes deste commit documental.
+- Tentativa de provar drift de release: checkout produtivo limpo e alinhado ao SHA auditado antes deste commit documental.\n- Meta-gate: a própria PR do relatório revelou uma corrida entre auto-merge e AI Conflict Resolver; a classe foi corrigida no workflow e coberta por regressão.
 
 ## Meta-auditoria
 1. Classe de falha mais provável fora desta auditoria: deterioração futura de dados de contato/entregabilidade e crescimento de storage compartilhado.
