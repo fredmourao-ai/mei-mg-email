@@ -184,9 +184,12 @@ def test_brevo_reconciler_failure_is_critical():
     assert "brevo_reconciler_not_enabled" in result
 
 
-def test_monitor_uses_brevo_hard_bounce_source():
+def test_monitor_uses_brevo_submission_cohort_for_hard_bounces():
     source = (ROOT / "scripts" / "monitor_operacao.py").read_text(encoding="utf-8")
-    assert "brevo_event_reconciler" in source
+    normalized = " ".join(source.split())
+    assert "status::text = 'bounce_permanent'" in normalized
+    assert "submitted_at >= now() - interval '24 hours'" in normalized
+    assert "email_suppressions" not in normalized
 
 
 def test_monitor_counts_brevo_quota_by_submission_evidence_not_final_status():
