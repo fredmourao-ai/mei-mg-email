@@ -1,0 +1,54 @@
+name: Serial Restore Proof 2026-09-19
+on:
+  push:
+    branches: [audit/restore-serial-proof-20260919]
+permissions:
+  contents: read
+jobs:
+  restore:
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    timeout-minutes: 120
+    steps:
+      - name: Restore latest backup serially with low temp footprint
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          OCI=/home/ubuntu/.venvs/oci-cli/bin/oci
+          NS=gruilpqsbqqb
+          BUCKET=shopvivaliz-free-archive
+          OBJ=db-backups/main/mei-email-latest.dump
+          WORK=/home/ubuntu/.audit-runtime/mei-restore-serial-20260919
+          CONTAINER=mei-restore-serial-20260919
+          cleanup() {
+            docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+            rm -rf "$WORK"
+          }
+          trap cleanup EXIT
+          cleanup
+          mkdir -p "$WORK"
+          echo "DISK_BEFORE=$(df -P / | awk 'NR==2{print $5}')"
+          "$OCI" os object get --auth instance_principal --namespace-name "$NS" --bucket-name "$BUCKET" --name "$OBJ" --file "$WORK/mei-email-latest.dump" >/dev/null
+          "$OCI" os object get --auth instance_principal --namespace-name "$NS" --bucket-name "$BUCKET" --name "$OBJ.sha256" --file "$WORK/mei-email-latest.dump.sha256" >/dev/null
+          cd "$WORK"
+          sha256sum -c mei-email-latest.dump.sha256
+          echo "RESTORE_ENTRIES=$(pg_restore -l mei-email-latest.dump | awk 'BEGIN{n=0} /^[^;]/ && NF {n++} END{print n}')"
+          docker run -d --name "$CONTAINER" --cpus 2 --memory 4g --shm-size 1g -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_INITDB_ARGS='--data-checksums' -v "$WORK:/restore:ro" postgres:16-alpine -c max_parallel_maintenance_workers=0 -c maintenance_work_mem=64MB -c temp_file_limit=4GB >/dev/null
+          for i in $(seq 1 90); do docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
+          docker exec "$CONTAINER" pg_isready -U postgres
+          docker exec "$CONTAINER" createdb -U postgres restoredb
+          echo "RESTORE_STARTED_AT=$(date -u +%FT%TZ)"
+          docker exec "$CONTAINER" pg_restore -U postgres -d restoredb --no-owner --no-privileges --exit-on-error /restore/mei-email-latest.dump
+          echo "RESTORE_FINISHED_AT=$(date -u +%FT%TZ)"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_TABLES='||count(*) from information_schema.tables where table_schema='mei_email';"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_EMPRESAS='||count(*) from mei_email.empresas;"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_ENVIOS='||count(*) from mei_email.envios;"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_OPEN_QUEUE='||count(*) from mei_email.envios where status::text in ('pendente','enviando','pending','processing');"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_FLYWAY_SUCCESS='||count(*) from mei_email.flyway_schema_history where success=true;"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_DB_SIZE='||pg_size_pretty(pg_database_size('restoredb'));"
+          docker exec "$CONTAINER" psql -U postgres -d restoredb -Atc "select 'RESTORE_INVALID_INDEXES='||count(*) from pg_index where not indisvalid;"
+          echo "DISK_DURING=$(df -P / | awk 'NR==2{print $5}')"
+          echo "RESTORE_AUDIT_OK"
+          cleanup
+          trap - EXIT
+          echo "DISK_AFTER=$(df -P / | awk 'NR==2{print $5}')"
+          echo "RESTORE_CLEANUP_OK"
