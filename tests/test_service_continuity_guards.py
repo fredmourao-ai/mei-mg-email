@@ -33,3 +33,19 @@ def test_installer_manages_queue_replenisher_as_required_service():
     assert 'is-enabled mei-mg-email-queue-replenisher.service' in installer
     assert 'systemctl restart mei-mg-email-worker.service' in installer
     assert 'systemctl restart mei-mg-email-queue-replenisher.service' in installer
+
+
+def test_api_restart_restores_public_reverse_tunnel():
+    api = (ROOT / 'deploy' / 'systemd' / 'mei-mg-email-api.service').read_text(encoding='utf-8')
+    tunnel = (ROOT / 'deploy' / 'systemd' / 'mei-mg-email-site-tunnel.service').read_text(encoding='utf-8')
+    installer = (ROOT / 'scripts' / 'instalar_monitoramento_vm.sh').read_text(encoding='utf-8')
+    assert 'Wants=mei-mg-email-site-tunnel.service' in api
+    assert 'Requires=mei-mg-email-api.service' in tunnel
+    assert 'PartOf=mei-mg-email-api.service' in tunnel
+    assert 'After=network-online.target mei-mg-email-api.service' in tunnel
+    assert 'Restart=always' in tunnel
+    assert '-R 127.0.0.1:18010:127.0.0.1:8010' in tunnel
+    assert 'render_unit \"$APP_DIR/deploy/systemd/mei-mg-email-site-tunnel.service\"' in installer
+    assert 'enable --now mei-mg-email-site-tunnel.service' in installer
+    assert 'restart mei-mg-email-site-tunnel.service' in installer
+    assert 'is-active mei-mg-email-site-tunnel.service' in installer
