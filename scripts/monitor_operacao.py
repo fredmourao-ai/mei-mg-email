@@ -39,6 +39,8 @@ MONITOR_BREVO_RECONCILER_UNIT = os.getenv("MONITOR_BREVO_RECONCILER_UNIT", "mei-
 MONITOR_QUEUE_REPLENISHER_UNIT = os.getenv("MONITOR_QUEUE_REPLENISHER_UNIT", "mei-mg-email-queue-replenisher.service").strip()
 MONITOR_BASE_SERVICE_UNIT = os.getenv("MONITOR_BASE_SERVICE_UNIT", "mei-mg-email-base-sync.service").strip()
 MONITOR_BASE_TIMER_UNIT = os.getenv("MONITOR_BASE_TIMER_UNIT", "mei-mg-email-base-sync.timer").strip()
+BREVO_HARD_BOUNCE_PAUSE_RATE_PCT = float(os.getenv("BREVO_HARD_BOUNCE_PAUSE_RATE_PCT", "2.0"))
+BREVO_HARD_BOUNCE_MIN_SAMPLE = max(int(os.getenv("BREVO_HARD_BOUNCE_MIN_SAMPLE", "50")), 1)
 SENDER_BLOCK_SENTINEL_PATH = Path(
     os.getenv("SENDER_BLOCK_SENTINEL_PATH", "/var/lib/mei-mg-email/sender_blocked.pause")
 )
@@ -164,14 +166,21 @@ def coletar_snapshot(conn: psycopg.Connection) -> dict:
         cur.execute(
             """
             select
-              count(*) filter (where updated_at >= now() - interval '24 hours') as hard_bounces_24h,
-              count(*) filter (where updated_at >= now() - interval '60 minutes') as hard_bounces_60m,
-              count(*) filter (where updated_at >= now() - interval '15 minutes') as hard_bounces_15m
-              from mei_email.email_suppressions
-             where active
-               and scope = 'email'
-               and reason = 'hard_bounce'
-               and source = 'brevo_event_reconciler'
+              count(*) filter (
+                  where status::text = 'bounce_permanent'
+                    and submitted_at >= now() - interval '24 hours'
+              ) as hard_bounces_24h,
+              count(*) filter (
+                  where status::text = 'bounce_permanent'
+                    and submitted_at >= now() - interval '60 minutes'
+              ) as hard_bounces_60m,
+              count(*) filter (
+                  where status::text = 'bounce_permanent'
+                    and submitted_at >= now() - interval '15 minutes'
+              ) as hard_bounces_15m
+              from mei_email.envios
+             where provider_message_id like 'brevo:%'
+               and submitted_at >= now() - interval '24 hours'
             """
         )
         bounce = dict(cur.fetchone())
@@ -366,6 +375,17 @@ def construir_alertas(snapshot: dict) -> list[dict]:
     hard_bounces_60m = int(sending.get("hard_bounces_60m") or 0)
     hard_bounce_rate_60m = float(sending.get("hard_bounce_rate_60m_pct") or 0.0)
     hard_bounce_rate_24h = float(sending.get("hard_bounce_rate_24h_pct") or 0.0)
+    if (
+        sending["submitted_enviado_24h"] >= BREVO_HARD_BOUNCE_MIN_SAMPLE
+        and hard_bounce_rate_24h > BREVO_HARD_BOUNCE_PAUSE_RATE_PCT
+    ):
+        add(
+            "critical",
+            "hard_bounce_rate_excessive",
+            "Taxa absoluta de hard bounce Brevo em 24h excede o limite de seguranca: "
+            f"{hard_bounce_rate_24h:.2f}% > {BREVO_HARD_BOUNCE_PAUSE_RATE_PCT:.2f}%.",
+        )
+
     material_bounce_worsening = (
         hard_bounces_60m >= 20
         and hard_bounce_rate_60m >= 10.0

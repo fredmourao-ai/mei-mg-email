@@ -184,9 +184,12 @@ def test_brevo_reconciler_failure_is_critical():
     assert "brevo_reconciler_not_enabled" in result
 
 
-def test_monitor_uses_brevo_hard_bounce_source():
+def test_monitor_uses_brevo_submission_cohort_for_hard_bounces():
     source = (ROOT / "scripts" / "monitor_operacao.py").read_text(encoding="utf-8")
-    assert "brevo_event_reconciler" in source
+    normalized = " ".join(source.split())
+    assert "status::text = 'bounce_permanent'" in normalized
+    assert "submitted_at >= now() - interval '24 hours'" in normalized
+    assert "email_suppressions" not in normalized
 
 
 def test_monitor_counts_brevo_quota_by_submission_evidence_not_final_status():
@@ -219,3 +222,19 @@ def test_queue_replenisher_service_failure_is_critical():
     result = codes(snapshot)
     assert "queue_replenisher_not_active" in result
     assert "queue_replenisher_not_enabled" in result
+
+
+def test_absolute_hard_bounce_rate_above_brevo_limit_is_critical():
+    snapshot = snapshot_base()
+    snapshot["sending"].update({
+        "submitted_enviado_24h": 100,
+        "hard_bounces_24h": 3,
+        "hard_bounce_rate_24h_pct": 3.0,
+        "hard_bounces_60m": 0,
+        "hard_bounce_rate_60m_pct": 0.0,
+    })
+    alerts = construir_alertas(snapshot)
+    assert any(
+        item["code"] == "hard_bounce_rate_excessive" and item["level"] == "critical"
+        for item in alerts
+    )

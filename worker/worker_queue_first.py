@@ -47,6 +47,12 @@ LEGACY_SENDER_BLOCK_SENTINEL = (
     Path(__file__).resolve().parents[1] / "runtime" / "sender_blocked.pause"
 )
 base_worker.SENDER_BLOCK_SENTINEL = SENDER_BLOCK_SENTINEL
+BREVO_HARD_BOUNCE_PAUSE_RATE_PCT = float(
+    os.getenv("BREVO_HARD_BOUNCE_PAUSE_RATE_PCT", "2.0")
+)
+BREVO_HARD_BOUNCE_MIN_SAMPLE = max(
+    int(os.getenv("BREVO_HARD_BOUNCE_MIN_SAMPLE", "50")), 1
+)
 
 
 def _sender_pause_ativo_em_qualquer_caminho() -> bool:
@@ -86,6 +92,38 @@ def _obter_envios_ultimas_24h_indexado(conn: psycopg.Connection) -> int:
             row = cur.fetchone()
             total += int((row[0] if not isinstance(row, dict) else next(iter(row.values()))) or 0)
         return total
+
+
+def _brevo_deliverability_block_reason(conn: psycopg.Connection) -> str | None:
+    if settings.email_provider.strip().lower() not in {"brevo", "brevo_api"}:
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select
+                count(*) filter (where status::text = 'bounce_permanent') as hard_bounces,
+                count(*) as submitted_total
+              from mei_email.envios
+             where provider_message_id like 'brevo:%'
+               and submitted_at >= statement_timestamp() - interval '24 hours'
+            """
+        )
+        row = cur.fetchone()
+        if isinstance(row, dict):
+            hard_bounces = int(row.get("hard_bounces") or 0)
+            submitted_total = int(row.get("submitted_total") or 0)
+        else:
+            hard_bounces, submitted_total = map(int, row)
+    if submitted_total < BREVO_HARD_BOUNCE_MIN_SAMPLE:
+        return None
+    rate = (hard_bounces * 100.0) / submitted_total
+    if rate <= BREVO_HARD_BOUNCE_PAUSE_RATE_PCT:
+        return None
+    return (
+        "deliverability_guard: Brevo hard bounce cohort 24h "
+        f"{hard_bounces}/{submitted_total}={rate:.2f}% exceeds "
+        f"{BREVO_HARD_BOUNCE_PAUSE_RATE_PCT:.2f}% safety threshold"
+    )
 
 
 def _ja_submetido_ou_entregue_indexado(
@@ -259,6 +297,13 @@ def processar_lote(conn: psycopg.Connection, lote: dict, provider) -> None:
     falhas = 0
 
     for envio in envios:
+        deliverability_block = _brevo_deliverability_block_reason(conn)
+        if deliverability_block:
+            base_worker._registrar_sender_blocked_pause(deliverability_block)
+            base_worker._recolocar_lote_pendente(conn, lote["id"], deliverability_block)
+            logger.critical("%s; circuit breaker persistente aberto.", deliverability_block)
+            return
+
         envios_24h = _obter_envios_ultimas_24h_indexado(conn)
         if envios_24h >= limite_24h:
             base_worker._registrar_falhas_campanha(
@@ -512,6 +557,14 @@ def run() -> None:
                         SENDER_BLOCK_SENTINEL,
                         LEGACY_SENDER_BLOCK_SENTINEL,
                     )
+                    time.sleep(max(settings.worker_poll_interval_segundos, 60))
+                    continue
+
+                deliverability_block = _brevo_deliverability_block_reason(conn)
+                if deliverability_block:
+                    base_worker._registrar_sender_blocked_pause(deliverability_block)
+                    logger.critical("%s; worker pausado antes de novo lote.", deliverability_block)
+                    conn.rollback()
                     time.sleep(max(settings.worker_poll_interval_segundos, 60))
                     continue
 
