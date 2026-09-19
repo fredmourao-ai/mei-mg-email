@@ -36,6 +36,7 @@ render_unit() {
   rm -f "$tmp"
 }
 
+render_unit "$APP_DIR/deploy/systemd/mei-mg-email-api.service" "/etc/systemd/system/mei-mg-email-api.service"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-monitor.service" "/etc/systemd/system/mei-mg-email-monitor.service"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-base-sync.service" "/etc/systemd/system/mei-mg-email-base-sync.service"
 render_unit "$APP_DIR/deploy/systemd/mei-mg-email-base-sync.timer" "/etc/systemd/system/mei-mg-email-base-sync.timer"
@@ -58,9 +59,16 @@ fi
 rm -f "$APP_DIR/runtime/sender_blocked.pause"
 
 "${SUDO[@]}" systemctl daemon-reload
+"${SUDO[@]}" systemctl enable --now mei-mg-email-api.service
 "${SUDO[@]}" systemctl enable --now mei-mg-email-base-sync.timer
 "${SUDO[@]}" systemctl enable --now mei-mg-email-monitor.service
-"${SUDO[@]}" systemctl enable --now mei-mg-email-worker.service
+"${SUDO[@]}" systemctl enable mei-mg-email-worker.service
+if [[ -f "$STATE_DIR/sender_blocked.pause" ]]; then
+  "${SUDO[@]}" systemctl stop mei-mg-email-worker.service
+  echo "WORKER_MANTIDO_PARADO_POR_CIRCUIT_BREAKER"
+else
+  "${SUDO[@]}" systemctl start mei-mg-email-worker.service
+fi
 "${SUDO[@]}" systemctl enable --now mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl enable --now mei-mg-email-site-tunnel.service
 if "${SUDO[@]}" systemctl cat mei-mg-email-ndr-guard.service >/dev/null 2>&1; then
@@ -76,8 +84,13 @@ if ! "${SUDO[@]}" systemctl start mei-mg-email-base-sync.service; then
   exit 2
 fi
 
+"${SUDO[@]}" systemctl restart mei-mg-email-api.service
 "${SUDO[@]}" systemctl restart mei-mg-email-monitor.service
-"${SUDO[@]}" systemctl restart mei-mg-email-worker.service
+if [[ -f "$STATE_DIR/sender_blocked.pause" ]]; then
+  "${SUDO[@]}" systemctl stop mei-mg-email-worker.service
+else
+  "${SUDO[@]}" systemctl restart mei-mg-email-worker.service
+fi
 "${SUDO[@]}" systemctl restart mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl restart mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl restart mei-mg-email-site-tunnel.service
@@ -87,8 +100,17 @@ echo "app_dir=$APP_DIR"
 echo "run_user=$RUN_USER"
 echo "python=$PYTHON"
 echo "state_dir=$STATE_DIR"
+"${SUDO[@]}" systemctl is-active mei-mg-email-api.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-monitor.service
-"${SUDO[@]}" systemctl is-active mei-mg-email-worker.service
+if [[ -f "$STATE_DIR/sender_blocked.pause" ]]; then
+  if "${SUDO[@]}" systemctl is-active --quiet mei-mg-email-worker.service; then
+    echo "ERRO: worker ativo apesar do circuit breaker" >&2
+    exit 3
+  fi
+  echo "mei-mg-email-worker.service=inactive_circuit_breaker"
+else
+  "${SUDO[@]}" systemctl is-active mei-mg-email-worker.service
+fi
 "${SUDO[@]}" systemctl is-active mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-base-sync.timer
