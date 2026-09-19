@@ -40,3 +40,13 @@ def test_base_worker_keeps_replay_evidence_after_delivery_or_bounce():
     source = BASE_SOURCE.casefold()
     assert "provider_message_id is not null" in source
     assert "submitted_at is not null" in source
+
+
+def test_worker_has_persistent_deliverability_circuit_breaker():
+    source = QUEUE_SOURCE
+    assert "BREVO_HARD_BOUNCE_PAUSE_RATE_PCT" in source
+    assert "BREVO_HARD_BOUNCE_MIN_SAMPLE" in source
+    assert "status::text = 'bounce_permanent'" in source
+    assert "submitted_at >= statement_timestamp() - interval '24 hours'" in source
+    assert "_registrar_sender_blocked_pause(deliverability_block)" in source
+    assert "_brevo_deliverability_block_reason(conn)" in source
