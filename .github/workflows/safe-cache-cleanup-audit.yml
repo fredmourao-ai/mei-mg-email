@@ -34,6 +34,20 @@ jobs:
             printf '%s\n' "$cacache_users" | head -20
           fi
           echo "NPM_NPX_PRESERVED=true"
+          echo "PLAYWRIGHT_CACHE_BEFORE"
+          du -sh /home/ubuntu/.cache/ms-playwright/* 2>/dev/null | sort -h || true
+          shopt -s nullglob
+          for d in /home/ubuntu/.cache/ms-playwright/*; do
+            [ -d "$d" ] || continue
+            users="$(ps -eo pid,args | grep -F "$d/" | grep -v grep || true)"
+            if [ -z "$users" ]; then
+              bytes="$(du -sb "$d" 2>/dev/null | awk '{print $1}')"
+              rm -rf -- "$d"
+              echo "PLAYWRIGHT_CACHE_REMOVED bytes=$bytes path=$d"
+            else
+              echo "PLAYWRIGHT_CACHE_PRESERVED_ACTIVE path=$d"
+            fi
+          done
           pip_users="$(ps -eo pid,args | grep -E '[p]ip(3)? .*' || true)"
           if [ -z "$pip_users" ]; then
             rm -rf /home/ubuntu/.cache/pip
