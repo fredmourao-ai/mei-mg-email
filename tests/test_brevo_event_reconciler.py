@@ -183,3 +183,11 @@ def test_state_upgrade_reprocesses_once_and_then_converges(monkeypatch):
     second = module.process_once()
     assert second["last_unique"] == 0
     assert second["seen_event_keys"] == first["seen_event_keys"]
+
+
+def test_reconciler_preserves_first_reconciliation_evidence():
+    source = SCRIPT.read_text(encoding="utf-8")
+    normalized = " ".join(source.split())
+    assert "reconciled_at = coalesce(reconciled_at, now())" in normalized
+    assert "metadata->'brevo_reconciled_at'" in normalized
+    assert "coalesce(metadata->>'brevo_event_key', '') <> %s" in normalized
