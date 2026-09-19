@@ -1,6 +1,7 @@
 [Unit]
 Description=MEI MG Email API
 After=network.target docker.service
+Wants=mei-mg-email-site-tunnel.service
 
 [Service]
 Type=simple
