@@ -178,7 +178,7 @@ def test_queue_recovery_prunes_full_canonical_policy_drift():
     source = (ROOT / "app" / "queue_recovery.py").read_text(encoding="utf-8")
     normalized = " ".join(source.casefold().split())
     assert "coalesce(emp.opt_out, false)" in normalized
-    assert "is_email_suppressed(e.email)" in normalized
+    assert "is_email_suppressed(emp.email)" in normalized
     assert "is_cnpj_suppressed(e.cnpj::text)" in normalized
     assert "limit 3" in normalized
     assert "h.cnpj = e.cnpj" in normalized
@@ -191,7 +191,7 @@ def test_hourly_autorepair_detects_shared_suppressed_and_replay_drift():
     )
     normalized = " ".join(source.casefold().split())
     assert "coalesce(e.opt_out, false)" in normalized
-    assert "is_email_suppressed(v.email)" in normalized
+    assert "is_email_suppressed(e.email)" in normalized
     assert "is_cnpj_suppressed(v.cnpj::text)" in normalized
     assert "limit 3" in normalized
     assert "h.cnpj = v.cnpj" in normalized
