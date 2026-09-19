@@ -191,3 +191,21 @@ def test_reconciler_preserves_first_reconciliation_evidence():
     assert "reconciled_at = coalesce(reconciled_at, now())" in normalized
     assert "metadata->'brevo_reconciled_at'" in normalized
     assert "coalesce(metadata->>'brevo_event_key', '') <> %s" in normalized
+
+
+def test_real_transient_aliases_are_diagnostic_only():
+    module = _load_module()
+    for event in ("softBounce", "softbounces", "deferred", "error"):
+        payload = {"event": event}
+        assert module.classify_event(payload).status is None
+        assert module.is_transient_event(payload) is True
+
+
+def test_transient_event_records_diagnostic_without_terminal_transition():
+    source = SCRIPT.read_text(encoding="utf-8")
+    normalized = " ".join(source.split())
+    assert "def apply_transient_event" in source
+    assert "set last_error = %s" in normalized
+    assert "status::text = 'submitted'" in normalized
+    assert "brevo_transient_event_key" in source
+    assert "last_diagnostic_matched" in source
