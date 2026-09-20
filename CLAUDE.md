@@ -10,3 +10,10 @@ Antes de qualquer trabalho neste repositorio, leia e cumpra `AGENTS.md` e `AI-TO
 Regra de continuidade: leia e cumpra `AI-TO-CLI-PROTOCOL.md`, especialmente `Continuidade obrigatoria diante de falha de ferramenta ou comando`; erro de ferramenta nao autoriza encerrar a tarefa.
 
 Antes de finalizar qualquer tarefa, cumpra o `PROTOCOLO OBRIGATORIO DE CONCLUSAO DE TAREFAS` de `AI-TO-CLI-PROTOCOL.md`; nao pare em erro corrigivel ou resultado parcial.
+
+<!-- EXECUTION_PROVENANCE_POLICY_V1 -->
+@EXECUTION-PROVENANCE-POLICY.md
+
+
+<!-- BROWSER_SESSION_POLICY_V1 -->
+Leia e cumpra AGENTS.md e a secao BROWSER_SESSION_POLICY_V1 de REGRAS-AGENTES-CENTRALIZADAS.md antes de qualquer uso de navegador.
