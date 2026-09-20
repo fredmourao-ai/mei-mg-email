@@ -1,3 +1,8 @@
+<!-- CLAUDE_READ_AGENTS_FIRST_V1 -->
+> **BOOTSTRAP OBRIGATORIO DO CLAUDE:** antes de analisar, planejar, editar, executar comandos, usar navegador, abrir PR, fazer merge, deploy ou validar qualquer tarefa, leia **integralmente** o `AGENTS.md` da raiz deste repositorio e cumpra todas as instrucoes vigentes nele. Releia o `AGENTS.md` em retomadas de conversa ou quando o arquivo mudar. Se houver divergencia entre este `CLAUDE.md` e o `AGENTS.md`, o `AGENTS.md` prevalece. Nao prossiga assumindo memoria de uma leitura antiga.
+
+@AGENTS.md
+
 # Instrucoes para Claude
 
 <!-- GLOBAL_BROWSER_VM_POLICY_V2 -->
