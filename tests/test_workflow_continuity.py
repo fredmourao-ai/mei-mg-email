@@ -45,8 +45,9 @@ def test_ai_resolver_survives_source_branch_deletion_race():
 
 
 def test_required_policy_gate_rejects_native_auto_merge_bypass():
-    assert "allow_auto_merge" in POLICY
-    assert "gh api" in POLICY
+    assert "gh api graphql" in POLICY
+    assert "autoMergeAllowed" in POLICY
+    assert "GITHUB_REPOSITORY_OWNER" in POLICY
     assert "GITHUB_REPOSITORY" in POLICY
     assert '= "false"' in POLICY or "= 'false'" in POLICY
 

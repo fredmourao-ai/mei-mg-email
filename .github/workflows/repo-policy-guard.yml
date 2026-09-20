@@ -25,7 +25,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          actual="$(gh api "repos/$GITHUB_REPOSITORY" --jq .allow_auto_merge)"
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          actual="$(gh api graphql \
+            -f query='query($owner:String!,$name:String!){repository(owner:$owner,name:$name){autoMergeAllowed}}' \
+            -F owner="$GITHUB_REPOSITORY_OWNER" \
+            -F name="$repo_name" \
+            --jq '.data.repository.autoMergeAllowed')"
           test "$actual" = "false"
       - name: Enforce repository policy
         run: python scripts/repo_policy_guard.py
