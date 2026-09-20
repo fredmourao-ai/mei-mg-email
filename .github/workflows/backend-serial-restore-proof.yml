@@ -1,7 +1,6 @@
 name: Backend Serial Restore Proof 2026-09-19
 on:
-  push:
-    branches: [audit/restore-backend-proof-20260919]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -19,7 +18,7 @@ jobs:
           OBJ=db-backups/main/mei-email-latest.dump
           WORK=/home/ubuntu/.audit-runtime/mei-restore-backend-20260919
           CONTAINER=mei-restore-backend-20260919
-          cleanup(){ docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -rf "$WORK"; }
+          cleanup(){ docker rm -fv "$CONTAINER" >/dev/null 2>&1 || true; rm -rf "$WORK"; }
           trap cleanup EXIT
           cleanup; mkdir -p "$WORK"
           echo "DISK_BEFORE=$(df -P / | awk 'NR==2{print $5}')"
@@ -27,7 +26,7 @@ jobs:
           "$OCI" os object get --auth instance_principal --namespace-name "$NS" --bucket-name "$BUCKET" --name "$OBJ.sha256" --file "$WORK/mei-email-latest.dump.sha256" >/dev/null
           cd "$WORK"; sha256sum -c mei-email-latest.dump.sha256
           echo "RESTORE_ENTRIES=$(pg_restore -l mei-email-latest.dump | awk 'BEGIN{n=0} /^[^;]/ && NF {n++} END{print n}')"
-          docker run -d --name "$CONTAINER" --cpus 2 --memory 4g --shm-size 1g -e POSTGRES_HOST_AUTH_METHOD=trust -v "$WORK:/restore:ro" postgres:16-alpine -c max_parallel_maintenance_workers=0 -c maintenance_work_mem=64MB -c temp_file_limit=4GB >/dev/null
+          docker run --rm -d --name "$CONTAINER" --cpus 2 --memory 4g --shm-size 1g -e POSTGRES_HOST_AUTH_METHOD=trust -v "$WORK:/restore:ro" postgres:16-alpine -c max_parallel_maintenance_workers=0 -c maintenance_work_mem=64MB -c temp_file_limit=4GB >/dev/null
           for i in $(seq 1 90); do docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
           docker exec "$CONTAINER" createdb -U postgres restoredb
           echo "RESTORE_STARTED_AT=$(date -u +%FT%TZ)"
