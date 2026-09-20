@@ -39,6 +39,9 @@ jobs:
       - name: Reject committed credentials
         run: python scripts/auditar_segredos_repo.py
 
+      - name: Audit temporary Docker restore resources
+        run: python scripts/audit_temporary_docker_resources.py
+
       - name: Validate PowerShell syntax
         shell: pwsh
         run: |
