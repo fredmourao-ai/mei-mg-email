@@ -11,3 +11,7 @@ Antes de finalizar qualquer tarefa, cumpra o `PROTOCOLO OBRIGATORIO DE CONCLUSAO
 
 <!-- EXECUTION_PROVENANCE_POLICY_V1 -->
 @EXECUTION-PROVENANCE-POLICY.md
+
+
+<!-- BROWSER_SESSION_POLICY_V1 -->
+Leia e cumpra AGENTS.md e a secao BROWSER_SESSION_POLICY_V1 de REGRAS-AGENTES-CENTRALIZADAS.md antes de qualquer uso de navegador.
