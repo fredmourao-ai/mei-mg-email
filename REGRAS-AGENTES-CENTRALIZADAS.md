@@ -1,12 +1,12 @@
 # 📋 REGRAS PARA AGENTES IA - FONTE ÚNICA CENTRALIZADA
 
-**Efetivo:** 2026-07-24  
-**Escopo:** Todos os agentes (Claude, Codex, Gemini, GPT, etc.)  
-**Aplicável a:** Qualquer tarefa automatizada (deploy, testes, integrações, ERP, pagamentos, emails, secrets)  
+**Efetivo:** 2026-07-24
+**Escopo:** Todos os agentes (Claude, Codex, Gemini, GPT, etc.)
+**Aplicável a:** Qualquer tarefa automatizada (deploy, testes, integrações, ERP, pagamentos, emails, secrets)
 **Objetivo:** Eliminar falsos positivos, exigir evidência verificável antes de declarar sucesso
 
-> ⚠️ **ESTA É A FONTE ÚNICA DE VERDADE PARA TODAS AS REGRAS.**  
-> Outros arquivos (VALIDATION-POLICY.md, SECRETS-SYNC-RULE.md, etc.) são DEPRECADOS.  
+> ⚠️ **ESTA É A FONTE ÚNICA DE VERDADE PARA TODAS AS REGRAS.**
+> Outros arquivos (VALIDATION-POLICY.md, SECRETS-SYNC-RULE.md, etc.) são DEPRECADOS.
 > Veja [Referências Cruzadas](#referências-cruzadas) para documentação específica.
 
 ---
@@ -217,7 +217,7 @@ git merge --ff-only # ← Não roda se git fetch falhou
 | HTTP | GET / retorna HTTP 200 com conteúdo esperado |
 | Logs | Logs de deploy sem erros |
 
-### Git & Sincronização  
+### Git & Sincronização
 | Componente | Evidência Mínima |
 |-----------|-----------------|
 | Commit | SHA local completo + mensagem |
@@ -324,7 +324,7 @@ PROCESSO OBRIGATÓRIO:
 ## 🔐 SINCRONIZAÇÃO OBRIGATÓRIA DE SECRETS (3 AMBIENTES)
 
 ### Regra Crítica
-> **CRÍTICO**: Toda alteração de secret DEVE ser sincronizada em TODOS os 3 ambientes simultaneamente.  
+> **CRÍTICO**: Toda alteração de secret DEVE ser sincronizada em TODOS os 3 ambientes simultaneamente.
 > **Nunca** deixar um secret desincronizado por mais de 5 minutos.
 
 ### Quando Aplica
@@ -535,9 +535,9 @@ git commit -m "fix: sincronizar secrets desincronizados (SOURCE: GitHub)"
 
 ---
 
-**Versão:** 2.0 (Consolidada)  
-**Atualizado:** 2026-07-24  
-**Próxima Revisão:** 2026-08-07  
+**Versão:** 2.0 (Consolidada)
+**Atualizado:** 2026-07-24
+**Próxima Revisão:** 2026-08-07
 **Status:** ✅ FONTE ÚNICA DE VERDADE
 
 ## Gate obrigatorio de resposta final e deploy (FINAL_RESPONSE_DEPLOY_GATE_V1)
@@ -568,20 +568,24 @@ Toda Auditoria Extrema deve incluir `docs/quality/ARCHITECTURE_DEPLOY_AUDIT_V1.m
 
 
 <!-- BROWSER_SESSION_POLICY_V1 -->
+<!-- GLOBAL_BROWSER_VM_POLICY_V2 -->
 ## Politica global de navegador, host e ciclo de vida de sessoes
 
-Esta politica vale para todos os agentes e complementa as regras de isolamento de sessao e provenance.
+Esta politica vale para todos os agentes e prevalece sobre qualquer instrucao antiga de escolher/perguntar host para navegacao.
 
-- Antes de iniciar navegador, sessao grafica ou automacao browser interativa/remota em host controlado pelo usuario, se a maquina nao tiver sido indicada explicitamente na tarefa atual, perguntar qual maquina/host deve ser usado. Nao escolher automaticamente Fred-Win, KOCEPSV, VMs, Cloud Shell ou outro host. Quando aplicavel, informar a alternativa de Cloud Browser.
-- Excecoes: CI/workflows com runner/host previamente fixado pelo proprio workflow e bridges/servicos persistentes cujo host esteja definido pela arquitetura nao precisam perguntar novamente; nesses casos o host ja e parte explicita do contrato da execucao.
+- Qualquer navegador, sessao grafica, automacao browser, Playwright/Selenium/CDP, Chrome/Chromium/Edge/Opera, CAPTCHA, MFA, consentimento ou validacao visual deve executar por padrao e obrigatoriamente na VM backend `always-free-arm-1787907847-26` (`10.0.1.38`) usando o Browser Worker privado.
+- Para intervencao humana em MFA/CAPTCHA/consentimento, usar a interface autenticada `https://shopvivaliz.com.br/admin/browser-worker.php`.
+- Fred-Win (`LAPTOP-NIG4IFUU`) e `DESKTOP-KOCEPSV` sao proibidos como destino ou fallback de navegacao/browser. Nao usar relays Windows, Chrome/Edge/Opera local, Playwright/Selenium local ou CDP nesses hosts para navegacao.
+- O agente nao deve perguntar qual maquina usar para browser: o destino canonico e a VM backend. Excecao somente quando o proprietario ordenar explicitamente, na tarefa atual, o uso de um Windows especifico para aquela navegacao.
+- Se a VM/browser worker estiver indisponivel, reparar via OCI Bastion, tunel privado ou control plane canonico. Se houver bloqueio externo real, registrar o bloqueio; nunca fazer fallback silencioso para Windows.
+- Workflows, scripts e bridges de browser que ainda apontem para Fred-Win/KOCEPSV sao legado: nao executar como caminho normal ou fallback; migrar para a VM antes do proximo uso.
+- Windows continua permitido para tarefas nao-browser que dependam especificamente de Windows/hardware local; esta politica proibe seu uso para navegacao e automacao grafica/browser.
 - Toda sessao invisivel/headless transitoria iniciada por agente deve ter identidade e ownership rastreaveis: execution_id ou task id, agente/origem, host, PID/process tree quando disponivel, profile/user-data-dir, started_at, expires_at e heartbeat/last_seen, sem secrets.
-- TTL padrao para sessao invisivel/headless transitoria gerenciada: 2 horas. Enquanto a tarefa estiver ativa, heartbeat valido renova o TTL. O TTL nao e motivo para matar uma sessao ativa com heartbeat recente.
-- Sessao orfa (owner/parent ausente, tarefa encerrada ou heartbeat expirado) pode ser encerrada antes das 2 horas. O objetivo do TTL e limitar abandono, nao obrigar espera minima para limpar orfaos.
-- Ao concluir ou abandonar a tarefa, encerrar imediatamente navegadores, abas, processos filhos, portas CDP, locks e perfis temporarios que pertencam a execucao e nao sejam mais necessarios.
-- No boot/logon, janitor deterministico deve limpar apenas sessoes invisiveis transitorias/orfas e artefatos associados. Nunca usar kill global por nome de processo nem encerrar indiscriminadamente Chrome/Opera/Edge/Firefox.
-- Preservar sessoes visiveis do usuario e qualquer sessao persistente/bridge explicitamente documentada. Persistencia exige owner, finalidade, mecanismo de health e cleanup proprios; nao e sessao transitoria abandonada.
-- Regras antigas com timeout curto para headless (por exemplo janitor de 10 minutos) so podem atingir sessoes nao gerenciadas/orfas/temporarias sem heartbeat valido. Nao devem encerrar sessao gerenciada ativa apenas pela idade.
-- Antes da resposta final, verificar se ficaram sessoes invisiveis, processos browser, perfis temporarios, locks ou portas CDP da tarefa. Se ficaram sem justificativa persistente, limpar antes de concluir.
-- Esta politica nao reduz os requisitos de validacao visual: quando a regra do projeto exigir navegador real/visivel como evidencia final, screenshot headless continua insuficiente. Headless pode ser usado como automacao/preparacao quando permitido, sujeito a esta politica de ciclo de vida.
+- TTL padrao para sessao invisivel/headless transitoria gerenciada: 2 horas. Enquanto a tarefa estiver ativa, heartbeat valido renova o TTL.
+- Sessao orfa (owner/parent ausente, tarefa encerrada ou heartbeat expirado) pode ser encerrada antes das 2 horas.
+- Ao concluir ou abandonar a tarefa, encerrar imediatamente navegadores, abas, processos filhos, portas CDP, locks e perfis temporarios da execucao que nao sejam mais necessarios.
+- Nunca usar kill global por nome de processo. Preservar sessoes persistentes documentadas; limpeza deve ser owner-scoped.
+- Antes da resposta final, verificar e limpar sessoes invisiveis, processos browser, perfis temporarios, locks ou portas CDP sem justificativa persistente.
+- Esta politica nao reduz requisitos de validacao visual: quando o projeto exigir navegador real/visivel, a evidencia deve vir do Browser Worker/VM e da interface autenticada, nao de Windows.
 
-Regra principal: **nenhum navegador invisivel transitorio deve nascer sem ownership/TTL, permanecer sem heartbeat ou ser abandonado apos a tarefa; nenhuma sessao visivel/persistente deve ser morta por limpeza generica.**
+Regra principal: **browser/navegacao sempre na VM backend; Windows nunca e fallback.**
