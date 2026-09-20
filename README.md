@@ -25,7 +25,7 @@ Enfileirar não consome a cota Brevo. A trava de 300/24h é aplicada imediatamen
 
 ## Política de importação
 
-A política canônica está em `AGENTS.md`: empresa deve estar ATIVA; e-mail não pode conter `contabil`; e-mail compartilhado por mais de 2 cadastros não entra na fila/envio; destinatário/CNPJ já enviado ou enfileirado não entra. MG é apenas prioridade de ordenação. Gates legados aposentados não podem voltar ao fluxo operacional.
+A política canônica está em `AGENTS.md`. Os únicos filtros de negócio/segmentação são: empresa ATIVA, bloqueio de e-mail contendo `contabil`, limite de até 2 cadastros por e-mail compartilhado e anti-reenvio/anti-duplicidade por destinatário/CNPJ. E-mail ausente/inválido, opt-out, suppression técnica e divergência entre cadastro atual e fila são proteções técnicas fail-closed, não novos filtros de segmentação. MG é apenas prioridade de ordenação. Gates legados aposentados não podem voltar ao fluxo operacional.
 
 A importação da Receita mantém escopo nacional. A regra de e-mail compartilhado é aplicada pelo `queue_manager` contra a tabela completa `mei_email.empresas`, garantindo a contagem global antes do enfileiramento sem exigir staging temporário de toda a base mensal.
 

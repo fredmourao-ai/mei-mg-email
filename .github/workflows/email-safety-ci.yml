@@ -81,5 +81,8 @@ jobs:
       - name: Enforce canonical repository policy
         run: python scripts/repo_policy_guard.py
 
+      - name: Self-test extreme-audit governance
+        run: python scripts/validate-audit-governance.py --output-dir runtime/audit-governance-self-test
+
       - name: Run email safety unit tests
         run: pytest -q

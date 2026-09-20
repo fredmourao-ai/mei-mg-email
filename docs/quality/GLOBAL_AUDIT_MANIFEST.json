@@ -1,0 +1,28 @@
+{
+  "schema": "GLOBAL_AUDIT_MANIFEST_V1",
+  "version": "2026-09-19-universal-architecture-v5",
+  "canonical_repository": "Vivaliz-site/-shopvivaliz-pipeline",
+  "canonical_ref": "main",
+  "required_blobs": {
+    "AUDIT_POLICY.md": "92159ccedff608dab51f67dc767f470f55f698b6",
+    "docs/quality/EXTREME_AUDIT_PROTOCOL.md": "f74e1e9d72c56bc474a2c3ada15e25279625dcb7",
+    "docs/quality/AUDIT_RUNTIME_PARITY_V1.md": "1266b565807c7d5f66ff177bdceb75684b94b0e7",
+    "docs/quality/AUDIT_UNIVERSAL_COVERAGE_V1.md": "59fdd509235935e8d7ebd9acff9cc93979f9d4d9",
+    "docs/quality/AUDIT_SELF_TEST_V1.md": "ddaf73bcaf5bde818440cd4a466a02c96c746bf0",
+    "docs/quality/ARCHITECTURE_DEPLOY_AUDIT_V1.md": "a103ec0f822746457aab8ea405170af0517989fe",
+    "docs/quality/AUDIT_EVIDENCE_MANIFEST_TEMPLATE.md": "7a3f1044d4d67b4e89d05e0d4c9d00dcd238ce40",
+    "AGENTS.override.md": "6ea3793233553493c9cd05ac2a9ee1fa0b28d720"
+  },
+  "required_entrypoint_markers": {
+    "CLAUDE.md": [
+      "AUDIT_POLICY.md",
+      "AUDIT_UNIVERSAL_COVERAGE_V1.md",
+      "ARCHITECTURE_DEPLOY_AUDIT_V1.md"
+    ],
+    "AGENTS.md": [
+      "AUDIT_POLICY.md",
+      "AUDIT_UNIVERSAL_COVERAGE_V1.md",
+      "ARCHITECTURE_DEPLOY_AUDIT_V1.md"
+    ]
+  }
+}

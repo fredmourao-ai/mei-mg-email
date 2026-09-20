@@ -5,11 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/mei-mg-email
-EnvironmentFile=-/home/ubuntu/mei-mg-email/.env
-ExecStartPre=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/runtime_policy_guard.py
-ExecStart=/home/ubuntu/mei-mg-email/.venv/bin/python /home/ubuntu/mei-mg-email/scripts/queue_replenisher.py
+User=__RUN_USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=-__APP_DIR__/.env
+ExecStartPre=__PYTHON__ __APP_DIR__/scripts/runtime_policy_guard.py
+ExecStart=__PYTHON__ __APP_DIR__/scripts/queue_replenisher.py
 Restart=always
 RestartSec=5
 TimeoutStartSec=30

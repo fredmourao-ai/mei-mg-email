@@ -99,19 +99,22 @@ def test_installer_moves_pause_state_out_of_checkout_and_replaces_legacy_ndr_gua
     assert 'ln -s "$STATE_DIR/sender_blocked.pause"' not in script
 
 
-def test_monitoring_installer_deploys_and_enables_worker_with_rendered_paths():
+def test_monitoring_installer_deploys_worker_fail_closed_with_rendered_paths():
     script = (ROOT / "scripts" / "instalar_monitoramento_vm.sh").read_text(encoding="utf-8")
     unit = (ROOT / "deploy" / "systemd" / "mei-mg-email-worker.service").read_text(encoding="utf-8")
 
-    assert "render_unit \"\u0024APP_DIR/deploy/systemd/mei-mg-email-worker.service\"" in script
-    assert "enable --now mei-mg-email-worker.service" in script
+    assert 'render_unit "$APP_DIR/deploy/systemd/mei-mg-email-worker.service"' in script
+    assert "enable mei-mg-email-worker.service" in script
+    assert 'if [[ -f "$STATE_DIR/sender_blocked.pause" ]]; then' in script
+    assert "systemctl stop mei-mg-email-worker.service" in script
+    assert "WORKER_MANTIDO_PARADO_POR_CIRCUIT_BREAKER" in script
+    assert "systemctl start mei-mg-email-worker.service" in script
     assert "systemctl is-active mei-mg-email-worker.service" in script
     assert "WorkingDirectory=__APP_DIR__" in unit
     assert "EnvironmentFile=-__APP_DIR__/.env" in unit
     assert "ExecStartPre=__PYTHON__ __APP_DIR__/scripts/runtime_policy_guard.py" in unit
     assert "ExecStartPre=__PYTHON__ __APP_DIR__/scripts/runtime_sender_preflight.py" in unit
     assert "ExecStart=__PYTHON__ -m worker.safe_entrypoint_v2" in unit
-
 
 def test_startup_backfill_scans_24h_without_reopening_old_sender_block():
     source = (ROOT / "scripts" / "ndr_guard.py").read_text(encoding="utf-8")

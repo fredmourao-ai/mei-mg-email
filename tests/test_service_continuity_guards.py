@@ -49,3 +49,49 @@ def test_api_restart_restores_public_reverse_tunnel():
     assert 'enable --now mei-mg-email-site-tunnel.service' in installer
     assert 'restart mei-mg-email-site-tunnel.service' in installer
     assert 'is-active mei-mg-email-site-tunnel.service' in installer
+
+
+def test_active_service_units_are_relocatable_and_installer_provisions_api():
+    for name in (
+        'mei-mg-email-api.service',
+        'mei-mg-email-monitor.service',
+        'mei-mg-email-queue-replenisher.service',
+        'mei-mg-email-autorepair.service',
+    ):
+        text = (ROOT / 'deploy' / 'systemd' / name).read_text(encoding='utf-8')
+        assert '/home/ubuntu/mei-mg-email' not in text, name
+        assert '__APP_DIR__' in text, name
+
+    api = (ROOT / 'deploy' / 'systemd' / 'mei-mg-email-api.service').read_text(
+        encoding='utf-8'
+    )
+    assert 'User=__RUN_USER__' in api
+    assert 'ExecStart=__PYTHON__ -m uvicorn' in api
+
+    installer = (ROOT / 'scripts' / 'instalar_monitoramento_vm.sh').read_text(
+        encoding='utf-8'
+    )
+    assert 'render_unit "$APP_DIR/deploy/systemd/mei-mg-email-api.service"' in installer
+    assert 'enable --now mei-mg-email-api.service' in installer
+    assert 'restart mei-mg-email-api.service' in installer
+    assert 'is-active mei-mg-email-api.service' in installer
+    assert 'render_unit "$APP_DIR/deploy/systemd/mei-mg-email-autorepair.service"' in installer
+    assert 'enable --now mei-mg-email-autorepair.timer' in installer
+
+
+def test_installers_preserve_sender_circuit_breaker_and_repo_relocatability():
+    installer = (ROOT / 'scripts' / 'instalar_monitoramento_vm.sh').read_text(
+        encoding='utf-8'
+    )
+    autorepair = (ROOT / 'scripts' / 'instalar_autorepair_vm.sh').read_text(
+        encoding='utf-8'
+    )
+    for source in (installer, autorepair):
+        assert 'STATE_DIR="/var/lib/mei-mg-email"' in source
+        assert 'sender_blocked.pause' in source
+        assert 'WORKER_MANTIDO_PARADO_POR_CIRCUIT_BREAKER' in source
+        assert 'systemctl stop mei-mg-email-worker.service' in source
+        assert 'worker ativo apesar do circuit breaker' in source
+
+    assert 'APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"' in autorepair
+    assert 'APP_DIR="/home/ubuntu/mei-mg-email"' not in autorepair

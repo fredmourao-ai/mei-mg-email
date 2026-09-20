@@ -62,8 +62,16 @@ def test_docs_describe_brevo_as_current_provider_without_changing_filters():
         "email compartilhado por mais de 2 cadastros",
         "destinatario/CNPJ ja enviado ou ja enfileirado",
         "MG e apenas prioridade de ordenacao, nunca filtro de elegibilidade",
+        "unicos filtros de negocio/segmentacao",
+        "Protecoes tecnicas obrigatorias",
+        "email ausente/invalido",
+        "opt-out",
+        "suppression tecnica",
     ):
         assert marker in agents
+    assert "uf='MG'" in agents
+    assert "filter_not_mei" in agents
+    assert "insert_filter_gate" in agents
 
 
 def test_ci_and_queue_docs_use_current_brevo_300_contract():

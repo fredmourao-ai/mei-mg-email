@@ -11,11 +11,15 @@ A fila de destinatarios e um buffer operacional independente da cota de envio.
 
 ## Contrato canonico de elegibilidade
 
-Nao entram na fila ou no envio:
+### Filtros de negocio permitidos
+Nao entram na fila ou no envio por regra de negocio apenas:
 - empresa diferente de `ATIVA`;
-- email invalido, com opt-out/supressao tecnica, ou contendo `contabil`;
+- email contendo `contabil`;
 - email compartilhado por mais de 2 cadastros;
 - email/CNPJ que ja esteja enfileirado ou possua historico de submissao/envio.
+
+### Protecoes tecnicas obrigatorias
+Sem criar novo filtro de segmentacao, o runtime tambem bloqueia de forma fail-closed email ausente/invalido, opt-out, suppression tecnica e divergencia entre o email atual da empresa e o email enfileirado. Essas protecoes existem para consentimento, entregabilidade, integridade e anti-replay.
 
 `MG` e apenas prioridade de ordenacao. Nunca e filtro de elegibilidade.
 Nao usar campos legados de autorizacao/classificacao ou views legadas de elegibilidade como gate operacional.
