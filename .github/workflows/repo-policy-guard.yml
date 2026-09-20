@@ -15,10 +15,17 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Reject native auto-merge bypass
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/$GITHUB_REPOSITORY" --jq .allow_auto_merge)"
+          test "$actual" = "false"
       - name: Enforce repository policy
         run: python scripts/repo_policy_guard.py

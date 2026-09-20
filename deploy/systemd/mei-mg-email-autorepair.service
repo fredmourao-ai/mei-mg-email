@@ -13,5 +13,5 @@ ExecStart=__PYTHON__ __APP_DIR__/scripts/nonstop_supervisor_15m.py
 TimeoutStartSec=90
 Nice=5
 # Never quiesce a healthy worker for routine verification. The only global
-# stop condition handled here is a current Microsoft sender-block sentinel.
+# stop condition handled here is the canonical sender/deliverability circuit-breaker sentinel.
 KillMode=mixed
