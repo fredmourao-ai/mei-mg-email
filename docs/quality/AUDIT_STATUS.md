@@ -1,99 +1,139 @@
 # Estado da Auditoria
 
-**Status:** NÃO APTO
+**Status da Auditoria Extrema V5:** CONCLUÍDA E VALIDADA  
+**Status operacional de envio:** **NÃO APTO PARA RETOMAR ENVIOS**
 
-Auditoria extrema concluída em 2026-09-19 segundo `EXTREME_AUDIT_PROTOCOL.md`, `AUDIT_RUNTIME_PARITY_V1.md`, a política canônica do repositório e evidência real de produção.
+Auditoria Extrema V5 concluída em 2026-09-20 segundo `AUDIT_POLICY.md`, `EXTREME_AUDIT_PROTOCOL.md`, `AUDIT_RUNTIME_PARITY_V1.md`, cobertura universal, auditoria de arquitetura/deploy, self-test de governança e evidência real de produção.
 
 ## Escopo e versão coberta
-- SHA funcional auditado e implantado: `a2acd724a9f1700ba5e93dc792033a658463c905`.
-- Runtime produtivo: checkout limpo, alinhado ao `main`.
+- SHA funcional auditado, mesclado e implantado: `6c64291e97e198c35578372dd15575da7de2fde4` (merge do PR #147).
+- PR #144: mergeado; governança global, arquitetura/deploy relocável e proteções do circuit breaker incorporadas ao `main`.
+- PR #145: mergeado; política de proveniência de execução incorporada ao `main`.
+- PR #147: mergeado pelo gate canônico após os cinco checks exigidos ficarem verdes.
+- Checkout produtivo: limpo e fast-forwarded para o SHA funcional acima antes desta atualização documental.
 - Provider de envio: Brevo.
-- Veredito: **NÃO APTO PARA RETOMAR ENVIOS** enquanto o circuit breaker de entregabilidade permanecer aberto.
-- Motivo do NO-GO: coorte real das últimas 24h com **24 hard bounces em 300 submissões = 8,00%**, acima do limite fail-closed de **2,00%**.
-- O estado de NO-GO é uma proteção correta: o worker está inativo, o sentinel canônico está presente e houve **0 submissões após a abertura do circuito**.
+- Veredito de envio: **NÃO APTO PARA RETOMAR ENVIOS** enquanto `/var/lib/mei-mg-email/sender_blocked.pause` permanecer presente.
 
-## Correções executadas nesta auditoria
-1. Falso-verde de fila: monitor e autorepair passaram a detectar envios abertos que perderam elegibilidade.
-2. Drift cadastral: envios abertos agora são comparados ao e-mail atual da empresa; 43 divergências reais foram bloqueadas.
-3. Política canônica completa: recovery/autorepair cobrem opt-out, situação cadastral, e-mail atual/válido, suppressions, compartilhamento, anti-replay e duplicidade aberta.
-4. Túnel público: ciclo de vida do reverse tunnel foi ligado à API; restart da API mantém descadastro público operacional.
-5. Brevo: payload real `hardbounces` passou a ser reconhecido e reconciliado como `bounce_permanent` com suppression.
-6. Dedupe Brevo: ledger de eventos passou a preservar ordem recente e convergiu de reaplicações repetidas para `last_unique=0`.
-7. Evidência de reconciliação: primeiro `reconciled_at` é preservado; eventos transitórios recebem diagnóstico sem reabrir possibilidade de replay.
-8. Circuit breaker de entregabilidade: envio para automaticamente quando a taxa de hard bounce excede 2% com amostra mínima de 50.
-9. Capacidade: root filesystem saiu de 95% crítico para 89% warning após limpeza conservadora de caches e workspaces Git limpos/inativos.\n10. Governança de merge: corrigida corrida em que o auto-merge podia apagar a branch antes do job final do AI Conflict Resolver; o resolver agora usa SHA imutável e o auto-merge exige o job `resolve` materializado e verde.
+## Stop-the-line de entregabilidade
+A coorte que abriu o circuit breaker foi revalidada diretamente no banco:
+- 300 submissões Brevo;
+- 258 `delivered`;
+- 24 `bounce_permanent`;
+- 18 ainda registrados como `submitted` com diagnóstico transitório;
+- taxa de hard bounce: **8,00%**;
+- limite fail-closed: **2,00%**;
+- 0 hard bounces sem suppression;
+- 0 submissões após a abertura do breaker;
+- sentinel aberto em `2026-09-19T12:35:01Z`;
+- worker `inactive` de forma deliberada.
+
+A janela móvel atual já não contém aquela coorte e mostra 0 submissões/0 hard bounces nas últimas 24h. Isso **não autoriza remover o sentinel**: a retomada continua dependendo do procedimento explícito de recuperação e validação de nova coorte.
 
 ## Evidência real de produção
-- `runtime_policy_guard.py`: OK; contrato de banco/repositório e Flyway 20 alinhados.
-- `runtime_sender_preflight.py`: OK; Brevo, remetente, ledger, validação e descadastro público HTTP 200.
-- Testes focais pós-deploy no SHA funcional: **61 passed**.
-- Fila: **0 violações canônicas abertas**, 0 duplicidades abertas por e-mail/CNPJ e 0 `enviando` stale.
-- Reconciliador Brevo: ativo e convergente; polls recentes com `last_unique=0`.
-- Coorte 24h: 300 submetidos, 258 delivered, 24 `bounce_permanent`, 18 `submitted` com diagnóstico transitório.
-- Os 24 hard bounces estão suprimidos; causas observadas são caixas inexistentes/indisponíveis (550/552), não erro de sintaxe da aplicação.
-- Sentinel aberto em 2026-09-19T12:35:01Z por entregabilidade; worker inativo; **0 submissões após o bloqueio**.
-- Monitor: `health=critical` de forma intencional, com alertas `sender_block_pause_active` e `hard_bounce_rate_excessive`.
-- API, reverse tunnel, reconciliador, monitor e replenisher permanecem ativos; NDR legado permanece desabilitado.
-- Filtros retirados não estão ativos em produção; referências restantes aparecem apenas em histórico/migrations arquivadas ou guards negativos que impedem reintrodução.
+- `runtime_policy_guard.py`: `RUNTIME_POLICY_GUARD_OK`; contrato de banco/repositório e Flyway 20 alinhados.
+- `runtime_sender_preflight.py`: OK; Brevo, remetente, ledger e validação presentes; descadastro público retornando HTTP 200.
+- Policy guard do repositório: `REPO_POLICY_GUARD_OK`.
+- Self-test da governança: `AUDIT_GOVERNANCE_SELF_TEST=PASS`.
+- Testes focais pós-deploy: 21/21 PASS.
+- Email Safety CI pós-merge: PASS, incluindo secret scan, PowerShell, dependências, SAST, compile, migrations, policy guard, governance self-test e suíte.
+- Repository Governance Gate pós-merge: PASS.
+- Repository Policy Guard pós-merge: PASS, incluindo verificação GraphQL de `autoMergeAllowed=false`.
+- AI Conflict Resolver pós-merge: self-test PASS; `resolve` corretamente skipped fora de contexto de PR.
+- Fila aberta: 14.883 pendentes, 0 `enviando`.
+- Violações técnicas/canônicas abertas reportadas pelo monitor: 0.
+- E-mails da fila compartilhados por mais de 2 CNPJs: 0 grupos.
+- Duplicidades abertas por e-mail: 0 grupos.
+- Duplicidades abertas por CNPJ: 0 grupos.
+- `stale_enviando_15m`: 0.
+- Reconciliador Brevo: ativo, enabled e convergente; polls pós-deploy com `unique=0`.
+- Monitor: `health=critical` intencionalmente e somente pelo alerta `sender_block_pause_active`.
+- API, monitor, queue replenisher, reconciliador, base-sync timer, autorepair timer e túnel público ativos; worker permanece inativo pelo breaker.
+- Units systemd ativos foram renderizados com `/home/ubuntu/mei-mg-email` e o Python da `.venv`, sem paths fixos antigos.
+- Root filesystem: **82%**, abaixo do limiar crítico de 90%.
+
+## Filtros canônicos
+Os únicos filtros de negócio/segmentação permanecem:
+1. empresa diferente de ATIVA;
+2. e-mail contendo `contabil`;
+3. e-mail compartilhado por mais de 2 cadastros;
+4. destinatário/CNPJ já enviado ou já enfileirado.
+
+MG é somente prioridade de ordenação, nunca filtro. E-mail inválido/ausente, opt-out, suppression técnica e divergência entre o e-mail atual da empresa e o e-mail enfileirado continuam como proteções técnicas fail-closed, não filtros comerciais adicionais. Gates legados como `uf='MG'`, `filter_not_mei` e `insert_filter_gate` não foram reintroduzidos.
 
 ## Backup, restore e desastre
-- Backup PostgreSQL verificado por custom dump, catálogo `pg_restore -l`, SHA-256, tamanho remoto e manifest.
-- Dump auditado: aproximadamente 1,26 GB, 115 objetos restauráveis.
-- Restore integral foi executado em PostgreSQL 16 isolado, sem porta publicada; SHA do dump passou, o restore avançou por carga e construção do índice principal sobre a base completa e o harness encerrou pelo caminho de cleanup de sucesso.
-- Dívida de evidência: o stdout terminal com as contagens finais do restore não permaneceu disponível no histórico da ferramenta; a conclusão é sustentada pela semântica do harness e ausência dos artefatos que só são removidos após as validações.
-- O timer de backup atual é **semanal** (`Sun 04:30 UTC`). Isso implica RPO potencial de vários dias e permanece risco residual relevante.
-- Object Storage possui versão do objeto, porém a identidade operacional não expõe a política de lifecycle do bucket; a frequência não foi aumentada sem prova de retenção/custo.
+A recuperação deixou de ser dívida de evidência. O workflow `Backend Serial Restore Proof 2026-09-19` concluiu com sucesso e log persistente:
+- `mei-email-latest.dump: OK` no SHA-256;
+- `RESTORE_ENTRIES=115`;
+- `RESTORE_TABLES=10`;
+- `RESTORE_EMPRESAS=27979461`;
+- `RESTORE_ENVIOS=172025`;
+- `RESTORE_INVALID_INDEXES=0`;
+- `RESTORE_AUDIT_OK`;
+- `RESTORE_CLEANUP_OK`;
+- disco ao final do restore: 88%.
+
+O restore foi executado serialmente em PostgreSQL 16 isolado, evitando o pico de disco da tentativa paralela anterior.
+
+Risco residual: o backup comprovado permanece semanal (`Sun 04:30 UTC`), portanto o RPO potencial ainda é de vários dias. A política de lifecycle/retention do bucket continua sem prova operacional suficiente para aumentar frequência com segurança.
+
+## Governança e arquitetura/deploy
+O PR #147 fechou um falso-verde real do gate de auto-merge. A consulta REST com token read-only não expunha de forma confiável `allow_auto_merge`; o gate foi corrigido via GraphQL `repository.autoMergeAllowed`, coberto por teste RED/GREEN e validado no GitHub Actions real.
+
+O instalador canônico agora:
+- renderiza API, monitor, replenisher e autorepair de forma relocável;
+- habilita o timer de autorepair;
+- preserva o worker parado quando o circuit breaker existe;
+- falha se detectar worker ativo indevidamente sob breaker.
+
+O deploy pós-merge foi executado pelo instalador canônico e terminou com `WORKER_MANTIDO_PARADO_POR_CIRCUIT_BREAKER` e `DEPLOY_SCRIPT_OK`.
 
 ## Matriz de cobertura
-| Área | Auditada | Problemas | Corrigidos | Pendentes / ressalvas | Evidência |
-| --- | --- | ---: | ---: | --- | --- |
-| Backend | Sim | 5 | 5 | worker parado por segurança | testes, runtime, serviços |
-| Banco/dados | Sim | 4 | 4 | nenhuma violação canônica aberta | queries reais, Flyway 20 |
-| APIs | Sim | 1 | 1 | nenhuma | health/preflight/descadastro |
-| Jobs/filas/cron | Sim | 4 | 4 | envio suspenso por circuit breaker | systemd, timers, monitor |
-| Integração Brevo | Sim | 4 | 4 | 18 transitórios aguardam eventual evento terminal, sem replay | API events + DB |
-| Segurança/política | Sim | 2 | 2 | nenhuma regressão ativa conhecida | policy guards + CI |
-| Testes/CI/CD | Sim | 3 | 3 | nenhuma | PRs #134–#140 + guard de corrida do resolver |
-| Infraestrutura | Sim | 2 | 2 | disco 89% = warning | disk guard + df |
-| Logs/monitoramento | Sim | 2 | 2 | health crítico intencional até recuperação | journald + monitor |
-| Backup/restore | Sim | 2 | 1 | RPO semanal; stdout terminal do restore não retido | dump/sha/restore harness |
-| Frontend/UX | N/A | 0 | 0 | repo não possui superfície end-user principal | escopo do projeto |
-| Webhooks | N/A | 0 | 0 | Brevo usa polling determinístico | arquitetura atual |
-| Dependências/supply chain | Sim | 0 | 0 | nenhuma falha aberta nos gates atuais | Email Safety CI |
-
-## Achados abertos
-### P1 — entregabilidade acima do limite
-**COMPROVADO E CONTIDO.** 24/300 = 8,00% hard bounce. Todos os 24 estão em estado terminal/suppression e o circuito impediu novos envios. A causa predominante é mailbox inexistente/indisponível. Não remover o sentinel enquanto a janela/coorte não estiver novamente dentro da política e a recuperação não for validada.
-
-### P2 — RPO semanal
-O backup comprovado é semanal. Em desastre, suppressions, anti-replay e histórico recente podem perder vários dias. Aumentar frequência exige definir retenção/lifecycle/custo antes de criar múltiplas versões do dump.
-
-### P2 — capacidade do host
-O root caiu de 95% para 89%, saindo de crítico para warning. Continuar acompanhando crescimento do volume PostgreSQL e dos demais projetos que compartilham o host.
-
-### P3 — evidência terminal do restore
-O restore integral foi executado pelo harness fail-fast e atingiu cleanup de sucesso, mas o stdout terminal com contagens não ficou retido. Repetir o próximo restore periódico com log persistente assinado elimina essa dívida de evidência.
+| Área | Auditada | Resultado atual | Evidência |
+| --- | --- | --- | --- |
+| Backend | Sim | corrigido; envio pausado por segurança | runtime + testes + systemd |
+| Banco/dados | Sim | fila canônica sem violações/duplicidades/stale | queries reais + monitor |
+| APIs | Sim | preflight e descadastro OK | HTTP 200 + runtime preflight |
+| Jobs/filas/cron | Sim | serviços/timers esperados ativos; worker fail-closed | systemd |
+| Integração Brevo | Sim | reconciliador convergente; breaker preservado | DB + journald |
+| Segurança/política | Sim | guards e filtros canônicos preservados | policy guard + CI |
+| Testes/CI/CD | Sim | gates PR e pós-merge verdes | GitHub Actions |
+| Infraestrutura | Sim | disco 82%, abaixo do crítico | `df` |
+| Logs/monitoramento | Sim | crítico intencional apenas pelo sentinel | journald + monitor |
+| Backup/restore | Sim | restore real comprovado e cleanup concluído | workflow persistente |
+| Frontend/UX | N/A | sem superfície end-user principal neste repo | escopo |
+| Webhooks | N/A | Brevo usa polling determinístico | arquitetura |
+| Dependências/supply chain | Sim | gates atuais verdes | Email Safety CI |
 
 ## Reauditoria contraditória
-- Tentativa de encontrar filtros retirados em paths ativos: nenhum gate antigo ativo; ocorrências remanescentes são histórico arquivado ou guards negativos.
-- Tentativa de encontrar fila inelegível/duplicada/replay/stale: zero ocorrências abertas.
-- Tentativa de provar que o reconciliador Brevo repete eventos: estado convergiu para `last_unique=0`.
-- Tentativa de provar envio após stop-the-line: **0 submissões** após abertura do sentinel.
-- Tentativa de atribuir hard bounce a falha de sender: motivos 550/552 apontam caixas inexistentes/indisponíveis, não bloqueio do remetente.
-- Tentativa de provar drift de release: checkout produtivo limpo e alinhado ao SHA auditado antes deste commit documental.\n- Meta-gate: a própria PR do relatório revelou uma corrida entre auto-merge e AI Conflict Resolver; a classe foi corrigida no workflow e coberta por regressão.
+- Tentativa de provar reintrodução de filtros antigos: não encontrada em caminhos operacionais.
+- Tentativa de encontrar e-mail compartilhado por >2 CNPJs na fila aberta: 0 grupos.
+- Tentativa de encontrar duplicidade aberta por e-mail/CNPJ: 0/0.
+- Tentativa de encontrar `enviando` stale: 0.
+- Tentativa de provar replay após o breaker: 0 submissões.
+- Tentativa de encontrar hard bounce sem suppression na coorte do breaker: 0.
+- Tentativa de provar reaplicação contínua de eventos Brevo: polls convergiram para `unique=0`.
+- Tentativa de provar drift de release: checkout produtivo e SHA funcional auditado coincidem antes desta atualização documental.
+- Tentativa de quebrar o gate de merge: o PR #147 só foi mesclado depois de branch atualizada e todos os checks exigidos verdes; merge prematuro foi corretamente bloqueado pela proteção.
+
+## Achados abertos / risco residual
+### P1 — entregabilidade
+**COMPROVADO E CONTIDO.** A coorte histórica foi 24/300 = 8,00%. O stop-the-line funcionou e permanece ativo. Não remover o sentinel nem iniciar o worker sem o procedimento específico de recuperação e nova validação controlada.
+
+### P2 — RPO semanal
+O restore está comprovado, mas a frequência de backup ainda implica potencial perda de vários dias em desastre. Alterar frequência requer retenção/lifecycle/custo comprovados.
 
 ## Meta-auditoria
-1. Classe de falha mais provável fora desta auditoria: deterioração futura de dados de contato/entregabilidade e crescimento de storage compartilhado.
-2. Maior suposição residual: retenção/versionamento efetivo do bucket OCI, pois a identidade atual lista versões de objeto mas não pode ler a política do bucket.
-3. Se o veredito estiver errado, a área mais provável é recuperação de desastre/RPO, não anti-replay ou fila.
-4. Risco capaz de causar efeito externo incorreto hoje: remover manualmente o sentinel antes da recuperação de entregabilidade. O sistema não faz isso automaticamente.
+1. Classe de falha residual mais provável: deterioração futura da qualidade de contatos/entregabilidade ou crescimento de storage compartilhado.
+2. Principal dívida de evidência restante: lifecycle/retention efetivo do Object Storage, não o restore.
+3. Se este relatório estiver errado, a área mais provável é RPO/retention futura; fila, anti-replay, breaker, restore e runtime parity têm evidência direta atual.
+4. Maior risco operacional imediato: remoção manual do sentinel antes de um recovery validado. O sistema permanece fail-closed contra isso no fluxo normal.
 
-## Condições para sair do NO-GO
-1. taxa de hard bounce da coorte corrente voltar para dentro do limite de 2%;
-2. investigar/limpar novas fontes de destinatários inválidos sem reintroduzir filtros retirados;
-3. executar o procedimento documentado de recuperação do circuit breaker, mantendo preflight e canário controlado;
-4. observar nova coorte real sem ultrapassar o limite;
-5. definir RPO/retention do backup e reduzir a janela de perda conforme o requisito operacional.
+## Condições para retomar envios
+1. executar o procedimento explícito de recuperação do circuit breaker;
+2. validar novamente a origem/qualidade dos destinatários sem criar filtros comerciais novos;
+3. manter preflight e iniciar somente canário controlado;
+4. observar nova coorte real sem ultrapassar o limite de 2%;
+5. manter suppressions, anti-replay e monitoramento ativos.
 
 ## Regra de validade
-Esta auditoria cobre o comportamento funcional do SHA `a2acd724a9f1700ba5e93dc792033a658463c905` e o runtime observado em 2026-09-19. O commit deste arquivo é documental; após merge deve ser fast-forwarded no checkout produtivo para manter a proveniência exata do repositório.
+Esta auditoria cobre o comportamento funcional do SHA `6c64291e97e198c35578372dd15575da7de2fde4` e o runtime observado em produção em 2026-09-20. Esta alteração é apenas documental; após seu merge, o checkout produtivo deve ser fast-forwarded ao `main` final sem reiniciar o worker nem remover o circuit breaker.
