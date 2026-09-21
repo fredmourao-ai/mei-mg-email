@@ -15,10 +15,22 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Reject native auto-merge bypass
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          actual="$(gh api graphql \
+            -f query='query($owner:String!,$name:String!){repository(owner:$owner,name:$name){autoMergeAllowed}}' \
+            -F owner="$GITHUB_REPOSITORY_OWNER" \
+            -F name="$repo_name" \
+            --jq '.data.repository.autoMergeAllowed')"
+          test "$actual" = "false"
       - name: Enforce repository policy
         run: python scripts/repo_policy_guard.py

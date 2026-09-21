@@ -70,7 +70,7 @@ O estado operacional persistente fica fora do Git em `/var/lib/mei-mg-email`.
 bash scripts/instalar_monitoramento_vm.sh
 ```
 
-O instalador ativa worker, monitor, timer da base e reconciliador Brevo; também desabilita o NDR Guard legado do Exchange.
+O instalador provisiona API, worker, monitor, replenisher, autorepair, timer da base, reconciliador Brevo e túnel público; também desabilita o NDR Guard legado do Exchange. Se `/var/lib/mei-mg-email/sender_blocked.pause` existir, o worker permanece deliberadamente parado e a instalação falha se ele ficar ativo.
 
 ## Teste controlado
 
