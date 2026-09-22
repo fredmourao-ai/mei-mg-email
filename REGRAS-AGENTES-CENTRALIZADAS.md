@@ -1,12 +1,12 @@
 # 📋 REGRAS PARA AGENTES IA - FONTE ÚNICA CENTRALIZADA
 
-**Efetivo:** 2026-07-24  
-**Escopo:** Todos os agentes (Claude, Codex, Gemini, GPT, etc.)  
-**Aplicável a:** Qualquer tarefa automatizada (deploy, testes, integrações, ERP, pagamentos, emails, secrets)  
+**Efetivo:** 2026-07-24
+**Escopo:** Todos os agentes (Claude, Codex, Gemini, GPT, etc.)
+**Aplicável a:** Qualquer tarefa automatizada (deploy, testes, integrações, ERP, pagamentos, emails, secrets)
 **Objetivo:** Eliminar falsos positivos, exigir evidência verificável antes de declarar sucesso
 
-> ⚠️ **ESTA É A FONTE ÚNICA DE VERDADE PARA TODAS AS REGRAS.**  
-> Outros arquivos (VALIDATION-POLICY.md, SECRETS-SYNC-RULE.md, etc.) são DEPRECADOS.  
+> ⚠️ **ESTA É A FONTE ÚNICA DE VERDADE PARA TODAS AS REGRAS.**
+> Outros arquivos (VALIDATION-POLICY.md, SECRETS-SYNC-RULE.md, etc.) são DEPRECADOS.
 > Veja [Referências Cruzadas](#referências-cruzadas) para documentação específica.
 
 ---
@@ -217,7 +217,7 @@ git merge --ff-only # ← Não roda se git fetch falhou
 | HTTP | GET / retorna HTTP 200 com conteúdo esperado |
 | Logs | Logs de deploy sem erros |
 
-### Git & Sincronização  
+### Git & Sincronização
 | Componente | Evidência Mínima |
 |-----------|-----------------|
 | Commit | SHA local completo + mensagem |
@@ -327,7 +327,7 @@ PROCESSO OBRIGATÓRIO:
 ## 🔐 SINCRONIZAÇÃO OBRIGATÓRIA DE SECRETS (3 AMBIENTES)
 
 ### Regra Crítica
-> **CRÍTICO**: Toda alteração de secret DEVE ser sincronizada em TODOS os 3 ambientes simultaneamente.  
+> **CRÍTICO**: Toda alteração de secret DEVE ser sincronizada em TODOS os 3 ambientes simultaneamente.
 > **Nunca** deixar um secret desincronizado por mais de 5 minutos.
 
 ### Quando Aplica
@@ -538,9 +538,9 @@ git commit -m "fix: sincronizar secrets desincronizados (SOURCE: GitHub)"
 
 ---
 
-**Versão:** 2.0 (Consolidada)  
-**Atualizado:** 2026-07-24  
-**Próxima Revisão:** 2026-08-07  
+**Versão:** 2.0 (Consolidada)
+**Atualizado:** 2026-07-24
+**Próxima Revisão:** 2026-08-07
 **Status:** ✅ FONTE ÚNICA DE VERDADE
 
 ## Gate obrigatorio de resposta final e deploy (FINAL_RESPONSE_DEPLOY_GATE_V1)

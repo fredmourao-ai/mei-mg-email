@@ -39,7 +39,7 @@
     "tests/test_certify_audit_manifest.py": "2776d378b649c9aa47316c57ef72d2be6529f3b2",
     ".github/workflows/absolute-audit-governance.yml": "e0d25d697d93983aff013f91bf404bf94d8c7c85",
     "AGENTS.override.md": "3b504c15dea1ed5713858e050942b85a5da7d3e2",
-    "REGRAS-AGENTES-CENTRALIZADAS.md": "87426f3a7f0e6278c6eec38b2a89e17898c51a19"
+    "REGRAS-AGENTES-CENTRALIZADAS.md": "318bbf1d697037cee2b9c3a824822ced00b6045a"
   },
   "required_entrypoint_markers": {
     "AGENTS.md": [
