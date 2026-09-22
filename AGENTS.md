@@ -1,3 +1,9 @@
+
+<!-- SHOPVIVALIZ_REMOTE_ACCESS_V1 -->
+## Acesso remoto obrigatório para agentes
+
+Antes de qualquer operação em VM, runtime, navegador, serviço, deploy, logs ou recuperação, leia **`docs/AGENT-REMOTE-ACCESS.md`**. O padrão vigente é SSH privado/Tailscale com `shopvivaliz-agent` para shell, RustDesk self-hosted para GUI, OCI Bastion/control plane auditável quando o ambiente não possui rota privada, e Desktop Commander somente como contingência. Navegador ShopVivaliz deve rodar na VM backend, nunca nos hosts Windows.
+
 # Regras obrigatorias para agentes
 
 <!-- GLOBAL_BROWSER_VM_POLICY_V2 -->
