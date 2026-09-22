@@ -1,0 +1,27 @@
+{
+  "schema": "AUDIT_PROJECT_REQUIREMENTS_V1",
+  "project": "fredmourao-ai/mei-mg-email",
+  "policy_version": "2026-09-21-absolute-v5",
+  "required_invariants": [
+    {
+      "id": "MEI_SENDER_BLOCK_STOP_LINE_V1",
+      "type": "evidence",
+      "description": "When sender_blocked.pause or equivalent circuit condition exists, no unsafe submission occurs and the worker remains stopped/blocked as designed."
+    },
+    {
+      "id": "MEI_HARD_BOUNCE_SAFETY_V1",
+      "type": "evidence",
+      "description": "Rolling hard-bounce safety threshold and breaker behavior must be computed from real provider/ledger evidence and enforced."
+    },
+    {
+      "id": "MEI_QUEUE_PROVIDER_RECONCILIATION_V1",
+      "type": "evidence",
+      "description": "Queue submissions, provider acceptance, external ledger and rolling quota must reconcile without duplicates or unsafe stale sending states."
+    },
+    {
+      "id": "MEI_WORKER_SINGLETON_RECOVERY_V1",
+      "type": "evidence",
+      "description": "Worker singleton ownership, restart behavior and circuit-breaker recovery must be proven without bypassing stop-the-line."
+    }
+  ]
+}
