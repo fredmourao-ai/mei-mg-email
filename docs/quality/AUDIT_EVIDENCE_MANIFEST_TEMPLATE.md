@@ -19,6 +19,24 @@ Use este template por auditoria formal. Não inclua secrets, tokens, credenciais
 - Evidência coletada em:
 - Evidência reutilizada de auditoria anterior: nenhuma / listar + justificar
 
+## Fingerprint do ambiente
+- Schema/migration version:
+- Config fingerprint (sem secrets):
+- Feature flags fingerprint:
+- Provider/API versions:
+- Hash do artifact/build:
+
+## Inventário de superfície e jornadas
+| Tipo | Descobertos | Materiais | Cobertos | Não mapeados | Não testados |
+|---|---:|---:|---:|---:|---:|
+| Rotas | | | | | |
+| Controles interativos | | | | | |
+| Jornadas | | | | | |
+
+## Browser E2E real
+| Jornada | Browser/host | Sessão gráfica | Passos UI reais | Reload/revisita | Persistência | Console/rede | Evidência visual | Resultado |
+|---|---|---|---|---|---|---|---|---|
+
 ## Mapa de impacto
 | Mudança | Dependentes | Fluxos | Dados | Integrações | Risco | Evidência necessária | Resultado |
 |---|---|---|---|---|---|---|---|
@@ -68,8 +86,27 @@ Use este template por auditoria formal. Não inclua secrets, tokens, credenciais
 - Novas classes encontradas:
 - Classes promovidas à governança:
 
-## Veredito
-- Status: NÃO APTO / APTO COM RESSALVAS / APTO
+## Contraditório independente
+- Revisor distinto:
+- Findings novos:
+- Reauditoria concluída:
+
+## Loop de remediação
+- Bloqueadores encontrados:
+- Bloqueadores corrigidos:
+- Bloqueadores executáveis restantes:
+- Bloqueios externos reais:
+- Gate enfraquecido para obter verde: NÃO
+
+## Integridade de evidência
+| Artifact | Tipo | SHA-256 | SHA/release/ambiente | Proveniência |
+|---|---|---|---|---|
+
+## Veredito determinístico
+- Manifesto JSON: `AUDIT_CERTIFICATION_MANIFEST_V1`
+- Certifier: `scripts/certify-audit-manifest.py`
+- Saída obrigatória: `AUDIT_VERDICT=APTO` ou `BLOCKED_EXTERNAL`
+- Status escrito pelo agente sem certifier: INVÁLIDO
 - Confiança:
 - Risco residual:
 - Dívida de evidência:

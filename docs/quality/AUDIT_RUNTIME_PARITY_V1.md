@@ -16,7 +16,7 @@ Fluxo crítico presente na suíte local, mas ausente da homologação executada 
 
 ## 2. UI real é obrigatória quando existe UI
 
-Quando o produto possui interface de usuário, toda operação crítica ou de alteração de estado deve ser exercitada pela **UI real** no navegador contra o mesmo release/ambiente que está sendo certificado. API, SQL, fixtures e scripts podem preparar dados ou verificar o efeito, mas não substituem a ação do operador na UI.
+Quando o produto possui interface de usuário, toda operação material ou de alteração de estado deve ser exercitada pela **UI real** no navegador contra o mesmo release/ambiente que está sendo certificado. O próprio agente controlador deve executar o fluxo. API, SQL, fixtures, scripts, `curl`, healthchecks e browser apenas headless podem preparar dados ou verificar o efeito, mas não substituem a ação do operador na UI. Siga integralmente `AUDIT_BROWSER_E2E_REAL_V1`.
 
 A auditoria deve cobrir tanto dados recém-criados quanto registros já existentes/legados quando essa diferença puder alterar o comportamento.
 
@@ -90,6 +90,11 @@ Quando um usuário/operador encontra manualmente, após uma auditoria, um defeit
 6. reaudite a classe afetada nos demais projetos onde ela seja aplicável;
 7. invalide qualquer certificação incompatível com a nova evidência até a revalidação.
 
+## 7.1 Gate de browser E2E absoluto
+
+Se existir UI material, `APTO` exige E2E real pelo browser no mesmo release, executado pelo agente, com sessão gráfica, caminho completo do usuário, reload/revisita, persistência, console/rede e evidência visual. Execução somente headless, API direta, screenshot estático ou delegação ao usuário deixam o fluxo `NÃO VALIDADO`.
+
+Além disso, `AUDIT_JOURNEY_INVENTORY_V1` deve demonstrar zero superfície/jornada/controle material não mapeado ou não testado; `AUDIT_CLEAN_ROOM_REALITY_V1` deve cobrir condições de sessão/cache/navegação/concorrência/recuperação materiais.
 ## 8. Gate de conclusão
 
 Um projeto não pode receber `APTO` quando existir qualquer uma destas condições:
@@ -117,7 +122,7 @@ Um projeto não pode receber `APTO` quando existir qualquer uma destas condiçõ
 - rodada de unknown unknowns omitida em auditoria extrema;
 - self-test obrigatório do mecanismo de auditoria ausente ou falhando.
 
-O veredito deve continuar sendo `NÃO APTO` ou `APTO COM RESSALVAS` conforme risco e evidência, nunca mascarando dívida de validação.
+No modo absoluto, `NÃO APTO` é estado intermediário de remediação. O encerramento só pode ser `APTO` quando `scripts/certify-audit-manifest.py` retornar `AUDIT_VERDICT=APTO`, ou `BLOCKED_EXTERNAL` com bloqueio externo real e provado. `APTO COM RESSALVAS` é proibido.
 
 ## 9. Reauditoria contraditória
 

@@ -137,7 +137,21 @@ O pacote deve ser imutável ou versionado e não pode conter secrets.
 A auditoria deve provar periodicamente que seus gates rejeitam cenários propositalmente defeituosos. Siga `docs/quality/AUDIT_SELF_TEST_V1.md`.
 Um mecanismo de auditoria que nunca foi testado contra falhas conhecidas não pode ser tratado como detector confiável.
 
+## 19. AUDIT_JOURNEY_INVENTORY_V1 — superfície e controles completos
+Descubra automaticamente quando viável rotas, controles, formulários, ações, estados, roles, tenants, feature flags e caminhos legados. Compare superfície descoberta × inventário declarado × testes existentes. `UNMAPPED_SURFACE` ou controle/jornada material `UNTESTED` bloqueia `APTO`.
+
+## 20. AUDIT_BROWSER_E2E_REAL_V1 — certificação pela experiência real
+Fluxo com UI deve ser executado pelo agente em navegador real, sessão gráfica, mesmo release e ambiente. API/CLI/headless-only/screenshot estático são apoio. Reload/revisita, persistência, console/rede e evidência visual são obrigatórios conforme materialidade.
+
+## 21. AUDIT_CLEAN_ROOM_REALITY_V1 — realidade hostil
+Quando material, cubra sessão/cache limpos, auth expirada, deep-link/back/refresh, mobile/desktop, browser alternativo, acessibilidade, concorrência, falha parcial, cold start, tempo e soak/leak.
+
+## 22. AUDIT_ESCAPE_INVALIDATION_V1 — aprendizado permanente
+Defeito pós-`APTO` dentro do escopo invalida a certificação anterior, exige causa do falso-negativo, prevenção permanente e nova certificação. Reclassificar como pré-existente/UX/raro não evita a invalidação.
+
+## 23. AUDIT_ABSOLUTE_GATE_V1 — zero lacunas
+No modo absoluto, `APTO` exige zero defeito P0–P3, zero `DEFECT`, zero `IMPROVEMENT_REQUIRED`, zero `AUDIT_ESCAPE`, zero superfície/jornada/controle material não validado e zero dívida material de evidência. O veredito vem do certifier determinístico.
 ## Gate de cobertura universal
-`APTO` exige que todas as classes materiais desta regra estejam `COMPROVADO`, `N/A justificado` ou cobertas por evidência equivalente. Classe material `NÃO VALIDADO`, reconciliação quebrada, falha silenciosa não explicada, evidência stale ou teste falso-verde bloqueia `APTO`.
+`APTO` exige que todas as classes materiais desta regra estejam `COMPROVADO` ou `N/A justificado` com evidência. Classe material `NÃO VALIDADO`, superfície/controle não mapeado, reconciliação quebrada, falha silenciosa, evidência stale, teste falso-verde ou defeito aberto bloqueia `APTO` e reabre o loop de remediação.
 
 **Marker de governança:** `AUDIT_UNIVERSAL_COVERAGE_V1`
