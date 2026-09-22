@@ -1,6 +1,6 @@
 <!-- GEPETO_EVERY_TASK_V1 -->
 ## Gepeto obrigatorio em toda tarefa
-Acione o plugin Gepeto junto com Superpowers em toda tarefa e retomada, sem nova mencao do usuario. Leia e cumpra a secao `GEPETO_EVERY_TASK_V1` de `REGRAS-AGENTES-CENTRALIZADAS.md`. Se o runtime nao expuser o plugin, registre `GEPETO_UNAVAILABLE`, informe a limitacao e continue o trabalho autorizado sem simular participacao. Aplicar um plugin nao comprova delegacao nem revisao independente.
+Acione o plugin Gepeto junto com Superpowers em toda tarefa e retomada, sem nova mencao do usuario. Leia e cumpra `GEPETO-POLICY.md`. Se o runtime nao expuser o plugin, registre `GEPETO_UNAVAILABLE`, informe a limitacao e continue o trabalho autorizado sem simular participacao. Aplicar um plugin nao comprova delegacao nem revisao independente.
 <!-- /GEPETO_EVERY_TASK_V1 -->
 
 
