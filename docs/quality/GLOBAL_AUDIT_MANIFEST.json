@@ -16,8 +16,8 @@
     "fredmourao-ai/solange-rolla"
   ],
   "required_blobs": {
-    "AUDIT_POLICY.md": "55b44467e430fe67c40681f789f11bab3162ce5a",
-    "docs/quality/EXTREME_AUDIT_PROTOCOL.md": "48f585b15be6fb50f1a4ce1523fa2ee84bacc385",
+    "AUDIT_POLICY.md": "55ec4450f2b1807559751f145d80604c28598d89",
+    "docs/quality/EXTREME_AUDIT_PROTOCOL.md": "6d62c7759612e1e6dbb42a4baa6d870db332e58e",
     "docs/quality/AUDIT_RUNTIME_PARITY_V1.md": "518ee124b471dd9c8405e38acece9fd3bc531186",
     "docs/quality/AUDIT_UNIVERSAL_COVERAGE_V1.md": "f679f79818756a331fcdbae72e3552d32b94f370",
     "docs/quality/AUDIT_SELF_TEST_V1.md": "d1f04e1f5ded1c7f2b973c3bbd9a8385fab81139",
@@ -35,9 +35,8 @@
     "docs/quality/AUDIT_CERTIFICATION_MANIFEST_TEMPLATE.json": "70b577e925491df78cdee6d12bd560693547b482",
     "scripts/certify-audit-manifest.py": "200e78d0734e97e532b08fc87825df7a28595390",
     "scripts/validate-audit-governance.py": "bae2a31a9721c81eb43b37037810cd7c325271ac",
-    "scripts/validate-global-audit-policy.py": "38be51c3bfbcbd8614bec3103dbe6b6fcac82b4e",
+    "scripts/validate-global-audit-policy.py": "7e1c20058990af271fff053a80e56d1f4fd22a45",
     "tests/test_certify_audit_manifest.py": "2776d378b649c9aa47316c57ef72d2be6529f3b2",
-    ".github/workflows/absolute-audit-governance.yml": "e0d25d697d93983aff013f91bf404bf94d8c7c85",
     "AGENTS.override.md": "3b504c15dea1ed5713858e050942b85a5da7d3e2",
     "REGRAS-AGENTES-CENTRALIZADAS.md": "318bbf1d697037cee2b9c3a824822ced00b6045a"
   },
@@ -60,6 +59,15 @@
     "GEMINI.md": [
       "GEMINI_READ_AGENTS_FIRST_V1",
       "AGENTS.md"
+    ],
+    ".github/workflows/absolute-audit-governance.yml": [
+      "Absolute Audit Governance",
+      "Self-test absolute certifier",
+      "Self-test audit governance",
+      "Verify global policy parity",
+      "scripts/certify-audit-manifest.py",
+      "scripts/validate-audit-governance.py",
+      "scripts/validate-global-audit-policy.py"
     ]
   }
 }

@@ -27,6 +27,10 @@ Toda auditoria formal deve executar como conjunto obrigatório:
 
 Nenhum desses documentos isoladamente substitui os demais.
 
+### Adaptador local de runner — paridade semântica obrigatória
+
+O workflow `.github/workflows/absolute-audit-governance.yml` é um **adaptador local**, porque os repositórios podem exigir runners/labels diferentes por isolamento operacional. Ele não precisa ser byte-a-byte idêntico ao canônico, mas deve preservar integralmente os gates semânticos exigidos por `GLOBAL_AUDIT_MANIFEST.json|required_entrypoint_markers`: compilação das ferramentas, self-test do certifier, self-test da governança e validação de paridade global. O runner/action version deve respeitar a política local mais restritiva do repositório. Alterar/remover um desses gates bloqueia governança.
+
 ### Modo absoluto obrigatório — fail-closed
 
 Toda Auditoria Extrema formal opera em modo absoluto. O objetivo não é produzir relatório: é **corrigir até que o escopo certificado se torne APTO**. Enquanto existir defeito, jornada/estado/controle material não validado, evidência material ausente, erro de runtime, divergência, `AUDIT_ESCAPE`, `IMPROVEMENT_REQUIRED` material ou outro bloqueador executável, `NÃO APTO` é apenas estado intermediário e o agente controlador deve continuar o ciclo de remediação.

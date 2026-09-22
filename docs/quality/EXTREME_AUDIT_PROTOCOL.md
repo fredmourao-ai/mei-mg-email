@@ -30,6 +30,8 @@ Audite: lógica/matemática/moeda/datas/timezone; concorrência/idempotência; a
 Além desses pilares, execute a taxonomia completa de `AUDIT_ERROR_TAXONOMY_V1` em `AUDIT_UNIVERSAL_COVERAGE_V1.md`. Cada classe deve terminar como `COMPROVADO`, `N/A justificado` ou `NÃO VALIDADO`; classe material `NÃO VALIDADO` bloqueia `APTO`.
 
 ## Tempo, ordem, dados e compatibilidade
+Inclua explicitamente **classe de dado histórico** e a matriz de **dados novos, legados, migrados**: dados antigos, parcialmente migrados, anteriores a invariantes atuais, registros criados por versões legadas e entidades que atravessaram mudanças de schema/regra devem ser exercitados quando materiais. Para operações persistidas, cubra também **no-op update**, mutação real, transições permitidas e confirmação após **reload/reopen**. Um fluxo validado apenas com registros novos não certifica histórico existente.
+
 Teste T-1/T/T+1 para prazos, timezone, viradas de calendário, eventos duplicados/atrasados/fora de ordem e versões diferentes de schema/API/eventos/backend/frontend/worker. Execute também `AUDIT_BOUNDARY_MATRIX_V1`: -1/0/1, vazio/um/muitos, mínimo/máximo, exatamente no limite, imediatamente antes/depois, precisão/rounding e Unicode/encoding quando materiais.
 
 Quando autorizado, investigue dados reais: duplicidades, órfãos, estados impossíveis, nulls inesperados, divergências, timestamps incoerentes, filas acumuladas e entidades que entram no funil mas desaparecem antes do final. Código correto não prova banco íntegro.
