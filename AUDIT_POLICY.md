@@ -22,10 +22,17 @@ Toda auditoria formal deve executar como conjunto obrigatório:
 - `docs/quality/AUDIT_ESCAPE_INVALIDATION_V1.md`;
 - `docs/quality/AUDIT_ABSOLUTE_GATE_V1.md`;
 - `docs/quality/AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1.md`;
+- `docs/quality/AUDIT_MERGE_ENFORCEMENT_V1.md`;
 - `docs/quality/AUDIT_PROJECT_REQUIREMENTS_V1.md` e `docs/quality/AUDIT_PROJECT_REQUIREMENTS.json` local;
 - `docs/quality/AUDIT_OVERLAY.md`.
 
 Nenhum desses documentos isoladamente substitui os demais.
+
+### Enforcement do caminho de merge
+
+Todo repositório governado deve manter `scripts/absolute-audit-governance-validate.sh` e `.github/workflows/absolute-audit-main-guard.yml`. O `governance-gate` local deve chamar o bridge absoluto, preservando checks específicos do projeto. Todo push efetivo para `main`/`master` deve reexecutar o bridge e comprovar associação do commit a PR realmente mesclado pela regra `AUDIT_MERGE_ENFORCEMENT_V1`.
+
+Se ruleset/branch protection não estiver disponível no plano ou não puder ser alterado pela credencial do agente, isso é uma limitação de enforcement da plataforma, não autorização para declarar que push direto está tecnicamente bloqueado. O Main Guard continua obrigatório e falha fechado quando detecta bypass.
 
 ### Adaptador local de runner — paridade semântica obrigatória
 

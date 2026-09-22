@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
+bash scripts/absolute-audit-governance-validate.sh "${1:-manual}"
 
 resolve_python() {
   local common_dir common_root candidate

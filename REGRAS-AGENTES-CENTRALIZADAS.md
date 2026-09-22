@@ -577,6 +577,9 @@ A Auditoria Extrema global é fail-closed e inseparável de `AUDIT_BROWSER_E2E_R
 - Novo defeito descoberto após APTO invalida a certificação e vira prevenção permanente.
 - APTO COM RESSALVAS é proibido no modo absoluto.
 - O agente não escreve APTO por opinião: somente `scripts/certify-audit-manifest.py` com `AUDIT_VERDICT=APTO` para o mesmo SHA/release/ambiente/escopo.
+- O `governance-gate` local deve executar `scripts/absolute-audit-governance-validate.sh`; manter um gate legado mais fraco com o mesmo papel é proibido.
+- Todo push em `main`/`master` deve ser revalidado por `Absolute Audit Main Guard`, incluindo prova por API de que o commit está associado a PR realmente mesclado.
+- Se ruleset/branch protection não puder ser tecnicamente configurado por limitação do plano/permissão, registrar a limitação e nunca afirmar que push direto está bloqueado pela plataforma.
 - O conjunto canônico deve ser propagado com paridade para todos os repositórios ativos de `Vivaliz-site` e `fredmourao-ai`; divergência bloqueia governança.
 
 ## AUDITORIA_ARQUITETURA_DEPLOY_V1
