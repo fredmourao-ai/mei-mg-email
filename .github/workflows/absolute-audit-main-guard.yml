@@ -1,0 +1,61 @@
+name: Absolute Audit Main Guard
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: absolute-audit-main-guard-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  main-guard:
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate Absolute Audit V5 on published main
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          bash scripts/absolute-audit-governance-validate.sh ci
+
+      - name: Verify merged-PR provenance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/validate-main-merge-provenance.py --output-dir artifacts/main-merge-provenance
+
+      - name: Verify evidence
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          test -s artifacts/audit-governance-self-test/report.json
+          test -s artifacts/audit-governance-self-test/report.md
+          test -s artifacts/global-audit-policy/report.json
+          test -s artifacts/global-audit-policy/report.md
+          test -s artifacts/main-merge-provenance/report.json
+          test -s artifacts/main-merge-provenance/report.md
+
+      - name: Upload main-guard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: absolute-audit-main-guard-${{ github.run_id }}
+          path: |
+            artifacts/audit-governance-self-test/
+            artifacts/global-audit-policy/
+            artifacts/main-merge-provenance/
+          if-no-files-found: error
+          retention-days: 90
