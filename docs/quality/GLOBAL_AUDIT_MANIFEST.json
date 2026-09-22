@@ -16,11 +16,11 @@
     "fredmourao-ai/solange-rolla"
   ],
   "required_blobs": {
-    "AUDIT_POLICY.md": "55ec4450f2b1807559751f145d80604c28598d89",
-    "docs/quality/EXTREME_AUDIT_PROTOCOL.md": "6d62c7759612e1e6dbb42a4baa6d870db332e58e",
+    "AUDIT_POLICY.md": "2a93133cbd8e24178638236721f5638497a3036a",
+    "docs/quality/EXTREME_AUDIT_PROTOCOL.md": "b8a86b532f08a8494f06f1f058576ca6009c194c",
     "docs/quality/AUDIT_RUNTIME_PARITY_V1.md": "518ee124b471dd9c8405e38acece9fd3bc531186",
     "docs/quality/AUDIT_UNIVERSAL_COVERAGE_V1.md": "f679f79818756a331fcdbae72e3552d32b94f370",
-    "docs/quality/AUDIT_SELF_TEST_V1.md": "d1f04e1f5ded1c7f2b973c3bbd9a8385fab81139",
+    "docs/quality/AUDIT_SELF_TEST_V1.md": "6bda5a82d3c2e342d806d905e97034bbec0fb92b",
     "docs/quality/ARCHITECTURE_DEPLOY_AUDIT_V1.md": "a103ec0f822746457aab8ea405170af0517989fe",
     "docs/quality/AUDIT_EVIDENCE_MANIFEST_TEMPLATE.md": "23351b364ef211a2ffe3a3c2fc4beb81e6a9be17",
     "docs/quality/AUDIT_BROWSER_E2E_REAL_V1.md": "bbb0cbcf46c96c8afc43bbd8b5f9dc6467ff081a",
@@ -34,11 +34,15 @@
     "docs/quality/AUDIT_PROJECT_REQUIREMENTS_V1.md": "bde5c7e104994243fdd4132ba0e4be9c6c756561",
     "docs/quality/AUDIT_CERTIFICATION_MANIFEST_TEMPLATE.json": "70b577e925491df78cdee6d12bd560693547b482",
     "scripts/certify-audit-manifest.py": "200e78d0734e97e532b08fc87825df7a28595390",
-    "scripts/validate-audit-governance.py": "bae2a31a9721c81eb43b37037810cd7c325271ac",
+    "scripts/validate-audit-governance.py": "321ee1a372da7d74fe5c1285aea2e19d8462a166",
     "scripts/validate-global-audit-policy.py": "7e1c20058990af271fff053a80e56d1f4fd22a45",
     "tests/test_certify_audit_manifest.py": "2776d378b649c9aa47316c57ef72d2be6529f3b2",
-    "AGENTS.override.md": "3b504c15dea1ed5713858e050942b85a5da7d3e2",
-    "REGRAS-AGENTES-CENTRALIZADAS.md": "318bbf1d697037cee2b9c3a824822ced00b6045a"
+    "AGENTS.override.md": "648f964cfe23a35f81086ff2acc0092c654ea23c",
+    "REGRAS-AGENTES-CENTRALIZADAS.md": "4c93e411cc173e3ee206c35f81ebdca429bfae6e",
+    "scripts/absolute-audit-governance-validate.sh": "cca3710481d31fa3a9d771366f648711a7caf103",
+    "scripts/validate-main-merge-provenance.py": "13c15155dc4887a5acf87570b9238e8f5800b84f",
+    "tests/test_validate_main_merge_provenance.py": "8234bdc90494842679f878944228199438187966",
+    "docs/quality/AUDIT_MERGE_ENFORCEMENT_V1.md": "cfdf97565b2d753ee1798f3cfd1954aef0118343"
   },
   "required_entrypoint_markers": {
     "AGENTS.md": [
@@ -47,13 +51,17 @@
       "AUDIT_BROWSER_E2E_REAL_V1.md",
       "AUDIT_APTO_REMEDIATION_LOOP_V1.md",
       "AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1.md",
-      "AUDIT_PROJECT_REQUIREMENTS_V1.md"
+      "AUDIT_MERGE_ENFORCEMENT_V1.md",
+      "AUDIT_PROJECT_REQUIREMENTS_V1.md",
+      "absolute-audit-governance-validate.sh",
+      "Absolute Audit Main Guard"
     ],
     "CLAUDE.md": [
       "AGENTS.md",
       "AUDIT_ABSOLUTE_GATE_V1.md",
       "AUDIT_BROWSER_E2E_REAL_V1.md",
       "AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1.md",
+      "AUDIT_MERGE_ENFORCEMENT_V1.md",
       "AUDIT_PROJECT_REQUIREMENTS_V1.md"
     ],
     "GEMINI.md": [
@@ -68,6 +76,18 @@
       "scripts/certify-audit-manifest.py",
       "scripts/validate-audit-governance.py",
       "scripts/validate-global-audit-policy.py"
+    ],
+    "scripts/repository-governance-validate.sh": [
+      "absolute-audit-governance-validate.sh"
+    ],
+    ".github/workflows/repository-governance.yml": [
+      "repository-governance-validate.sh"
+    ],
+    ".github/workflows/absolute-audit-main-guard.yml": [
+      "Absolute Audit Main Guard",
+      "absolute-audit-governance-validate.sh",
+      "validate-main-merge-provenance.py",
+      "Verify merged-PR provenance"
     ]
   }
 }
