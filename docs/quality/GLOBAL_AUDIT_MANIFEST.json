@@ -35,7 +35,7 @@
     "docs/quality/AUDIT_CERTIFICATION_MANIFEST_TEMPLATE.json": "70b577e925491df78cdee6d12bd560693547b482",
     "scripts/certify-audit-manifest.py": "200e78d0734e97e532b08fc87825df7a28595390",
     "scripts/validate-audit-governance.py": "bae2a31a9721c81eb43b37037810cd7c325271ac",
-    "scripts/validate-global-audit-policy.py": "cb2350f8ef4ad0eabeb3f97d24ad00106eb1661d",
+    "scripts/validate-global-audit-policy.py": "38be51c3bfbcbd8614bec3103dbe6b6fcac82b4e",
     "tests/test_certify_audit_manifest.py": "2776d378b649c9aa47316c57ef72d2be6529f3b2",
     ".github/workflows/absolute-audit-governance.yml": "e0d25d697d93983aff013f91bf404bf94d8c7c85",
     "AGENTS.override.md": "3b504c15dea1ed5713858e050942b85a5da7d3e2",

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_REPO = "Vivaliz-site/-shopvivaliz-pipeline"
 EXPECTED_SCHEMA = "GLOBAL_AUDIT_MANIFEST_V1"
 EXPECTED_VERSION = "2026-09-21-absolute-v5"
-REMOTE_MANIFEST = "https://raw.githubusercontent.com/Vivaliz-site/-shopvivaliz-pipeline/main/docs/quality/GLOBAL_AUDIT_MANIFEST.json"
+REMOTE_MANIFEST = "https://api.github.com/repos/Vivaliz-site/-shopvivaliz-pipeline/contents/docs/quality/GLOBAL_AUDIT_MANIFEST.json?ref=main"
 LOCAL_MANIFEST = ROOT / "docs/quality/GLOBAL_AUDIT_MANIFEST.json"
 EXPECTED_REPOSITORIES = [
     "Vivaliz-site/site-shopvivaliz",
@@ -47,7 +47,15 @@ def load_manifest() -> tuple[dict, bool]:
     if repo == CANONICAL_REPO:
         return local, True
 
-    with urllib.request.urlopen(REMOTE_MANIFEST, timeout=20) as response:
+    request = urllib.request.Request(
+        REMOTE_MANIFEST,
+        headers={
+            "Accept": "application/vnd.github.raw+json",
+            "User-Agent": "shopvivaliz-absolute-audit-v5",
+            "Cache-Control": "no-cache",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
         remote = json.loads(response.read().decode("utf-8"))
 
     return remote, local == remote
