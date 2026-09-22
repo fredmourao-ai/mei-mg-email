@@ -11,8 +11,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_REPO = "Vivaliz-site/-shopvivaliz-pipeline"
+EXPECTED_SCHEMA = "GLOBAL_AUDIT_MANIFEST_V1"
+EXPECTED_VERSION = "2026-09-21-absolute-v5"
 REMOTE_MANIFEST = "https://raw.githubusercontent.com/Vivaliz-site/-shopvivaliz-pipeline/main/docs/quality/GLOBAL_AUDIT_MANIFEST.json"
 LOCAL_MANIFEST = ROOT / "docs/quality/GLOBAL_AUDIT_MANIFEST.json"
+EXPECTED_REPOSITORIES = [
+    "Vivaliz-site/site-shopvivaliz",
+    "Vivaliz-site/-shopvivaliz-pipeline",
+    "Vivaliz-site/amazon-returns-safet",
+    "Vivaliz-site/ml-pricing-api",
+    "Vivaliz-site/mercadolivre-returns-recovery",
+    "Vivaliz-site/shopvivaliz-m365",
+    "Vivaliz-site/buscador",
+    "fredmourao-ai/mei-mg-email",
+    "fredmourao-ai/solange-rolla-consultorio",
+    "fredmourao-ai/solange-rolla",
+]
 
 
 def git_blob_sha(data: bytes) -> str:
@@ -20,17 +34,28 @@ def git_blob_sha(data: bytes) -> str:
     return hashlib.sha1(header + data).hexdigest()
 
 
-def load_manifest() -> dict:
+def read_local_manifest() -> dict:
+    if not LOCAL_MANIFEST.is_file():
+        raise FileNotFoundError(str(LOCAL_MANIFEST))
+    return json.loads(LOCAL_MANIFEST.read_text(encoding="utf-8"))
+
+
+def load_manifest() -> tuple[dict, bool]:
     repo = os.environ.get("GITHUB_REPOSITORY", "")
-    if repo == CANONICAL_REPO and LOCAL_MANIFEST.is_file():
-        return json.loads(LOCAL_MANIFEST.read_text(encoding="utf-8"))
+    local = read_local_manifest()
+
+    if repo == CANONICAL_REPO:
+        return local, True
+
     with urllib.request.urlopen(REMOTE_MANIFEST, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
+        remote = json.loads(response.read().decode("utf-8"))
+
+    return remote, local == remote
 
 
-def check(manifest: dict) -> dict:
+def check(manifest: dict, local_manifest_parity: bool) -> dict:
     results = []
-    for relative, expected in manifest["required_blobs"].items():
+    for relative, expected in manifest.get("required_blobs", {}).items():
         path = ROOT / relative
         if not path.is_file():
             results.append({"path": relative, "ok": False, "reason": "missing"})
@@ -55,7 +80,27 @@ def check(manifest: dict) -> dict:
 
     current_repo = os.environ.get("GITHUB_REPOSITORY", "")
     required_repositories = manifest.get("required_repositories", [])
+
+    manifest_metadata_ok = (
+        manifest.get("schema") == EXPECTED_SCHEMA
+        and manifest.get("version") == EXPECTED_VERSION
+        and manifest.get("canonical_repository") == CANONICAL_REPO
+        and manifest.get("canonical_ref") == "main"
+        and required_repositories == EXPECTED_REPOSITORIES
+    )
     repo_covered = (not current_repo) or current_repo in required_repositories
+    blobs_present = bool(manifest.get("required_blobs"))
+    entrypoints_present = bool(manifest.get("required_entrypoint_markers"))
+
+    ok = (
+        manifest_metadata_ok
+        and local_manifest_parity
+        and repo_covered
+        and blobs_present
+        and entrypoints_present
+        and all(x["ok"] for x in results)
+        and all(x["ok"] for x in entrypoints)
+    )
 
     return {
         "schema": manifest.get("schema"),
@@ -64,9 +109,13 @@ def check(manifest: dict) -> dict:
         "required_repositories": required_repositories,
         "current_repository": current_repo,
         "repository_covered": repo_covered,
+        "manifest_metadata_ok": manifest_metadata_ok,
+        "local_manifest_parity": local_manifest_parity,
+        "required_blobs_present": blobs_present,
+        "required_entrypoints_present": entrypoints_present,
         "blob_results": results,
         "entrypoint_results": entrypoints,
-        "ok": repo_covered and all(x["ok"] for x in results) and all(x["ok"] for x in entrypoints),
+        "ok": ok,
     }
 
 
@@ -74,35 +123,60 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
+
     try:
-        manifest = load_manifest()
+        manifest, local_manifest_parity = load_manifest()
     except Exception as exc:
-        print(f"GLOBAL_AUDIT_MANIFEST_LOAD=FAIL {type(exc).__name__}", file=sys.stderr)
+        print(
+            f"GLOBAL_AUDIT_MANIFEST_LOAD=FAIL {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         return 2
 
-    report = check(manifest)
+    report = check(manifest, local_manifest_parity)
+
     if args.output_dir:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         (args.output_dir / "report.json").write_text(
-            json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
         lines = [
             "# Global Audit Policy Parity",
             "",
             f"- version: {report['version']}",
             f"- canonical_repository: {report['canonical_repository']}",
+            f"- repository_covered: {report['repository_covered']} ({report['current_repository']})",
+            f"- manifest_metadata_ok: {report['manifest_metadata_ok']}",
+            f"- local_manifest_parity: {report['local_manifest_parity']}",
             "",
         ]
-        lines.append(f"- repository_covered: {report['repository_covered']} ({report['current_repository']})")
         for item in report["blob_results"]:
             lines.append(f"- {'PASS' if item['ok'] else 'FAIL'} blob {item['path']}")
         for item in report["entrypoint_results"]:
             lines.append(f"- {'PASS' if item['ok'] else 'FAIL'} entrypoint {item['path']}")
-        (args.output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        (args.output_dir / "report.md").write_text(
+            "\n".join(lines) + "\n",
+            encoding="utf-8",
+        )
 
-    print(f"GLOBAL_REPOSITORY {'PASS' if report['repository_covered'] else 'FAIL'} {report['current_repository']}")
+    print(
+        f"GLOBAL_MANIFEST_METADATA "
+        f"{'PASS' if report['manifest_metadata_ok'] else 'FAIL'}"
+    )
+    print(
+        f"GLOBAL_MANIFEST_LOCAL_PARITY "
+        f"{'PASS' if report['local_manifest_parity'] else 'FAIL'}"
+    )
+    print(
+        f"GLOBAL_REPOSITORY "
+        f"{'PASS' if report['repository_covered'] else 'FAIL'} "
+        f"{report['current_repository']}"
+    )
+
     for item in report["blob_results"]:
         print(f"GLOBAL_BLOB {'PASS' if item['ok'] else 'FAIL'} {item['path']}")
+
     for item in report["entrypoint_results"]:
         print(f"GLOBAL_ENTRYPOINT {'PASS' if item['ok'] else 'FAIL'} {item['path']}")
         if item.get("missing"):
@@ -110,6 +184,7 @@ def main() -> int:
 
     if not report["ok"]:
         return 1
+
     print(f"GLOBAL_AUDIT_POLICY=PASS version={report['version']}")
     return 0
 
