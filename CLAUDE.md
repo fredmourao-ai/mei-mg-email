@@ -1,3 +1,8 @@
+<!-- GEPETO_EVERY_TASK_V1 -->
+## Gepeto obrigatorio em toda tarefa
+Acione o plugin Gepeto junto com Superpowers em toda tarefa e retomada, sem nova mencao do usuario. Leia e cumpra a secao `GEPETO_EVERY_TASK_V1` de `REGRAS-AGENTES-CENTRALIZADAS.md`. Se o runtime nao expuser o plugin, registre `GEPETO_UNAVAILABLE`, informe a limitacao e continue o trabalho autorizado sem simular participacao. Aplicar um plugin nao comprova delegacao nem revisao independente.
+<!-- /GEPETO_EVERY_TASK_V1 -->
+
 <!-- CLAUDE_READ_AGENTS_FIRST_V1 -->
 > **BOOTSTRAP OBRIGATORIO DO CLAUDE:** antes de analisar, planejar, editar, executar comandos, usar navegador, abrir PR, fazer merge, deploy ou validar qualquer tarefa, leia **integralmente** o `AGENTS.md` da raiz deste repositorio e cumpra todas as instrucoes vigentes nele. Releia o `AGENTS.md` em retomadas de conversa ou quando o arquivo mudar. Se houver divergencia entre este `CLAUDE.md` e o `AGENTS.md`, o `AGENTS.md` prevalece. Nao prossiga assumindo memoria de uma leitura antiga.
 
