@@ -35,18 +35,20 @@ DESTRUCTIVE_PATTERNS = (
 )
 
 
-def repo_files() -> list[str]:
-    out = subprocess.check_output(
-        ['git', '-C', str(ROOT), 'ls-files', '--cached', '--others', '--exclude-standard'],
+def git_check_output(*args: str) -> str:
+    return subprocess.check_output(
+        ['git', '-c', f'safe.directory={ROOT}', '-C', str(ROOT), *args],
         text=True,
     )
+
+
+def repo_files() -> list[str]:
+    out = git_check_output('ls-files', '--cached', '--others', '--exclude-standard')
     return sorted({line.strip() for line in out.splitlines() if line.strip()})
 
 
 def changed_paths() -> set[str]:
-    out = subprocess.check_output(
-        ['git', '-C', str(ROOT), 'status', '--porcelain=v1'], text=True
-    )
+    out = git_check_output('status', '--porcelain=v1')
     paths: set[str] = set()
     for line in out.splitlines():
         if len(line) >= 4:
