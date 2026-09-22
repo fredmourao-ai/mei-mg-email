@@ -1,0 +1,66 @@
+name: Absolute Audit Governance
+
+on:
+  pull_request:
+    paths:
+      - 'AUDIT_POLICY.md'
+      - 'AGENTS.md'
+      - 'AGENTS.override.md'
+      - 'CLAUDE.md'
+      - 'REGRAS-AGENTES-CENTRALIZADAS.md'
+      - 'docs/quality/**'
+      - 'scripts/validate-audit-governance.py'
+      - 'scripts/validate-global-audit-policy.py'
+      - 'scripts/certify-audit-manifest.py'
+      - 'tests/test_certify_audit_manifest.py'
+      - '.github/workflows/absolute-audit-governance.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'AUDIT_POLICY.md'
+      - 'AGENTS.md'
+      - 'AGENTS.override.md'
+      - 'CLAUDE.md'
+      - 'REGRAS-AGENTES-CENTRALIZADAS.md'
+      - 'docs/quality/**'
+      - 'scripts/validate-audit-governance.py'
+      - 'scripts/validate-global-audit-policy.py'
+      - 'scripts/certify-audit-manifest.py'
+      - 'tests/test_certify_audit_manifest.py'
+      - '.github/workflows/absolute-audit-governance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: absolute-audit-governance-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  absolute-audit-governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile audit tooling
+        run: |
+          set -Eeuo pipefail
+          python -m py_compile scripts/certify-audit-manifest.py scripts/validate-audit-governance.py scripts/validate-global-audit-policy.py
+      - name: Self-test absolute certifier
+        run: |
+          set -Eeuo pipefail
+          python -m unittest tests/test_certify_audit_manifest.py
+      - name: Self-test audit governance
+        run: |
+          set -Eeuo pipefail
+          python scripts/validate-audit-governance.py --output-dir artifacts/audit-governance-self-test
+      - name: Verify global policy parity
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          python scripts/validate-global-audit-policy.py --output-dir artifacts/global-audit-policy

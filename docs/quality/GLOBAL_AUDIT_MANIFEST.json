@@ -1,28 +1,65 @@
 {
   "schema": "GLOBAL_AUDIT_MANIFEST_V1",
-  "version": "2026-09-19-universal-architecture-v5",
+  "version": "2026-09-21-absolute-v5",
   "canonical_repository": "Vivaliz-site/-shopvivaliz-pipeline",
   "canonical_ref": "main",
+  "required_repositories": [
+    "Vivaliz-site/site-shopvivaliz",
+    "Vivaliz-site/-shopvivaliz-pipeline",
+    "Vivaliz-site/amazon-returns-safet",
+    "Vivaliz-site/ml-pricing-api",
+    "Vivaliz-site/mercadolivre-returns-recovery",
+    "Vivaliz-site/shopvivaliz-m365",
+    "Vivaliz-site/buscador",
+    "fredmourao-ai/mei-mg-email",
+    "fredmourao-ai/solange-rolla-consultorio",
+    "fredmourao-ai/solange-rolla"
+  ],
   "required_blobs": {
-    "AUDIT_POLICY.md": "92159ccedff608dab51f67dc767f470f55f698b6",
-    "docs/quality/EXTREME_AUDIT_PROTOCOL.md": "f74e1e9d72c56bc474a2c3ada15e25279625dcb7",
-    "docs/quality/AUDIT_RUNTIME_PARITY_V1.md": "1266b565807c7d5f66ff177bdceb75684b94b0e7",
-    "docs/quality/AUDIT_UNIVERSAL_COVERAGE_V1.md": "59fdd509235935e8d7ebd9acff9cc93979f9d4d9",
-    "docs/quality/AUDIT_SELF_TEST_V1.md": "ddaf73bcaf5bde818440cd4a466a02c96c746bf0",
+    "AUDIT_POLICY.md": "55b44467e430fe67c40681f789f11bab3162ce5a",
+    "docs/quality/EXTREME_AUDIT_PROTOCOL.md": "48f585b15be6fb50f1a4ce1523fa2ee84bacc385",
+    "docs/quality/AUDIT_RUNTIME_PARITY_V1.md": "518ee124b471dd9c8405e38acece9fd3bc531186",
+    "docs/quality/AUDIT_UNIVERSAL_COVERAGE_V1.md": "f679f79818756a331fcdbae72e3552d32b94f370",
+    "docs/quality/AUDIT_SELF_TEST_V1.md": "d1f04e1f5ded1c7f2b973c3bbd9a8385fab81139",
     "docs/quality/ARCHITECTURE_DEPLOY_AUDIT_V1.md": "a103ec0f822746457aab8ea405170af0517989fe",
-    "docs/quality/AUDIT_EVIDENCE_MANIFEST_TEMPLATE.md": "7a3f1044d4d67b4e89d05e0d4c9d00dcd238ce40",
-    "AGENTS.override.md": "6ea3793233553493c9cd05ac2a9ee1fa0b28d720"
+    "docs/quality/AUDIT_EVIDENCE_MANIFEST_TEMPLATE.md": "23351b364ef211a2ffe3a3c2fc4beb81e6a9be17",
+    "docs/quality/AUDIT_BROWSER_E2E_REAL_V1.md": "bbb0cbcf46c96c8afc43bbd8b5f9dc6467ff081a",
+    "docs/quality/AUDIT_APTO_REMEDIATION_LOOP_V1.md": "50e6299e55473e0aac577b3e5a5f142204c50a6c",
+    "docs/quality/AUDIT_JOURNEY_INVENTORY_V1.md": "9f92b5867bb6b098148cbdda635f3ea35ffa5517",
+    "docs/quality/AUDIT_ESCAPE_INVALIDATION_V1.md": "a0a2a78570d3e8711d29fc7149cad9252ff9e61b",
+    "docs/quality/AUDIT_HARDENING_MAX_V1.md": "f57cb241487c9a6e456e19176dc15fd241ef039c",
+    "docs/quality/AUDIT_CLEAN_ROOM_REALITY_V1.md": "9217912371b1329bb9c98686bcf3b8490595ce54",
+    "docs/quality/AUDIT_ABSOLUTE_GATE_V1.md": "92742542ab39cbcbdcb971779cccf2ebfe84f7fe",
+    "docs/quality/AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1.md": "7d13d31febce025559d3c6628a69c768be36e6dd",
+    "docs/quality/AUDIT_PROJECT_REQUIREMENTS_V1.md": "bde5c7e104994243fdd4132ba0e4be9c6c756561",
+    "docs/quality/AUDIT_CERTIFICATION_MANIFEST_TEMPLATE.json": "70b577e925491df78cdee6d12bd560693547b482",
+    "scripts/certify-audit-manifest.py": "200e78d0734e97e532b08fc87825df7a28595390",
+    "scripts/validate-audit-governance.py": "bae2a31a9721c81eb43b37037810cd7c325271ac",
+    "scripts/validate-global-audit-policy.py": "bd80465f810a558bdb25ebac769e77261a517ed5",
+    "tests/test_certify_audit_manifest.py": "2776d378b649c9aa47316c57ef72d2be6529f3b2",
+    ".github/workflows/absolute-audit-governance.yml": "491a2f55bd2d28615d0a99948444595487e02182",
+    "AGENTS.override.md": "3b504c15dea1ed5713858e050942b85a5da7d3e2",
+    "REGRAS-AGENTES-CENTRALIZADAS.md": "87426f3a7f0e6278c6eec38b2a89e17898c51a19"
   },
   "required_entrypoint_markers": {
-    "CLAUDE.md": [
-      "AUDIT_POLICY.md",
-      "AUDIT_UNIVERSAL_COVERAGE_V1.md",
-      "ARCHITECTURE_DEPLOY_AUDIT_V1.md"
-    ],
     "AGENTS.md": [
       "AUDIT_POLICY.md",
-      "AUDIT_UNIVERSAL_COVERAGE_V1.md",
-      "ARCHITECTURE_DEPLOY_AUDIT_V1.md"
+      "AUDIT_ABSOLUTE_GATE_V1.md",
+      "AUDIT_BROWSER_E2E_REAL_V1.md",
+      "AUDIT_APTO_REMEDIATION_LOOP_V1.md",
+      "AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1.md",
+      "AUDIT_PROJECT_REQUIREMENTS_V1.md"
+    ],
+    "CLAUDE.md": [
+      "AGENTS.md",
+      "AUDIT_ABSOLUTE_GATE_V1.md",
+      "AUDIT_BROWSER_E2E_REAL_V1.md",
+      "AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1.md",
+      "AUDIT_PROJECT_REQUIREMENTS_V1.md"
+    ],
+    "GEMINI.md": [
+      "GEMINI_READ_AGENTS_FIRST_V1",
+      "AGENTS.md"
     ]
   }
 }

@@ -24,7 +24,17 @@ Quando tecnicamente aplicáveis, mantenha casos que representem:
 15. dependência indisponível;
 16. ação sem owner/deadline;
 17. classe da taxonomia marcada coberta sem evidência;
-18. `AUDIT_ESCAPE` ainda não reauditado.
+18. `AUDIT_ESCAPE` ainda não reauditado;
+19. jornada crítica com UI validada somente por API/headless;
+20. controle/rota material descoberto mas não inventariado/testado;
+21. defeito ativo classificado como “pré-existente”;
+22. evidência sem hash/proveniência ou de release diferente;
+23. mesmo agente usado como auditor principal e revisor contraditório;
+24. configuração/feature flag material mudou após a evidência;
+25. sessão/cache residual mascara falha que aparece em clean-room;
+26. duplo submit/retry produz efeito duplicado;
+27. estado `accepted/queued/processing` tratado indevidamente como terminal;
+28. bloqueador executável rotulado como externo para encerrar a auditoria.
 
 ## Teste de sensibilidade
 Para cada gate automatizado, pergunte e prove: **qual mutação deliberada faz este gate ficar vermelho?**
@@ -36,6 +46,11 @@ Também prove que casos válidos não são reprovados sem motivo. Falso positivo
 ## Mutation testing da governança
 Quando viável, altere temporariamente uma fixture para remover uma proteção, inverter condição, ignorar exit code, duplicar consumer, alterar boundary ou quebrar reconciliação. O gate deve falhar.
 
+## Self-test do certifier absoluto
+
+Execute também `tests/test_certify_audit_manifest.py`. O teste deve provar que **cada** booleano fail-closed e cada contador zero-required bloqueiam `APTO` quando alterados individualmente. Deve haver casos explícitos para browser E2E, `UNMAPPED_SURFACE`, evidência, defeito pré-existente, contraditório independente, remediação e bloqueio externo.
+
+`scripts/certify-audit-manifest.py` é parte do mecanismo de auditoria. Mudança nele exige mutation/self-test antes de ser usada para certificar qualquer projeto.
 ## Resultado
 Registre:
 `cenário → defeito injetado → gate esperado → resultado observado → evidência → correção do gate se necessário`.

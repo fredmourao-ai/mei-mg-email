@@ -1,12 +1,12 @@
 # 📋 REGRAS PARA AGENTES IA - FONTE ÚNICA CENTRALIZADA
 
-**Efetivo:** 2026-07-24
-**Escopo:** Todos os agentes (Claude, Codex, Gemini, GPT, etc.)
-**Aplicável a:** Qualquer tarefa automatizada (deploy, testes, integrações, ERP, pagamentos, emails, secrets)
+**Efetivo:** 2026-07-24  
+**Escopo:** Todos os agentes (Claude, Codex, Gemini, GPT, etc.)  
+**Aplicável a:** Qualquer tarefa automatizada (deploy, testes, integrações, ERP, pagamentos, emails, secrets)  
 **Objetivo:** Eliminar falsos positivos, exigir evidência verificável antes de declarar sucesso
 
-> ⚠️ **ESTA É A FONTE ÚNICA DE VERDADE PARA TODAS AS REGRAS.**
-> Outros arquivos (VALIDATION-POLICY.md, SECRETS-SYNC-RULE.md, etc.) são DEPRECADOS.
+> ⚠️ **ESTA É A FONTE ÚNICA DE VERDADE PARA TODAS AS REGRAS.**  
+> Outros arquivos (VALIDATION-POLICY.md, SECRETS-SYNC-RULE.md, etc.) são DEPRECADOS.  
 > Veja [Referências Cruzadas](#referências-cruzadas) para documentação específica.
 
 ---
@@ -217,7 +217,7 @@ git merge --ff-only # ← Não roda se git fetch falhou
 | HTTP | GET / retorna HTTP 200 com conteúdo esperado |
 | Logs | Logs de deploy sem erros |
 
-### Git & Sincronização
+### Git & Sincronização  
 | Componente | Evidência Mínima |
 |-----------|-----------------|
 | Commit | SHA local completo + mensagem |
@@ -310,11 +310,14 @@ ACEITO APENAS:
   ✅ Mostrando a mudança de forma inequívoca
 
 PROCESSO OBRIGATÓRIO:
-1. Agente faz curl/grep para validação teórica
-2. Agente PEDE ao usuário: "Tire screenshot do navegador real"
-3. Usuário tira screenshot e envia
-4. Agente VERIFICA screenshot visualmente
-5. Só então agente declara: SUCESSO ✅
+1. Agente pode usar curl/API/testes apenas como preparação e diagnóstico.
+2. O PRÓPRIO AGENTE abre o release/ambiente alvo no navegador real da VM canônica.
+3. O agente percorre a jornada completa pela UI: navega, clica, preenche, submete e observa estados intermediários.
+4. O agente captura evidência visual + console/rede e confirma a pós-condição.
+5. O agente recarrega, navega para fora, retorna e confirma persistência.
+6. Quando houver efeito durável/externo, reconcilia por canal independente.
+7. O usuário NÃO é responsável por completar o E2E do agente. Screenshot humano é apenas evidência complementar.
+8. Em Auditoria Extrema, somente o certifier absoluto pode autorizar APTO.
 ```
 
 **Se Playwright/Selenium não disponível no servidor:** Agente declara INCONCLUSIVO e pede screenshot real.
@@ -324,7 +327,7 @@ PROCESSO OBRIGATÓRIO:
 ## 🔐 SINCRONIZAÇÃO OBRIGATÓRIA DE SECRETS (3 AMBIENTES)
 
 ### Regra Crítica
-> **CRÍTICO**: Toda alteração de secret DEVE ser sincronizada em TODOS os 3 ambientes simultaneamente.
+> **CRÍTICO**: Toda alteração de secret DEVE ser sincronizada em TODOS os 3 ambientes simultaneamente.  
 > **Nunca** deixar um secret desincronizado por mais de 5 minutos.
 
 ### Quando Aplica
@@ -535,9 +538,9 @@ git commit -m "fix: sincronizar secrets desincronizados (SOURCE: GitHub)"
 
 ---
 
-**Versão:** 2.0 (Consolidada)
-**Atualizado:** 2026-07-24
-**Próxima Revisão:** 2026-08-07
+**Versão:** 2.0 (Consolidada)  
+**Atualizado:** 2026-07-24  
+**Próxima Revisão:** 2026-08-07  
 **Status:** ✅ FONTE ÚNICA DE VERDADE
 
 ## Gate obrigatorio de resposta final e deploy (FINAL_RESPONSE_DEPLOY_GATE_V1)
@@ -563,6 +566,19 @@ git commit -m "fix: sincronizar secrets desincronizados (SOURCE: GitHub)"
 
 Regra principal: **um chat = um namespace de sessao CLI isolado; nunca reutilizar sessao entre chats.**
 
+## AUDITORIA_EXTREMA_ABSOLUTA_V5
+
+A Auditoria Extrema global é fail-closed e inseparável de `AUDIT_BROWSER_E2E_REAL_V1`, `AUDIT_JOURNEY_INVENTORY_V1`, `AUDIT_CLEAN_ROOM_REALITY_V1`, `AUDIT_HARDENING_MAX_V1`, `AUDIT_APTO_REMEDIATION_LOOP_V1`, `AUDIT_ESCAPE_INVALIDATION_V1` e `AUDIT_ABSOLUTE_GATE_V1`.
+
+- Se existe UI, o agente executa E2E real no browser da VM; API/CLI/headless-only não certificam.
+- Tudo que impedir APTO e for executável deve ser corrigido pelo próprio agente, seguido de regressão, deploy quando aplicável e reauditoria.
+- P0–P3, DEFECT, IMPROVEMENT_REQUIRED, AUDIT_ESCAPE, jornada/controle não validado e dívida material de evidência devem zerar.
+- “Pré-existente” não isenta defeito dentro do escopo.
+- Novo defeito descoberto após APTO invalida a certificação e vira prevenção permanente.
+- APTO COM RESSALVAS é proibido no modo absoluto.
+- O agente não escreve APTO por opinião: somente `scripts/certify-audit-manifest.py` com `AUDIT_VERDICT=APTO` para o mesmo SHA/release/ambiente/escopo.
+- O conjunto canônico deve ser propagado com paridade para todos os repositórios ativos de `Vivaliz-site` e `fredmourao-ai`; divergência bloqueia governança.
+
 ## AUDITORIA_ARQUITETURA_DEPLOY_V1
 Toda Auditoria Extrema deve incluir `docs/quality/ARCHITECTURE_DEPLOY_AUDIT_V1.md` e tratar melhorias arquiteturais materiais como parte da auditoria, inclusive tempo de deploy, runners, artifacts, cache, provisionamento, restarts, contratos cross-repo, hotspots, rollback e blast radius.
 
@@ -575,17 +591,11 @@ Esta politica vale para todos os agentes e prevalece sobre qualquer instrucao an
 
 - Qualquer navegador, sessao grafica, automacao browser, Playwright/Selenium/CDP, Chrome/Chromium/Edge/Opera, CAPTCHA, MFA, consentimento ou validacao visual deve executar por padrao e obrigatoriamente na VM backend `always-free-arm-1787907847-26` (`10.0.1.38`) usando o Browser Worker privado.
 - Para intervencao humana em MFA/CAPTCHA/consentimento, usar a interface autenticada `https://shopvivaliz.com.br/admin/browser-worker.php`.
-- Fred-Win (`LAPTOP-NIG4IFUU`) e `DESKTOP-KOCEPSV` sao proibidos como destino ou fallback de navegacao/browser. Nao usar relays Windows, Chrome/Edge/Opera local, Playwright/Selenium local ou CDP nesses hosts para navegacao.
+- Fred-Win (`LAPTOP-NIG4IFUU`) e `DESKTOP-KOCEPSV` sao proibidos como destino ou fallback de navegacao/browser.
 - O agente nao deve perguntar qual maquina usar para browser: o destino canonico e a VM backend. Excecao somente quando o proprietario ordenar explicitamente, na tarefa atual, o uso de um Windows especifico para aquela navegacao.
-- Se a VM/browser worker estiver indisponivel, reparar via OCI Bastion, tunel privado ou control plane canonico. Se houver bloqueio externo real, registrar o bloqueio; nunca fazer fallback silencioso para Windows.
-- Workflows, scripts e bridges de browser que ainda apontem para Fred-Win/KOCEPSV sao legado: nao executar como caminho normal ou fallback; migrar para a VM antes do proximo uso.
-- Windows continua permitido para tarefas nao-browser que dependam especificamente de Windows/hardware local; esta politica proibe seu uso para navegacao e automacao grafica/browser.
-- Toda sessao invisivel/headless transitoria iniciada por agente deve ter identidade e ownership rastreaveis: execution_id ou task id, agente/origem, host, PID/process tree quando disponivel, profile/user-data-dir, started_at, expires_at e heartbeat/last_seen, sem secrets.
-- TTL padrao para sessao invisivel/headless transitoria gerenciada: 2 horas. Enquanto a tarefa estiver ativa, heartbeat valido renova o TTL.
-- Sessao orfa (owner/parent ausente, tarefa encerrada ou heartbeat expirado) pode ser encerrada antes das 2 horas.
-- Ao concluir ou abandonar a tarefa, encerrar imediatamente navegadores, abas, processos filhos, portas CDP, locks e perfis temporarios da execucao que nao sejam mais necessarios.
-- Nunca usar kill global por nome de processo. Preservar sessoes persistentes documentadas; limpeza deve ser owner-scoped.
-- Antes da resposta final, verificar e limpar sessoes invisiveis, processos browser, perfis temporarios, locks ou portas CDP sem justificativa persistente.
-- Esta politica nao reduz requisitos de validacao visual: quando o projeto exigir navegador real/visivel, a evidencia deve vir do Browser Worker/VM e da interface autenticada, nao de Windows.
+- Se a VM/browser worker estiver indisponivel, reparar via OCI Bastion, tunel privado ou control plane canonico; nunca fazer fallback silencioso para Windows.
+- Workflows, scripts e bridges de browser que ainda apontem para Fred-Win/KOCEPSV sao legado e devem ser migrados antes do uso.
+- Windows continua permitido para tarefas nao-browser que dependam especificamente de Windows/hardware local.
+- Toda sessao invisivel/headless transitoria deve ter ownership rastreavel e TTL padrao de 2 horas renovavel por heartbeat; limpar recursos da tarefa ao concluir e nunca usar kill global por nome de processo.
 
 Regra principal: **browser/navegacao sempre na VM backend; Windows nunca e fallback.**

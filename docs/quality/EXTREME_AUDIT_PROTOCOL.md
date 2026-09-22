@@ -8,7 +8,7 @@ Atue sob três lentes obrigatórias: **Auditor** (conformidade, segurança, inte
 - Classifique evidência como `COMPROVADO`, `FORTE EVIDÊNCIA`, `HIPÓTESE A VALIDAR` ou `NÃO VALIDADO`.
 - Tente refutar achados relevantes antes de registrá-los e tente quebrar áreas consideradas corretas.
 - Este protocolo é piso mínimo, nunca teto.
-- Execute também `AUDIT_RUNTIME_PARITY_V1`, `AUDIT_UNIVERSAL_COVERAGE_V1`, `ARCHITECTURE_DEPLOY_AUDIT_V1`, o overlay do projeto e `AUDIT_SELF_TEST_V1` quando aplicável.
+- Execute também `AUDIT_RUNTIME_PARITY_V1`, `AUDIT_UNIVERSAL_COVERAGE_V1`, `ARCHITECTURE_DEPLOY_AUDIT_V1`, `AUDIT_BROWSER_E2E_REAL_V1` quando houver UI, `AUDIT_JOURNEY_INVENTORY_V1`, `AUDIT_CLEAN_ROOM_REALITY_V1`, `AUDIT_HARDENING_MAX_V1`, `AUDIT_APTO_REMEDIATION_LOOP_V1`, `AUDIT_ESCAPE_INVALIDATION_V1`, `AUDIT_ABSOLUTE_GATE_V1`, `AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1`, `AUDIT_PROJECT_REQUIREMENTS_V1` + o `AUDIT_PROJECT_REQUIREMENTS.json` local, o overlay do projeto e `AUDIT_SELF_TEST_V1` quando aplicável.
 - A taxonomia de erros nunca é lista fechada: toda auditoria deve reservar investigação exploratória para falhas não previstas.
 
 ## Reconstrução do sistema real
@@ -64,7 +64,9 @@ Antes de alterar, classifique a correção como `SAFE`, `REVIEW`, `MIGRATION` ou
 ## Remediação obrigatória e zero pendência crítica
 Auditoria extrema não é um relatório de defeitos. Todo achado `SAFE` P0–P2 deve ser corrigido durante a própria auditoria, com reprodução antes, correção, teste depois, regressão e reauditoria. Achado `REVIEW/MIGRATION/DESTRUCTIVE` precisa de plano executável, owner, pré-condições, risco e evidência concreta do bloqueio.
 
-`APTO` exige `P0=0`, `P1=0`, nenhum P2 material em fluxo crítico, nenhuma área crítica `NÃO VALIDADO`, nenhum `AUDIT_ESCAPE` aplicável sem reauditoria e nenhum `IMPROVEMENT_REQUIRED` que seja condição de segurança/integridade/recuperação. Não use `APTO COM RESSALVAS` para esconder pendência crítica.
+`NÃO APTO` é estado intermediário enquanto houver correção executável. O controlador deve aplicar `AUDIT_APTO_REMEDIATION_LOOP_V1` e continuar: reproduzir → corrigir → testar → buscar equivalentes → regredir → deployar quando aplicável → executar E2E real → reconciliar → reauditar. Delegação não transfere ownership e falha/limite de subagente exige takeover.
+
+No modo absoluto, `APTO` exige `P0=P1=P2=P3=0`, zero `DEFECT` aberto, zero `IMPROVEMENT_REQUIRED` aberto, nenhuma área material `NÃO VALIDADO`, zero `AUDIT_ESCAPE` pendente, zero bloqueador executável, zero superfície/jornada/controle material não mapeado ou não testado e zero dívida material de evidência. `APTO COM RESSALVAS` é proibido; o único encerramento alternativo é `BLOCKED_EXTERNAL` com prova objetiva de bloqueio externo real.
 
 ## Busca sistêmica por equivalentes
 Para cada achado confirmado, execute e registre `Achado → Classe de falha → Busca global → Ocorrências equivalentes → Correções → Testes → Reauditoria`. Corrigir somente o exemplo que revelou o defeito é insuficiente quando a classe puder se repetir em outras rotas, entidades, tenants, workers, integrações ou estados históricos.
@@ -94,10 +96,23 @@ Execute `ARCHITECTURE_DEPLOY_AUDIT_V1`. Reconstrua limites entre projetos, owner
 
 Melhoria segura que reduza fila/risco sem enfraquecer gates deve ser aplicada na própria auditoria e medida antes/depois. Otimização que remove evidência ou cobertura crítica é regressão, não melhoria.
 
+## Browser E2E, inventário e realidade operacional
+Para todo sistema com UI, execute `AUDIT_BROWSER_E2E_REAL_V1`: o próprio agente percorre no navegador real a jornada completa do usuário, no release publicado, com reload/revisita, persistência, console/rede e evidência visual. API/CLI/headless-only/screenshot estático são apoio, não certificação final.
+
+Antes disso, execute `AUDIT_JOURNEY_INVENTORY_V1` para descobrir rotas, controles, formulários, estados, roles, tenants, feature flags e caminhos legados. `UNMAPPED_SURFACE` ou controle/jornada material `UNTESTED` bloqueia `APTO`.
+
+Execute também `AUDIT_CLEAN_ROOM_REALITY_V1` para sessão limpa, cache/PWA, auth expirada, deep-link/back/refresh, mobile/desktop, browser alternativo quando material, concorrência, falha parcial, cold start, tempo e soak/leak.
+
+## Auth e invariantes locais
+Antes de classificar login/OAuth/sessão/credencial como `BLOCKED_EXTERNAL`, execute `AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1` em 100% dos repositórios governados e nas fontes/sessões/transportes canônicos referenciados por eles, sem expor secrets.
+
+Carregue `docs/quality/AUDIT_PROJECT_REQUIREMENTS.json` e comprove todos os invariantes locais. Omissão de requisito do domínio bloqueia `APTO`; requisitos `provider_chat` exigem respostas reais e visíveis dos providers declarados no mesmo ciclo.
+## Certificação absoluta e integridade de evidência
+Aplique `AUDIT_HARDENING_MAX_V1` e `AUDIT_ABSOLUTE_GATE_V1`: fingerprint de release/config/schema/providers; dupla confirmação UI + oracle independente; matriz role/tenant/estado; chaos/recovery seguro; settlement assíncrono; hashes SHA-256 dos artefatos; invalidação automática por mudança material; revisor contraditório distinto; nenhuma autoatestação sem referência de evidência.
 ## Gate Final de Completude
 Não use “100%”, “pronto” ou “apto” apenas por build/test/health verde. Antes do veredito, confirme o `AUDIT_DEFINITION_OF_DONE_V1` e o `AUDIT_UNIVERSAL_COVERAGE_V1`: release e evidência fresca identificados; mapa de impacto; taxonomia universal; arquitetura/deploy e caminho crítico; negativos e boundaries; classes históricas; reconciliação de dados; órfãos; falhas silenciosas; correções SAFE; busca por equivalentes; testes confiáveis; runtime parity; efeitos externos; observabilidade; automações assíncronas; baseline material; ownership/deadlines; recuperação/rollback; legado/duplicidade; evidence artifact; self-test quando aplicável; reauditoria contraditória e meta-auditoria.
 
-Veredito: `NÃO APTO`, `APTO COM RESSALVAS` ou `APTO`, acompanhado de **confiança 0–100%**, **risco residual** e **dívida de evidência**. Nunca use 100% de confiança com área crítica não validada e nunca emita `APTO` com P0/P1, P2 crítico, AUDIT_ESCAPE pendente ou IMPROVEMENT_REQUIRED crítico.
+O veredito não é opinativo: gere `AUDIT_CERTIFICATION_MANIFEST_V1` e execute `scripts/certify-audit-manifest.py`. Somente `AUDIT_VERDICT=APTO` para o mesmo SHA/release/ambiente/escopo autoriza declarar `APTO`. Qualquer ausência/inconsistência material falha fechado. Durante remediação, use `NÃO APTO`; encerramento alternativo permitido apenas como `BLOCKED_EXTERNAL` estreitamente comprovado.
 
 ## Meta-auditoria final
 Antes de encerrar, investigue: que classe inteira de falha foi esquecida? qual dependência indireta não entrou no mapa de impacto? qual erro poderia retornar sucesso aparente? qual entidade poderia desaparecer do funil? quais conclusões dependem de suposição? que mutação faria nossos próprios gates falharem? se o relatório estiver errado, onde? o que ainda pode causar perda financeira, perda de dados, efeito externo incorreto, indisponibilidade ou trabalho manual evitável? Somente então atualize `docs/quality/AUDIT_STATUS.md`, o pacote de evidência e qualquer `AUDIT_ESCAPE`.
