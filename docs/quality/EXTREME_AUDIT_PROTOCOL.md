@@ -109,6 +109,9 @@ Execute também `AUDIT_CLEAN_ROOM_REALITY_V1` para sessão limpa, cache/PWA, aut
 Antes de classificar login/OAuth/sessão/credencial como `BLOCKED_EXTERNAL`, execute `AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1` em 100% dos repositórios governados e nas fontes/sessões/transportes canônicos referenciados por eles, sem expor secrets.
 
 Carregue `docs/quality/AUDIT_PROJECT_REQUIREMENTS.json` e comprove todos os invariantes locais. Omissão de requisito do domínio bloqueia `APTO`; requisitos `provider_chat` exigem respostas reais e visíveis dos providers declarados no mesmo ciclo.
+## Enforcement de merge e pós-push
+Execute `AUDIT_MERGE_ENFORCEMENT_V1`: o `governance-gate` deve executar o bridge absoluto e todo push em `main`/`master` deve ser revalidado pelo Main Guard com proveniência de PR mesclado. Workflow existente sem integração com o bridge é cobertura incompleta de governança.
+
 ## Certificação absoluta e integridade de evidência
 Aplique `AUDIT_HARDENING_MAX_V1` e `AUDIT_ABSOLUTE_GATE_V1`: fingerprint de release/config/schema/providers; dupla confirmação UI + oracle independente; matriz role/tenant/estado; chaos/recovery seguro; settlement assíncrono; hashes SHA-256 dos artefatos; invalidação automática por mudança material; revisor contraditório distinto; nenhuma autoatestação sem referência de evidência.
 ## Gate Final de Completude

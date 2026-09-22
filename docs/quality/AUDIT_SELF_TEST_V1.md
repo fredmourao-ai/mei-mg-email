@@ -34,7 +34,9 @@ Quando tecnicamente aplicáveis, mantenha casos que representem:
 25. sessão/cache residual mascara falha que aparece em clean-room;
 26. duplo submit/retry produz efeito duplicado;
 27. estado `accepted/queued/processing` tratado indevidamente como terminal;
-28. bloqueador executável rotulado como externo para encerrar a auditoria.
+28. bloqueador executável rotulado como externo para encerrar a auditoria;
+29. commit em `main` sem PR associado/mesclado;
+30. `governance-gate` existente sem chamada ao bridge absoluto.
 
 ## Teste de sensibilidade
 Para cada gate automatizado, pergunte e prove: **qual mutação deliberada faz este gate ficar vermelho?**
