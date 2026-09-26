@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
+import shutil
 import signal
 import subprocess
 import time
@@ -96,14 +98,34 @@ def _api_state() -> str:
     return (cp.stdout or cp.stderr).strip() or f"exit_{cp.returncode}"
 
 
+def _render_api_unit() -> bytes:
+    source = API_UNIT_SOURCE.read_text(encoding="utf-8")
+    run_user = pwd.getpwuid(BASE_DIR.stat().st_uid).pw_name
+    python = BASE_DIR / ".venv" / "bin" / "python"
+    if not python.is_file():
+        fallback = shutil.which("python3")
+        if not fallback:
+            raise RuntimeError("python3 unavailable while rendering API systemd unit")
+        python = Path(fallback)
+    rendered = (
+        source.replace("__APP_DIR__", str(BASE_DIR))
+        .replace("__RUN_USER__", run_user)
+        .replace("__PYTHON__", str(python))
+    )
+    unresolved = [marker for marker in ("__APP_DIR__", "__RUN_USER__", "__PYTHON__") if marker in rendered]
+    if unresolved:
+        raise RuntimeError("unresolved API systemd placeholders: " + ",".join(unresolved))
+    return rendered.encode("utf-8")
+
+
 def _sync_api_unit(result: dict[str, object]) -> None:
     if not API_UNIT_SOURCE.is_file():
         return
-    source = API_UNIT_SOURCE.read_bytes()
+    rendered = _render_api_unit()
     installed = API_UNIT_INSTALLED.read_bytes() if API_UNIT_INSTALLED.is_file() else b""
-    if source == installed:
+    if rendered == installed:
         return
-    API_UNIT_INSTALLED.write_bytes(source)
+    API_UNIT_INSTALLED.write_bytes(rendered)
     cp = _systemctl("daemon-reload", timeout=20)
     if cp.returncode != 0:
         raise RuntimeError(f"api daemon-reload failed: {(cp.stderr or cp.stdout)[-500:]}")
