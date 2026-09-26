@@ -54,3 +54,48 @@ def test_supervisor_first_value_handles_dict_row_and_sequence():
     spec.loader.exec_module(module)
     assert module._first_value({"to_regclass": "mei_email.envios_externos_cota"}) == "mei_email.envios_externos_cota"
     assert module._first_value((300,)) == 300
+
+
+def test_supervisor_renders_api_unit_placeholders_before_install(monkeypatch, tmp_path):
+    import importlib.util
+    import subprocess
+
+    spec = importlib.util.spec_from_file_location("supervisor_render", ROOT / "scripts/nonstop_supervisor_15m.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    app_dir = tmp_path / "app"
+    venv_python = app_dir / ".venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("#!/bin/sh\n")
+
+    source = tmp_path / "mei-mg-email-api.service.template"
+    installed = tmp_path / "mei-mg-email-api.service"
+    source.write_text(
+        "[Service]\n"
+        "User=__RUN_USER__\n"
+        "WorkingDirectory=__APP_DIR__\n"
+        "EnvironmentFile=__APP_DIR__/.env\n"
+        "ExecStart=__PYTHON__ -m uvicorn app.main:app --host 127.0.0.1 --port 8010\n"
+    )
+
+    monkeypatch.setattr(module, "BASE_DIR", app_dir)
+    monkeypatch.setattr(module, "API_UNIT_SOURCE", source)
+    monkeypatch.setattr(module, "API_UNIT_INSTALLED", installed)
+    monkeypatch.setattr(
+        module,
+        "_systemctl",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "", ""),
+    )
+
+    result = {"actions": []}
+    module._sync_api_unit(result)
+
+    rendered = installed.read_text()
+    assert "__APP_DIR__" not in rendered
+    assert "__RUN_USER__" not in rendered
+    assert "__PYTHON__" not in rendered
+    assert f"WorkingDirectory={app_dir}" in rendered
+    assert f"ExecStart={venv_python}" in rendered
+    assert result["actions"] == ["api_unit_synced"]
