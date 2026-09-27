@@ -12,11 +12,10 @@
     "Vivaliz-site/shopvivaliz-m365",
     "Vivaliz-site/buscador",
     "fredmourao-ai/mei-mg-email",
-    "fredmourao-ai/solange-rolla-consultorio",
-    "fredmourao-ai/solange-rolla"
+    "fredmourao-ai/solange-rolla-consultorio"
   ],
   "required_blobs": {
-    "AUDIT_POLICY.md": "2a93133cbd8e24178638236721f5638497a3036a",
+    "AUDIT_POLICY.md": "a4a7282b9d9bce022c3e74156dd2ad53705933f7",
     "docs/quality/EXTREME_AUDIT_PROTOCOL.md": "b8a86b532f08a8494f06f1f058576ca6009c194c",
     "docs/quality/AUDIT_RUNTIME_PARITY_V1.md": "518ee124b471dd9c8405e38acece9fd3bc531186",
     "docs/quality/AUDIT_UNIVERSAL_COVERAGE_V1.md": "f679f79818756a331fcdbae72e3552d32b94f370",
@@ -33,9 +32,9 @@
     "docs/quality/AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1.md": "7d13d31febce025559d3c6628a69c768be36e6dd",
     "docs/quality/AUDIT_PROJECT_REQUIREMENTS_V1.md": "bde5c7e104994243fdd4132ba0e4be9c6c756561",
     "docs/quality/AUDIT_CERTIFICATION_MANIFEST_TEMPLATE.json": "70b577e925491df78cdee6d12bd560693547b482",
-    "scripts/certify-audit-manifest.py": "200e78d0734e97e532b08fc87825df7a28595390",
+    "scripts/certify-audit-manifest.py": "a430483814f049994b6694fb6c34fa14c4066dd3",
     "scripts/validate-audit-governance.py": "321ee1a372da7d74fe5c1285aea2e19d8462a166",
-    "scripts/validate-global-audit-policy.py": "7e1c20058990af271fff053a80e56d1f4fd22a45",
+    "scripts/validate-global-audit-policy.py": "9e93241d34503a6077ae2e2654508b7e1cbede47",
     "tests/test_certify_audit_manifest.py": "2776d378b649c9aa47316c57ef72d2be6529f3b2",
     "AGENTS.override.md": "648f964cfe23a35f81086ff2acc0092c654ea23c",
     "REGRAS-AGENTES-CENTRALIZADAS.md": "4c93e411cc173e3ee206c35f81ebdca429bfae6e",

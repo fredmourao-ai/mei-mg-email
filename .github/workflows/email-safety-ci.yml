@@ -12,6 +12,9 @@ permissions:
 
 jobs:
   safety:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, ARM64, mei-ci]
     timeout-minutes: 15
     env:
@@ -30,11 +33,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Reject committed credentials
         run: python scripts/auditar_segredos_repo.py
