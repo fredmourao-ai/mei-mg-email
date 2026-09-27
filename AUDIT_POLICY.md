@@ -184,3 +184,7 @@ Falha, limite, autenticacao/tooling indisponivel, encerramento sem artefatos ou 
 O estado de monitoramento de subagentes deve ser persistido em arquivo/ledger do projeto e sobreviver a espera, reconexao, verificacoes adicionais, limite ou interrupcao da resposta do ChatGPT.
 
 Indicadores da interface do chat nao contam como evidencia de progresso do subagente. Ao retomar, o controlador deve ler o estado persistido, verificar artefatos/commits/testes/efeitos reais e executar takeover automatico quando os criterios de falha ou estagnacao forem satisfeitos.
+
+## DETACHED_TASK_RECOVERY_E2E_V7 — certificação da continuidade desacoplada
+
+Continuidade de tarefa (watchdog → dispatcher → executor real) nunca pode ser certificada `APTO` apenas por presença de arquivo, string, política documentada ou wiring estático. É obrigatória evidência fresca de produção: `verification=continuity_e2e_pass` produzida por `scripts/task_continuity_e2e.py` (workflow `task-continuity-production-e2e.yml`, runner `shopvivaliz-a1-deploy`), com o daemon já em execução detectando, enfileirando, executando e concluindo uma tarefa sintética por conta própria — sem o probe/auditor invocar watchdog/dispatcher diretamente. Resultado do ledger `no_progress`, checkpoint não terminal, ACK de worker usado como prova, ou `task_id`/`fingerprint` não correlacionado invalidam o `APTO`. Ver `docs/knowledge/task-continuity.md` (policy `DETACHED_TASK_RECOVERY_E2E_V7`).
