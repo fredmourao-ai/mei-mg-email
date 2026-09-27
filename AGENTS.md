@@ -110,3 +110,8 @@ Se existir UI, o próprio agente executa E2E real no navegador gráfico no mesmo
 <!-- AUDIT_MERGE_ENFORCEMENT_V1 -->
 ## Enforcement absoluto de merge/main
 Para auditoria/aptidão, cumpra `docs/quality/AUDIT_MERGE_ENFORCEMENT_V1.md`. O gate local deve executar `scripts/absolute-audit-governance-validate.sh`, e todo push em `main`/`master` deve passar pelo **Absolute Audit Main Guard** com prova de PR mesclado.
+
+<!-- GLOBAL_TASK_CONTINUITY_V8 -->
+## Global task continuity V8
+Toda tarefa que possa alterar código, infraestrutura, dados, CI ou deploy deve manter checkpoint durável via `python3 scripts/agent_task_state.py`. Este repositório é fixado como `repository=fredmourao-ai/mei-mg-email`. Falhas recuperáveis permanecem RUNNING e conclusão exige verificação fresca. O adapter falha fechado sem o controlador canônico injetado pelo runtime detached. Background recovery permanece Gemini-only; Codex nunca é fallback automático e continua sendo a última opção finita explícita.
+<!-- /GLOBAL_TASK_CONTINUITY_V8 -->
