@@ -115,3 +115,17 @@ Para auditoria/aptidão, cumpra `docs/quality/AUDIT_MERGE_ENFORCEMENT_V1.md`. O 
 ## Global task continuity V8
 Toda tarefa que possa alterar código, infraestrutura, dados, CI ou deploy deve manter checkpoint durável via `python3 scripts/agent_task_state.py`. Este repositório é fixado como `repository=fredmourao-ai/mei-mg-email`. Falhas recuperáveis permanecem RUNNING e conclusão exige verificação fresca. O adapter falha fechado sem o controlador canônico injetado pelo runtime detached. Background recovery permanece Gemini-only; Codex nunca é fallback automático e continua sendo a última opção finita explícita.
 <!-- /GLOBAL_TASK_CONTINUITY_V8 -->
+
+<!-- CHECKPOINT_FIRST_V9 -->
+## Checkpoint antes da primeira etapa material
+Toda tarefa potencialmente longa ou mutável deve registrar `agent_task_state.py start`
+**antes** da primeira investigação extensa, chamada remota material, edição, mutação,
+execução longa, delegação ou espera de CI. O objetivo é eliminar a janela em que uma
+interrupção do ChatGPT ocorre antes de existir estado durável.
+
+Depois de cada avanço material, atualize `progress` com evidência e `next_action`.
+Não adie o primeiro checkpoint para depois do diagnóstico. Se o contexto atual não
+consegue alcançar o controlador canônico, falhe fechado para tarefas que dependem de
+retomada automática e use a rota operacional auditável que consiga registrar o estado.
+<!-- /CHECKPOINT_FIRST_V9 -->
+
