@@ -1,0 +1,40 @@
+name: Global Task Continuity Contract
+
+on:
+  pull_request:
+    paths:
+      - "scripts/agent_task_state.py"
+      - "tests/test_global_task_continuity_adapter.py"
+      - "docs/knowledge/task-continuity.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "GEMINI.md"
+      - ".github/workflows/task-continuity-contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/agent_task_state.py"
+      - "tests/test_global_task_continuity_adapter.py"
+      - "docs/knowledge/task-continuity.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "GEMINI.md"
+      - ".github/workflows/task-continuity-contract.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -p 'test_global_task_continuity_adapter.py' -v
+      - run: python3 scripts/agent_task_state.py --adapter-self-test
+      - run: grep -Fq "GLOBAL_TASK_CONTINUITY_V8" AGENTS.md
