@@ -95,3 +95,6 @@ jobs:
 
       - name: Run email safety unit tests
         run: pytest -q
+
+      - name: Enforce issue_comment listener cap
+        run: python scripts/check_issue_comment_listeners.py
