@@ -65,3 +65,9 @@ def test_governance_validator_uses_available_project_python_in_worktrees():
     assert ".venv/bin/python" in GOVERNANCE_VALIDATOR
     assert '"$PYTHON_BIN" -m pytest -q' in GOVERNANCE_VALIDATOR
     assert "python3 -m pytest -q" not in GOVERNANCE_VALIDATOR
+
+
+def test_auto_merge_waits_for_resolver_job_materialization():
+    assert 'for attempt in $(seq 1 6)' in AUTO
+    assert 'sleep 2' in AUTO
+    assert 'AI Conflict Resolver resolve job did not materialize green within bounded wait.' in AUTO
