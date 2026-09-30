@@ -26,6 +26,7 @@ def test_auto_merge_revalidates_the_exact_merged_main_sha():
         "repo-policy-guard.yml",
         "repository-governance.yml",
         "ai-conflict-resolver.yml",
+        "absolute-audit-main-guard.yml",
     ]:
         assert workflow in AUTO
 
