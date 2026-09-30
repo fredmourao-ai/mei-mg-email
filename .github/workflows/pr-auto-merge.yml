@@ -84,14 +84,29 @@ jobs:
             echo 'AI Conflict Resolver run is missing.'
             exit 0
           fi
-          ai_jobs="$(gh api "repos/$REPO/actions/runs/$ai_run_id/jobs?per_page=100")"
+          ai_jobs=''
+          for attempt in $(seq 1 6); do
+            ai_jobs="$(gh api "repos/$REPO/actions/runs/$ai_run_id/jobs?per_page=100")"
+            if jq -e '
+              ([.jobs[] | select(.name == "resolve")] | last) as $job |
+              ($job != null) and
+              ($job.status == "completed") and
+              ($job.conclusion == "success" or $job.conclusion == "skipped")
+            ' <<<"$ai_jobs" >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -lt 6 ]; then
+              echo "AI Conflict Resolver resolve job not visible as green yet (attempt $attempt/6); retrying."
+              sleep 2
+            fi
+          done
           if ! jq -e '
             ([.jobs[] | select(.name == "resolve")] | last) as $job |
             ($job != null) and
             ($job.status == "completed") and
             ($job.conclusion == "success" or $job.conclusion == "skipped")
           ' <<<"$ai_jobs" >/dev/null; then
-            echo 'AI Conflict Resolver resolve job is not materialized and green yet.'
+            echo 'AI Conflict Resolver resolve job did not materialize green within bounded wait.'
             exit 0
           fi
 
@@ -162,7 +177,7 @@ jobs:
 
           existing="$(gh api "repos/$REPO/actions/runs?head_sha=$sha&event=workflow_dispatch&per_page=100")"
           echo "Ensuring post-merge validation for main@$sha"
-          for workflow in email-safety-ci.yml repo-policy-guard.yml repository-governance.yml ai-conflict-resolver.yml; do
+          for workflow in email-safety-ci.yml repo-policy-guard.yml repository-governance.yml ai-conflict-resolver.yml absolute-audit-main-guard.yml; do
             path=".github/workflows/$workflow"
             if jq -e --arg path "$path" '.workflow_runs[] | select(.path == $path)' <<<"$existing" >/dev/null; then
               echo "Skipping already-dispatched $workflow for main@$sha"
