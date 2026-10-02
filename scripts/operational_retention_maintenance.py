@@ -60,14 +60,8 @@ WITH candidates AS MATERIALIZED (
              WHEN NOT mei_email.is_valid_email_address(e.email) THEN 'filter_email_invalid'
              WHEN position('contabil' in lower(btrim(e.email::text))) > 0 THEN 'filter_email_contabil'
            END AS reason,
-           true AS suppress_cnpj,
-           CASE
-             WHEN e.opt_out THEN true
-             WHEN e.email IS NULL OR btrim(e.email::text) = '' THEN false
-             WHEN NOT mei_email.is_valid_email_address(e.email) THEN true
-             WHEN position('contabil' in lower(btrim(e.email::text))) > 0 THEN true
-             ELSE false
-           END AS suppress_email
+           e.opt_out AS suppress_cnpj,
+           e.opt_out AS suppress_email
       FROM mei_email.empresas e
      WHERE e.opt_out
         OR e.situacao_cadastral <> 'ATIVA'
