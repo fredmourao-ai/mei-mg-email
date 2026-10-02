@@ -45,6 +45,7 @@ CANONICAL_SENTINEL = Path(
 )
 LEGACY_SENTINEL = BASE_DIR / "runtime" / "sender_blocked.pause"
 WORKER_UNIT = "mei-mg-email-worker.service"
+BASE_SYNC_TIMER = "mei-mg-email-base-sync.timer"
 API_UNIT = "mei-mg-email-api.service"
 API_HEALTH_URL = "http://127.0.0.1:8010/health"
 API_UNIT_SOURCE = BASE_DIR / "deploy" / "systemd" / API_UNIT
@@ -81,6 +82,26 @@ def _state() -> str:
 
 def _sentinel() -> bool:
     return CANONICAL_SENTINEL.is_file() or LEGACY_SENTINEL.is_file()
+
+
+def _ensure_base_sync_timer_active(result: dict[str, object]) -> bool:
+    """Repair the read-only base refresh schedule even during sender stop-line."""
+    active = _systemctl("is-active", BASE_SYNC_TIMER, timeout=8)
+    enabled = _systemctl("is-enabled", BASE_SYNC_TIMER, timeout=8)
+    if (enabled.stdout or "").strip() != "enabled":
+        cp = _systemctl("enable", BASE_SYNC_TIMER, timeout=20)
+        if cp.returncode != 0:
+            result["base_sync_timer"] = "enable_failed"
+            return False
+        result["actions"].append("base_sync_timer_enabled")
+    if (active.stdout or "").strip() != "active":
+        cp = _systemctl("start", BASE_SYNC_TIMER, timeout=20)
+        if cp.returncode != 0:
+            result["base_sync_timer"] = "start_failed"
+            return False
+        result["actions"].append("base_sync_timer_started")
+    result["base_sync_timer"] = "active"
+    return True
 
 
 def _api_health() -> tuple[bool, str]:
@@ -441,6 +462,8 @@ def main() -> int:
     except Exception as exc:
         api_ok = False
         result["api_after"] = {"systemd": _api_state(), "api_health": False, "detail": f"{type(exc).__name__}: {str(exc)[:500]}"}
+
+    _ensure_base_sync_timer_active(result)
 
     if result["sender_block_sentinel"]:
         if result["worker_before"] not in {"inactive", "failed"}:

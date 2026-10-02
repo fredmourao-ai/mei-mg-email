@@ -99,3 +99,34 @@ def test_supervisor_renders_api_unit_placeholders_before_install(monkeypatch, tm
     assert f"WorkingDirectory={app_dir}" in rendered
     assert f"ExecStart={venv_python}" in rendered
     assert result["actions"] == ["api_unit_synced"]
+
+
+def test_supervisor_repairs_base_sync_timer_independently_of_sender_pause(monkeypatch):
+    import importlib.util
+    import subprocess
+
+    spec = importlib.util.spec_from_file_location("supervisor_base_timer", ROOT / "scripts/nonstop_supervisor_15m.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    calls = []
+    def fake_systemctl(*args, **kwargs):
+        calls.append(args)
+        if args[:2] == ("is-active", module.BASE_SYNC_TIMER):
+            return subprocess.CompletedProcess(args, 3, "inactive\n", "")
+        if args[:2] == ("is-enabled", module.BASE_SYNC_TIMER):
+            return subprocess.CompletedProcess(args, 0, "enabled\n", "")
+        if args[:2] == ("start", module.BASE_SYNC_TIMER):
+            return subprocess.CompletedProcess(args, 0, "", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(module, "_systemctl", fake_systemctl)
+    result = {"actions": []}
+    assert module._ensure_base_sync_timer_active(result) is True
+    assert ("start", module.BASE_SYNC_TIMER) in calls
+    assert result["base_sync_timer"] == "active"
+    assert "base_sync_timer_started" in result["actions"]
+
+    source = (ROOT / "scripts/nonstop_supervisor_15m.py").read_text()
+    assert source.index("_ensure_base_sync_timer_active(result)") < source.index('if result["sender_block_sentinel"]:')
