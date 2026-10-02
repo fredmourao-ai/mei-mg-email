@@ -31,19 +31,17 @@ WITH candidates AS MATERIALIZED (
            CASE
              WHEN v.status::text IN ('submitted','enviado','delivered') THEN 'sent'
              WHEN v.status::text = 'bounce_permanent' THEN 'hard_bounce'
-             ELSE 'filter_rejected'
            END AS reason,
            true AS suppress_cnpj,
            true AS suppress_email
       FROM mei_email.envios v
       JOIN mei_email.empresas e ON e.cnpj = v.cnpj
      WHERE v.status::text IN
-           ('submitted','enviado','delivered','bloqueado','bounce_permanent')
+           ('submitted','enviado','delivered','bounce_permanent')
      ORDER BY e.cnpj,
               CASE
                 WHEN v.status::text IN ('submitted','enviado','delivered') THEN 0
                 WHEN v.status::text = 'bounce_permanent' THEN 1
-                ELSE 2
               END,
               v.criado_em DESC
      LIMIT %s
@@ -99,6 +97,8 @@ candidates AS MATERIALIZED (
       FROM mei_email.empresas e
       JOIN shared s
         ON lower(btrim(e.email::text)) = s.email_norm
+     ORDER BY e.cnpj
+     LIMIT %s
 )
 SELECT cnpj, email, reason, suppress_cnpj, suppress_email FROM candidates
 """
@@ -121,7 +121,8 @@ def _require_safe_apply() -> None:
 
 def _fetch_candidates(cur, phase: str, limit: int):
     sql = {"terminal": TERMINAL_SQL, "filter": FILTER_SQL, "shared": SHARED_EMAIL_SQL}[phase]
-    cur.execute(sql, (limit,))
+    params = (limit, limit) if phase == "shared" else (limit,)
+    cur.execute(sql, params)
     return cur.fetchall()
 
 
