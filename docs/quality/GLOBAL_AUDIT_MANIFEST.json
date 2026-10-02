@@ -37,7 +37,7 @@
     "scripts/validate-global-audit-policy.py": "9e93241d34503a6077ae2e2654508b7e1cbede47",
     "tests/test_certify_audit_manifest.py": "2776d378b649c9aa47316c57ef72d2be6529f3b2",
     "AGENTS.override.md": "ebaebc58b87fc482bf273250846eb4f7a9c0a7a1",
-    "REGRAS-AGENTES-CENTRALIZADAS.md": "61bcb670bf0413af73eb80b09c3cd3e0d0cd3b11",
+    "REGRAS-AGENTES-CENTRALIZADAS.md": "e078538c72687c8b6e3d51dddf0af3ea927fb950",
     "scripts/absolute-audit-governance-validate.sh": "9212d82ddc7c34e8023319a176c25eedd7d57593",
     "scripts/validate-main-merge-provenance.py": "13c15155dc4887a5acf87570b9238e8f5800b84f",
     "tests/test_validate_main_merge_provenance.py": "8234bdc90494842679f878944228199438187966",
@@ -55,7 +55,8 @@
       "absolute-audit-governance-validate.sh",
       "Absolute Audit Main Guard",
       "AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1",
-      "AUDIT_EXTERNAL_REMEDIATION_V1"
+      "AUDIT_EXTERNAL_REMEDIATION_V1",
+      "DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1"
     ],
     "CLAUDE.md": [
       "AGENTS.md",
@@ -65,12 +66,14 @@
       "AUDIT_MERGE_ENFORCEMENT_V1.md",
       "AUDIT_PROJECT_REQUIREMENTS_V1.md",
       "AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1",
-      "AUDIT_EXTERNAL_REMEDIATION_V1"
+      "AUDIT_EXTERNAL_REMEDIATION_V1",
+      "DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1"
     ],
     "GEMINI.md": [
       "GEMINI_READ_AGENTS_FIRST_V1",
       "AGENTS.md",
-      "AUDIT_EXTERNAL_REMEDIATION_V1"
+      "AUDIT_EXTERNAL_REMEDIATION_V1",
+      "DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1"
     ],
     ".github/workflows/absolute-audit-governance.yml": [
       "Absolute Audit Governance",

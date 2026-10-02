@@ -12,6 +12,10 @@
 - Pendência só é aceitável após esgotar alternativas seguras, com evidência, causa e ação exata necessária para continuidade.
 - Fonte global: `REGRAS-AGENTES-CENTRALIZADAS.md`, policy `AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1`.
 <!-- /AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+
+<!-- DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+> **DIAGNÓSTICO É CORRETIVO EM QUALQUER TAREFA:** defeito confirmado exige correção segura, prevenção pertinente, testes e validação real/E2E aplicável antes de `CONCLUIDO`. Enquanto houver ação segura executável, permanecer `RUNNING`; somente `BLOCKED_EXTERNAL` comprovado permite encerrar sem corrigir.
+<!-- /DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1 -->
 <!-- GEPETO_EVERY_TASK_V1 -->
 ## Gepeto obrigatorio em toda tarefa
 Acione o plugin Gepeto junto com Superpowers em toda tarefa e retomada, sem nova mencao do usuario. Leia e cumpra `GEPETO-POLICY.md`. Se o runtime nao expuser o plugin, registre `GEPETO_UNAVAILABLE`, informe a limitacao e continue o trabalho autorizado sem simular participacao. Aplicar um plugin nao comprova delegacao nem revisao independente.

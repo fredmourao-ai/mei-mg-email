@@ -49,6 +49,28 @@ Todo pedido de auditoria, com ou sem os termos extrema, completa, E2E ou aptidã
 - A coleta inicial de evidências permanece não invasiva; a etapa de remediação deve executar as correções seguras e autorizadas encontradas pela própria auditoria.
 
 <!-- /AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+
+<!-- DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+## Diagnóstico corretivo obrigatório para todos os agentes
+
+Esta regra se aplica a **todo diagnóstico de qualquer tarefa**, não apenas auditorias. Diagnosticar significa iniciar o ciclo de correção; nunca encerrar apenas porque a causa foi identificada.
+
+Fluxo obrigatório quando um defeito material é confirmado e está dentro do escopo autorizado:
+
+1. reproduzir/confirmar com evidência;
+2. investigar causa raiz e equivalentes relevantes;
+3. aplicar correção segura;
+4. aplicar prevenção de recorrência quando pertinente;
+5. executar testes de regressão;
+6. validar no runtime real e E2E quando aplicável;
+7. repetir o diagnóstico para comprovar que a falha desapareceu sem criar regressão.
+
+Enquanto existir ação segura executável, o estado permanece `RUNNING`. Relatório, issue, recomendação, healthcheck verde, processo vivo, serviço `active`, endpoint existente, HTTP 200 ou teste superficial não equivalem a correção nem autorizam `APTO`/`CONCLUIDO`.
+
+`CONCLUIDO` exige evidência fresca pós-correção do comportamento afetado. `BLOCKED_EXTERNAL` só é permitido com impedimento externo objetivo, evidência concreta e demonstração de que as alternativas seguras/autorizadas foram esgotadas, incluindo a ação exata necessária para retomar.
+
+A política vale para ChatGPT, Claude, Gemini, Codex, agentes auxiliares, controladores, workers e automações, em debugging, infraestrutura, browser, integrações, deploy, continuidade, health, auditoria e qualquer outro diagnóstico.
+<!-- /DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1 -->
 ## ✅ AUTORIZAÇÃO OPERACIONAL DO PROPRIETÁRIO (2026-08-01)
 
 O proprietário autoriza os agentes que tenham capacidade técnica e acesso válido a:
