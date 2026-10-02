@@ -58,3 +58,12 @@ def test_canonical_policy_owns_the_destructive_primitive_and_requires_suppressio
     assert "position('contabil'" in policy
     assert "cardinality(p_cnpjs) > 5000" in policy
     assert "DELETE FROM mei_email.envios" not in policy
+
+
+def test_canonical_policy_preserves_envios_fk_anchors_and_has_bulk_filter_cleanup():
+    policy = (ROOT / "db" / "policy" / "canonical_operational_policy.sql").read_text(encoding="utf-8")
+    assert "CREATE OR REPLACE FUNCTION mei_email.purge_bulk_filtered_operational_companies" in policy
+    assert "SELECT 1 FROM mei_email.envios v WHERE v.cnpj = e.cnpj" in policy
+    assert "p_limit > 250000" in policy
+    bulk = policy.split("CREATE OR REPLACE FUNCTION mei_email.purge_bulk_filtered_operational_companies", 1)[1]
+    assert "NOT e.opt_out" in bulk

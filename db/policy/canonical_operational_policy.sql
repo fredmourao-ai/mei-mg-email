@@ -218,6 +218,9 @@ BEGIN
        OR btrim(e.email::text) = ''
        OR NOT mei_email.is_valid_email_address(e.email)
        OR position('contabil' in lower(btrim(e.email::text))) > 0
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM mei_email.envios v WHERE v.cnpj = e.cnpj
      );
 
   GET DIAGNOSTICS purged = ROW_COUNT;
@@ -227,3 +230,41 @@ $function$;
 
 COMMENT ON FUNCTION mei_email.purge_suppressed_operational_companies(text[]) IS
   'Bounded explicit retention maintenance; removes suppressed or currently permanent-filtered companies and preserves envios history.';
+
+
+CREATE OR REPLACE FUNCTION mei_email.purge_bulk_filtered_operational_companies(p_limit integer DEFAULT 100000)
+RETURNS integer
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  purged integer := 0;
+BEGIN
+  IF p_limit < 1 OR p_limit > 250000 THEN
+    RAISE EXCEPTION 'bulk retention limit must be between 1 and 250000';
+  END IF;
+
+  WITH candidates AS MATERIALIZED (
+    SELECT e.ctid
+      FROM mei_email.empresas e
+     WHERE NOT e.opt_out
+       AND (
+         e.situacao_cadastral <> 'ATIVA'
+         OR e.email IS NULL
+         OR btrim(e.email::text) = ''
+         OR NOT mei_email.is_valid_email_address(e.email)
+         OR position('contabil' in lower(btrim(e.email::text))) > 0
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM mei_email.envios v WHERE v.cnpj = e.cnpj
+       )
+     ORDER BY e.cnpj
+     LIMIT p_limit
+  )
+  DELETE FROM mei_email.empresas e
+   USING candidates c
+   WHERE e.ctid = c.ctid;
+
+  GET DIAGNOSTICS purged = ROW_COUNT;
+  RETURN purged;
+END;
+$function$;
