@@ -189,3 +189,33 @@ ON ddl_command_end
 EXECUTE FUNCTION mei_email.guard_canonical_policy_ddl();
 
 COMMIT;
+
+
+-- Explicit, bounded maintenance primitive. This is intentionally not a trigger:
+-- callers must first persist an active CNPJ suppression and invoke it from a
+-- guarded maintenance window. Send/event history in mei_email.envios is retained.
+CREATE OR REPLACE FUNCTION mei_email.purge_suppressed_operational_companies(p_cnpjs text[])
+RETURNS integer
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  purged integer := 0;
+BEGIN
+  IF p_cnpjs IS NULL OR cardinality(p_cnpjs) = 0 THEN
+    RETURN 0;
+  END IF;
+  IF cardinality(p_cnpjs) > 5000 THEN
+    RAISE EXCEPTION 'retention batch exceeds 5000 companies';
+  END IF;
+
+  DELETE FROM mei_email.empresas e
+   WHERE e.cnpj::text = ANY(p_cnpjs)
+     AND mei_email.is_cnpj_suppressed(e.cnpj::text);
+
+  GET DIAGNOSTICS purged = ROW_COUNT;
+  RETURN purged;
+END;
+$function$;
+
+COMMENT ON FUNCTION mei_email.purge_suppressed_operational_companies(text[]) IS
+  'Bounded explicit retention maintenance; removes only companies with an active CNPJ suppression and preserves envios history.';
