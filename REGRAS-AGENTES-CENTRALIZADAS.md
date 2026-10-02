@@ -1,3 +1,12 @@
+<!-- AUDIT_EXTERNAL_REMEDIATION_V1 -->
+## Auditoria externa também é corretiva
+
+- A regra de auditoria corretiva vale igualmente para **auditoria interna, externa, independente, contraditória, de terceiro ou executada por outro agente/revisor**.
+- Se o auditor externo tiver acesso e autorização operacional para corrigir, ele deve remediar os achados materiais, testar e reauditar antes de encerrar.
+- Se o papel externo for deliberadamente somente leitura ou não tiver permissão de escrita, o relatório externo **não encerra a tarefa**: cada achado corrigível deve ser encaminhado a um executor autorizado, e o estado permanece em andamento até correção e revalidação independente.
+- Uma auditoria externa só pode terminar com pendência quando houver bloqueio externo objetivo ou ação fora da autorização vigente, com evidência e ação exata para destravar.
+- A independência da auditoria externa deve ser preservada na validação: quem corrige não substitui a revalidação independente quando ela for exigida pelo escopo.
+<!-- /AUDIT_EXTERNAL_REMEDIATION_V1 -->
 # 📋 REGRAS PARA AGENTES IA - FONTE ÚNICA CENTRALIZADA
 
 **Efetivo:** 2026-07-24
