@@ -73,3 +73,10 @@ def test_reconcile_cnpj_predicate_is_index_friendly():
     assert "current.cnpj = incoming.cnpj" in sql
     assert "current.cnpj::text" not in sql
     assert "%s::varchar" in sql
+
+
+def test_reconciliation_upsert_prevents_reimport_of_suppressed_targets():
+    sql = receita.build_upsert_sql().casefold()
+    assert "is_cnpj_suppressed" in sql
+    assert "is_email_suppressed" in sql
+    assert "from (values" in sql
