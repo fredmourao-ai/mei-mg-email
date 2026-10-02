@@ -26,6 +26,20 @@ Esta regra é vinculante para **todos os agentes, chats, conversas, sessões e r
 
 Esta regra é contínua e prevalece sobre hábitos de sessão que tratem Superpowers apenas como bootstrap inicial.
 
+<!-- AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+## Auditoria corretiva obrigatória para todos os agentes
+
+Todo pedido de auditoria, com ou sem os termos extrema, completa, E2E ou aptidão, deve ser tratado como ciclo de **investigação, correção, prevenção e validação**.
+
+- Não encerrar a auditoria apenas relacionando erros quando houver correção segura, autorizada e tecnicamente executável.
+- Para cada achado material no escopo: investigar a causa raiz, corrigir, aplicar prevenção quando pertinente, testar e reauditar.
+- Relatório de achados, recomendação, plano ou issue são estados intermediários enquanto houver ação segura executável.
+- APTO, COMPROVADO ou CONCLUIDO exigem evidência fresca pós-correção e validação real/E2E quando aplicável.
+- Pendência só é aceitável quando existir impedimento externo objetivo ou ação fora da autorização vigente, depois de esgotadas as alternativas seguras disponíveis.
+- Todo impedimento remanescente deve registrar evidência, causa, tentativas realizadas e a ação exata necessária para continuidade.
+- A coleta inicial de evidências permanece não invasiva; a etapa de remediação deve executar as correções seguras e autorizadas encontradas pela própria auditoria.
+
+<!-- /AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
 ## ✅ AUTORIZAÇÃO OPERACIONAL DO PROPRIETÁRIO (2026-08-01)
 
 O proprietário autoriza os agentes que tenham capacidade técnica e acesso válido a:
@@ -43,7 +57,7 @@ Esta autorização remove apenas a espera por uma aprovação adicional. Ela nã
 
 Autonomia, conclusão ponta a ponta e autorização operacional **não ampliam o escopo destrutivo**. Exclusão, remoção, reset, revogação ou outra ação irreversível só é permitida quando **o alvo e o resultado destrutivo exatos** estiverem no pedido atual do proprietário. Pedidos genéricos como investigar, auditar, limpar, corrigir, concluir tudo ou fazer o necessário não autorizam apagar projetos, chats, contas ou dados por inferência.
 
-- **Probe, diagnóstico, auditoria, health check e observação são somente leitura.** É proibido invocar `Excluir`, `Delete`, `Remove`, `Reset`, `Revogar` ou confirmação destrutiva em dados reais durante esse tipo de tarefa.
+- **Probe, diagnóstico, health check, observação e a fase inicial de coleta de evidências da auditoria são somente leitura.** A etapa de remediação da auditoria segue `AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1` e executa correções seguras dentro do escopo autorizado. É proibido invocar `Excluir`, `Delete`, `Remove`, `Reset`, `Revogar` ou confirmação destrutiva em dados reais durante esse tipo de tarefa.
 - Se for indispensável testar exclusão, use fixture/sandbox criada especificamente para o teste; nunca um projeto, chat, conta ou dado real do proprietário.
 - É proibido criar task agendada, serviço, script oculto ou processo elevado para contornar limites de permissão de ferramenta ou executar automação destrutiva de UI.
 - Tasks temporárias de UI não podem permanecer ativas após a tarefa e não devem usar `RunLevel Highest` como ponte para interação com aplicações do usuário.
