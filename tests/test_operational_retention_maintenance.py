@@ -17,9 +17,9 @@ def test_retention_preserves_history_and_writes_suppression_before_company_delet
     text = SCRIPT.read_text(encoding="utf-8")
     assert "register_operational_suppression" in text
     assert "canonical_retention_maintenance" in text
-    assert "DELETE FROM mei_email.empresas" in text
+    assert "purge_suppressed_operational_companies" in text
+    assert "DELETE FROM mei_email.empresas" not in text
     assert "DELETE FROM mei_email.envios" not in text
-    assert text.index("register_operational_suppression") < text.index("DELETE FROM mei_email.empresas")
 
 
 def test_retention_matches_current_business_and_technical_exclusions():
@@ -46,3 +46,12 @@ def test_retention_unit_is_manual_bounded_and_guarded():
     assert "operational_retention_maintenance.py --apply" in text
     assert "TimeoutStartSec=900" in text
     assert "[Timer]" not in text
+
+
+def test_canonical_policy_owns_the_destructive_primitive_and_requires_suppression():
+    policy = (ROOT / "db" / "policy" / "canonical_operational_policy.sql").read_text(encoding="utf-8")
+    assert "CREATE OR REPLACE FUNCTION mei_email.purge_suppressed_operational_companies" in policy
+    assert "DELETE FROM mei_email.empresas" in policy
+    assert "mei_email.is_cnpj_suppressed(e.cnpj::text)" in policy
+    assert "cardinality(p_cnpjs) > 5000" in policy
+    assert "DELETE FROM mei_email.envios" not in policy
