@@ -144,12 +144,12 @@ def _apply_candidates(conn: psycopg.Connection, rows) -> int:
                         reason,
                     ),
                 )
-            cnpjs = [row[0] for row in rows]
+            cnpjs = [str(row[0]) for row in rows]
             cur.execute(
-                "DELETE FROM mei_email.empresas WHERE cnpj = ANY(%s) RETURNING cnpj",
+                "SELECT mei_email.purge_suppressed_operational_companies(%s::text[])",
                 (cnpjs,),
             )
-            deleted = len(cur.fetchall())
+            deleted = int(cur.fetchone()[0])
             if deleted != len(rows):
                 raise RuntimeError(
                     f"retention batch mismatch candidates={len(rows)} deleted={deleted}"
