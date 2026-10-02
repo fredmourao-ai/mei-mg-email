@@ -442,7 +442,14 @@ def build_upsert_sql(
         insert into mei_email.empresas
             (cnpj, razao_social, nome_fantasia, situacao_cadastral,
              uf, email, ddd_1, telefone_1, data_abertura)
-        values {values_clause}
+        select incoming.cnpj, incoming.razao_social, incoming.nome_fantasia,
+               incoming.situacao_cadastral, incoming.uf, incoming.email,
+               incoming.ddd_1, incoming.telefone_1, incoming.data_abertura
+          from (values {values_clause}) as incoming
+               (cnpj, razao_social, nome_fantasia, situacao_cadastral,
+                uf, email, ddd_1, telefone_1, data_abertura)
+         where not mei_email.is_cnpj_suppressed(incoming.cnpj::text)
+           and not mei_email.is_email_suppressed(incoming.email::public.citext)
         on conflict (cnpj) do update set
             razao_social = coalesce(mei_email.empresas.razao_social, excluded.razao_social),
             nome_fantasia = coalesce(excluded.nome_fantasia, mei_email.empresas.nome_fantasia),
