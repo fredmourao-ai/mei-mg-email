@@ -1,3 +1,13 @@
+<!-- AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+## Auditoria corretiva obrigatória
+
+- Todo pedido de auditoria significa **investigar, corrigir, prevenir e validar**; não encerrar apenas relacionando erros.
+- Todo achado material corrigível e autorizado deve ter causa raiz investigada, correção aplicada, prevenção pertinente, teste e reauditoria.
+- Relatório, recomendação, plano ou issue são estados intermediários enquanto existir ação segura executável.
+- APTO/COMPROVADO/CONCLUIDO exigem evidência fresca pós-correção e E2E real quando aplicável; sem falso-verde.
+- Pendência só é aceitável após esgotar alternativas seguras, com evidência, causa e ação exata necessária para continuidade.
+- Fonte global: `REGRAS-AGENTES-CENTRALIZADAS.md`, policy `AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1`.
+<!-- /AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
 <!-- GEPETO_EVERY_TASK_V1 -->
 ## Gepeto obrigatorio em toda tarefa
 Acione o plugin Gepeto junto com Superpowers em toda tarefa e retomada, sem nova mencao do usuario. Leia e cumpra `GEPETO-POLICY.md`. Se o runtime nao expuser o plugin, registre `GEPETO_UNAVAILABLE`, informe a limitacao e continue o trabalho autorizado sem simular participacao. Aplicar um plugin nao comprova delegacao nem revisao independente.
