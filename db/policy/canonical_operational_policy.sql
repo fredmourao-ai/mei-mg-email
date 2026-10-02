@@ -210,7 +210,15 @@ BEGIN
 
   DELETE FROM mei_email.empresas e
    WHERE e.cnpj::text = ANY(p_cnpjs)
-     AND mei_email.is_cnpj_suppressed(e.cnpj::text);
+     AND (
+       mei_email.is_cnpj_suppressed(e.cnpj::text)
+       OR e.opt_out
+       OR e.situacao_cadastral <> 'ATIVA'
+       OR e.email IS NULL
+       OR btrim(e.email::text) = ''
+       OR NOT mei_email.is_valid_email_address(e.email)
+       OR position('contabil' in lower(btrim(e.email::text))) > 0
+     );
 
   GET DIAGNOSTICS purged = ROW_COUNT;
   RETURN purged;
@@ -218,4 +226,4 @@ END;
 $function$;
 
 COMMENT ON FUNCTION mei_email.purge_suppressed_operational_companies(text[]) IS
-  'Bounded explicit retention maintenance; removes only companies with an active CNPJ suppression and preserves envios history.';
+  'Bounded explicit retention maintenance; removes suppressed or currently permanent-filtered companies and preserves envios history.';
