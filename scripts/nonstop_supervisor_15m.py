@@ -463,7 +463,7 @@ def main() -> int:
         api_ok = False
         result["api_after"] = {"systemd": _api_state(), "api_health": False, "detail": f"{type(exc).__name__}: {str(exc)[:500]}"}
 
-    base_timer_ok = _ensure_base_sync_timer_active(result)
+    _ensure_base_sync_timer_active(result)
 
     if result["sender_block_sentinel"]:
         if result["worker_before"] not in {"inactive", "failed"}:
