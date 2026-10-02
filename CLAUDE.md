@@ -44,3 +44,11 @@ Leia primeiro `AGENTS.md`. Para auditoria/aptidão, cumpra `AUDIT_ABSOLUTE_GATE_
 ## Global task continuity V8
 Toda tarefa que possa alterar código, infraestrutura, dados, CI ou deploy deve manter checkpoint durável via `python3 scripts/agent_task_state.py`. Este repositório é fixado como `repository=fredmourao-ai/mei-mg-email`. Falhas recuperáveis permanecem RUNNING e conclusão exige verificação fresca. O adapter falha fechado sem o controlador canônico injetado pelo runtime detached. Background recovery permanece Gemini-only; Codex nunca é fallback automático e continua sendo a última opção finita explícita.
 <!-- /GLOBAL_TASK_CONTINUITY_V8 -->
+
+
+<!-- AUDIT_EXTERNAL_REMEDIATION_V1 -->
+> **AUDITORIA EXTERNA:** também é corretiva. Se houver autorização de escrita, corrigir + testar + reauditar. Se o auditor for somente leitura/independente, o relatório não é estado terminal: encaminhar os achados a executor autorizado e manter a tarefa aberta até correção e revalidação independente ou bloqueio externo comprovado.
+<!-- /AUDIT_EXTERNAL_REMEDIATION_V1 -->
+<!-- AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+> **AUDITORIA CORRETIVA OBRIGATÓRIA:** qualquer auditoria deve investigar causa raiz, corrigir achados materiais seguros/autorizados, prevenir recorrência quando pertinente, testar e reauditar. Não encerrar em relatório de erros. APTO/CONCLUIDO exige evidência fresca pós-correção/E2E aplicável. Fonte: `REGRAS-AGENTES-CENTRALIZADAS.md`.
+<!-- /AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
