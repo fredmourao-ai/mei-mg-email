@@ -1,0 +1,20 @@
+[Unit]
+Description=MEI-MG bounded operational retention maintenance
+After=network-online.target docker.service
+Wants=network-online.target
+ConditionPathExists=/var/lib/mei-mg-email/sender_blocked.pause
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=-__APP_DIR__/.env
+ExecStartPre=__PYTHON__ __APP_DIR__/scripts/runtime_policy_guard.py
+ExecStart=__PYTHON__ __APP_DIR__/scripts/operational_retention_maintenance.py --apply --batch-size 1000 --max-batches 250
+TimeoutStartSec=900
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target
