@@ -1,3 +1,10 @@
+<!-- AUDIT_EXTERNAL_REMEDIATION_V1 -->
+> **AUDITORIA EXTERNA:** também é corretiva. Se houver autorização de escrita, corrigir + testar + reauditar. Se o auditor for somente leitura/independente, o relatório não é estado terminal: encaminhar os achados a executor autorizado e manter a tarefa aberta até correção e revalidação independente ou bloqueio externo comprovado.
+<!-- /AUDIT_EXTERNAL_REMEDIATION_V1 -->
+
+<!-- AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+> **AUDITORIA CORRETIVA OBRIGATÓRIA:** qualquer auditoria deve investigar causa raiz, corrigir achados materiais seguros/autorizados, prevenir recorrência quando pertinente, testar e reauditar. Não encerrar em relatório de erros. APTO/CONCLUIDO exige evidência fresca pós-correção/E2E aplicável. Fonte: `REGRAS-AGENTES-CENTRALIZADAS.md`.
+<!-- /AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1 -->
 <!-- GEPETO_EVERY_TASK_V1 -->
 ## Gepeto obrigatorio em toda tarefa
 Acione o plugin Gepeto junto com Superpowers em toda tarefa e retomada, sem nova mencao do usuario. Leia e cumpra `GEPETO-POLICY.md`. Se o runtime nao expuser o plugin, registre `GEPETO_UNAVAILABLE`, informe a limitacao e continue o trabalho autorizado sem simular participacao. Aplicar um plugin nao comprova delegacao nem revisao independente.

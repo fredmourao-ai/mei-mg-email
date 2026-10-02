@@ -1,3 +1,7 @@
+<!-- AUDIT_EXTERNAL_REMEDIATION_V1 -->
+## Auditoria externa
+Auditoria externa/independente não é exceção ao ciclo corretivo. Com autorização, corrigir, testar e reauditar. Se o auditor for somente leitura, o relatório é intermediário e os achados devem seguir para executor autorizado até correção e revalidação independente ou bloqueio externo comprovado.
+<!-- /AUDIT_EXTERNAL_REMEDIATION_V1 -->
 # Protocolo IA-to-CLI obrigatório para Codex/OpenAI
 
 Antes de qualquer alteração em código, configuração, documentação versionada ou infraestrutura:
