@@ -230,3 +230,10 @@ def test_propfind_xml_rejects_entity_expansion():
 <d:multistatus xmlns:d="DAV:"><d:response><d:href>&x;</d:href></d:response></d:multistatus>'''
     with pytest.raises(RuntimeError, match="XML"):
         receita.parse_propfind_entries(payload)
+
+
+def test_upsert_sql_prevents_reimport_of_suppressed_targets():
+    sql = receita.build_upsert_sql().casefold()
+    assert "is_cnpj_suppressed" in sql
+    assert "is_email_suppressed" in sql
+    assert "from (values" in sql
