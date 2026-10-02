@@ -53,5 +53,8 @@ def test_canonical_policy_owns_the_destructive_primitive_and_requires_suppressio
     assert "CREATE OR REPLACE FUNCTION mei_email.purge_suppressed_operational_companies" in policy
     assert "DELETE FROM mei_email.empresas" in policy
     assert "mei_email.is_cnpj_suppressed(e.cnpj::text)" in policy
+    assert "e.situacao_cadastral <> 'ATIVA'" in policy
+    assert "is_valid_email_address(e.email)" in policy
+    assert "position('contabil'" in policy
     assert "cardinality(p_cnpjs) > 5000" in policy
     assert "DELETE FROM mei_email.envios" not in policy
