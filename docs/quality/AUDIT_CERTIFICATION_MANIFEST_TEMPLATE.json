@@ -69,7 +69,8 @@
     "not_headless_only": false,
     "clean_context_exercised_when_material": false,
     "mobile_desktop_exercised_when_material": false,
-    "navigation_variants_exercised_when_material": false
+    "navigation_variants_exercised_when_material": false,
+    "ui_inventory_ref": ""
   },
   "clean_room": {
     "required": false,
@@ -165,7 +166,8 @@
     "executable_blockers": 0,
     "blocked_external_count": 0,
     "blocked_external_proven": false,
-    "blocked_external_category": ""
+    "blocked_external_category": "",
+    "fixed_findings": []
   },
   "findings": {
     "p0": 0,
@@ -174,7 +176,8 @@
     "p3": 0,
     "open_defects_total": 0,
     "improvement_required_open": 0,
-    "preexisting_active_defects": 0
+    "preexisting_active_defects": 0,
+    "discovered_total": 0
   },
   "deploy": {
     "required": false,
@@ -182,7 +185,8 @@
     "post_deploy_validation_complete": false,
     "post_deploy_browser_e2e_complete_or_not_material": false,
     "post_deploy_async_observation_complete": false,
-    "release_fingerprint_matches": false
+    "release_fingerprint_matches": false,
+    "activated_at_utc": ""
   },
   "certification": {
     "scope_label_exact": false,
@@ -212,5 +216,18 @@
     "failed_required_count": 0,
     "missing_required_count": 0,
     "results": []
+  },
+  "case_coverage": {
+    "required": false,
+    "inventory_ref": ""
+  },
+  "journeys_template": {
+    "id": "",
+    "ui": true,
+    "execution_ref": "",
+    "contradictory_execution_ref": "",
+    "post_deploy_execution_ref": "",
+    "evidence_refs": [],
+    "browser_e2e": {}
   }
 }

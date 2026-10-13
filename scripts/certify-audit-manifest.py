@@ -579,6 +579,7 @@ def certify(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest", type=Path)
+    parser.add_argument("--evidence-root", type=Path, default=None, help="Directory containing real, immutable evidence artifacts")
     parser.add_argument("--json-output", type=Path)
     parser.add_argument(
         "--project-requirements",
@@ -600,6 +601,20 @@ def main() -> int:
         return 1
 
     verdict, failures = certify(data, requirements, requirements_fingerprint)
+
+    # Official APTO is impossible without *on-disk* verified UI evidence. The
+    # library-level certify() tests policy booleans, but never acts as the final
+    # certification entrypoint. Validate every file and re-audit execution here.
+    try:
+        from audit_ui_evidence_gate import validate_bundle
+        evidence_root = args.evidence_root or args.manifest.parent
+        evidence_blockers = validate_bundle(data, evidence_root)
+    except Exception as exc:
+        evidence_blockers = [f"real evidence gate unavailable: {type(exc).__name__}: {exc}"]
+    if evidence_blockers:
+        failures.extend(evidence_blockers)
+        verdict = "NAO_APTO"
+
     report = {
         "schema": SCHEMA,
         "policy_version": POLICY_VERSION,

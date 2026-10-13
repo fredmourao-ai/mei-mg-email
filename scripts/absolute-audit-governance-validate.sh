@@ -22,9 +22,9 @@ if [ "$mode" = "ci" ]; then
   mkdir -p     "$out_root/audit-governance-self-test"     "$out_root/global-audit-policy"
 fi
 
-"$python_bin" -m py_compile   scripts/certify-audit-manifest.py   scripts/validate-audit-governance.py   scripts/validate-global-audit-policy.py   scripts/validate-global-audit-policy-authenticated.py   scripts/validate-main-merge-provenance.py
+"$python_bin" -m py_compile   scripts/certify-audit-manifest.py   scripts/audit_ui_evidence_gate.py   scripts/validate-audit-governance.py   scripts/validate-global-audit-policy.py   scripts/validate-global-audit-policy-authenticated.py   scripts/validate-main-merge-provenance.py
 
-"$python_bin" -m unittest   tests/test_certify_audit_manifest.py   tests/test_validate_main_merge_provenance.py
+"$python_bin" -m unittest   tests/test_certify_audit_manifest.py   tests/test_audit_ui_evidence_gate.py   tests/test_validate_main_merge_provenance.py
 
 if [ "$mode" = "ci" ]; then
   "$python_bin" scripts/validate-audit-governance.py     --output-dir "$out_root/audit-governance-self-test"

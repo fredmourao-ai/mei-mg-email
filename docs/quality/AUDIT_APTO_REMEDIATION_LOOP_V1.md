@@ -46,6 +46,10 @@ Um bloqueio deve ter evidência, impacto, ação necessária e critério de desb
 
 Delegação não transfere responsabilidade. Se subagente falhar, travar, atingir limite ou não produzir artefatos, o controlador assume ou substitui a execução e continua.
 
+## Continuidade durável e proibição de abandono
+
+Toda Auditoria Extrema V5 é registrada no controlador de continuidade com `task_id`, origem, conversa corporativa identificada e checkpoint. Enquanto o certifier oficial não devolver `AUDIT_VERDICT=APTO`, manter `RUNNING` com `next_action` específica, mesmo depois de diagnóstico, PR, merge, CI, deploy, perda de browser, timeout ou limite de turno. O watchdog deve retomar a mesma tarefa com deduplicação, fencing e retries limitados, sem consumidor pago em loop. Somente certifier real para mesmo release/escopo + E2E UI pós-deploy e revisão independente permitem `ready`/`complete`; verificar `agent_task_state.py terminal` antes de declarar conclusão. Documentação e status textual não encerram. Caso verdadeiramente externo pode ficar `BLOCKED_EXTERNAL` com prova e condição de retomada, sem falso `APTO`. Regras e contratos em `AUDIT_UI_EVIDENCE_INTEGRITY_V2`.
+
 ## Estado final permitido
 
 Uma auditoria iniciada para tornar o sistema apto só pode encerrar como:

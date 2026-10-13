@@ -1,3 +1,9 @@
+<!-- AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
+## Auditoria Extrema V5: prova real pela UI e continuidade até APTO
+
+Todos os agentes, subagentes e revisores executam o E2E na UI gráfica real publicada quando ela existe. A certificação obrigatória exige arquivos físicos com SHA-256 recalculado pelo certifier, inventário independente de telas/controles/jornadas, registros de ações pela UI, cobertura caso a caso, correções RED/GREEN e regressão, reauditoria contraditória por outra sessão e prova pós-deploy. API, CLI, SQL, saúde de serviço, screenshot isolado ou headless-only nunca substituem a UI. Sem evidência verificável, `NAO_APTO`; o agente é proibido de afirmar `APTO` ou abandonar o objetivo. Manter checkpoint durável `RUNNING` com `next_action` para recuperação pelo controlador, sob limites seguros de custos/autorizações; encerrar `CONCLUIDO` exclusivamente após o certifier oficial e E2E real da mesma versão/ambiente. Exceção: `BLOCKED_EXTERNAL` comprovado após esgotamento das alternativas autorizadas, nunca como sucesso. Fonte: `AUDIT_POLICY.md` e `docs/quality/AUDIT_UI_EVIDENCE_INTEGRITY_V2.md`.
+<!-- /AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
+
 <!-- AUDIT_EXTERNAL_REMEDIATION_V1 -->
 ## Auditoria externa também é corretiva
 
