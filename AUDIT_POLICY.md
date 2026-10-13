@@ -15,6 +15,7 @@ Toda auditoria formal deve executar como conjunto obrigatório:
 - `docs/quality/ARCHITECTURE_DEPLOY_AUDIT_V1.md`;
 - `docs/quality/AUDIT_SELF_TEST_V1.md` quando houver mudança material no mecanismo/gate de auditoria ou quando o projeto possuir gates automatizados a certificar;
 - `docs/quality/AUDIT_BROWSER_E2E_REAL_V1.md` quando existir UI;
+- `docs/quality/AUDIT_UI_EVIDENCE_INTEGRITY_V2.md` para evidencias reais em disco, cobertura de cada jornada/caso, reauditoria e continuidade;
 - `docs/quality/AUDIT_JOURNEY_INVENTORY_V1.md`;
 - `docs/quality/AUDIT_CLEAN_ROOM_REALITY_V1.md`;
 - `docs/quality/AUDIT_HARDENING_MAX_V1.md`;

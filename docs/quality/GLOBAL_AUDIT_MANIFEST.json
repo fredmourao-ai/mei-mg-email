@@ -15,15 +15,15 @@
     "fredmourao-ai/solange-rolla-consultorio"
   ],
   "required_blobs": {
-    "AUDIT_POLICY.md": "a4a7282b9d9bce022c3e74156dd2ad53705933f7",
+    "AUDIT_POLICY.md": "db4e334917d5d5db35c351bfaa632fb0a3c0319c",
     "docs/quality/EXTREME_AUDIT_PROTOCOL.md": "b8a86b532f08a8494f06f1f058576ca6009c194c",
     "docs/quality/AUDIT_RUNTIME_PARITY_V1.md": "518ee124b471dd9c8405e38acece9fd3bc531186",
     "docs/quality/AUDIT_UNIVERSAL_COVERAGE_V1.md": "f679f79818756a331fcdbae72e3552d32b94f370",
     "docs/quality/AUDIT_SELF_TEST_V1.md": "6bda5a82d3c2e342d806d905e97034bbec0fb92b",
     "docs/quality/ARCHITECTURE_DEPLOY_AUDIT_V1.md": "a103ec0f822746457aab8ea405170af0517989fe",
     "docs/quality/AUDIT_EVIDENCE_MANIFEST_TEMPLATE.md": "23351b364ef211a2ffe3a3c2fc4beb81e6a9be17",
-    "docs/quality/AUDIT_BROWSER_E2E_REAL_V1.md": "bbb0cbcf46c96c8afc43bbd8b5f9dc6467ff081a",
-    "docs/quality/AUDIT_APTO_REMEDIATION_LOOP_V1.md": "50e6299e55473e0aac577b3e5a5f142204c50a6c",
+    "docs/quality/AUDIT_BROWSER_E2E_REAL_V1.md": "fd2f0c2dc978c8dd26e296cf4973a5ca8398ad00",
+    "docs/quality/AUDIT_APTO_REMEDIATION_LOOP_V1.md": "7038d993d3509a8ddc6526aed2284d66d992c6af",
     "docs/quality/AUDIT_JOURNEY_INVENTORY_V1.md": "9f92b5867bb6b098148cbdda635f3ea35ffa5517",
     "docs/quality/AUDIT_ESCAPE_INVALIDATION_V1.md": "a0a2a78570d3e8711d29fc7149cad9252ff9e61b",
     "docs/quality/AUDIT_HARDENING_MAX_V1.md": "f57cb241487c9a6e456e19176dc15fd241ef039c",
@@ -31,17 +31,20 @@
     "docs/quality/AUDIT_ABSOLUTE_GATE_V1.md": "92742542ab39cbcbdcb971779cccf2ebfe84f7fe",
     "docs/quality/AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1.md": "7d13d31febce025559d3c6628a69c768be36e6dd",
     "docs/quality/AUDIT_PROJECT_REQUIREMENTS_V1.md": "bde5c7e104994243fdd4132ba0e4be9c6c756561",
-    "docs/quality/AUDIT_CERTIFICATION_MANIFEST_TEMPLATE.json": "57181083a1f54306f6a641fa5c3d44580068fc30",
-    "scripts/certify-audit-manifest.py": "770bdebda7f5616d6f3bb368a547f537c72c4848",
+    "docs/quality/AUDIT_CERTIFICATION_MANIFEST_TEMPLATE.json": "f10d69ea3fa494d379c972ea0a477182044bc046",
+    "scripts/certify-audit-manifest.py": "03e6071c139c6d9bb1c035f3710aa0a699e26c92",
     "scripts/validate-audit-governance.py": "321ee1a372da7d74fe5c1285aea2e19d8462a166",
     "scripts/validate-global-audit-policy.py": "9e93241d34503a6077ae2e2654508b7e1cbede47",
     "tests/test_certify_audit_manifest.py": "193527268f20f8912bf7a814b0199daf14697e54",
     "AGENTS.override.md": "ebaebc58b87fc482bf273250846eb4f7a9c0a7a1",
-    "REGRAS-AGENTES-CENTRALIZADAS.md": "e078538c72687c8b6e3d51dddf0af3ea927fb950",
-    "scripts/absolute-audit-governance-validate.sh": "9212d82ddc7c34e8023319a176c25eedd7d57593",
+    "REGRAS-AGENTES-CENTRALIZADAS.md": "9302a3bd83191c254491ecb6a53aefd3c55fc0cf",
+    "scripts/absolute-audit-governance-validate.sh": "fa5cb804d020dee30594eb9a3f6e5135f38b28ca",
     "scripts/validate-main-merge-provenance.py": "13c15155dc4887a5acf87570b9238e8f5800b84f",
     "tests/test_validate_main_merge_provenance.py": "8234bdc90494842679f878944228199438187966",
-    "docs/quality/AUDIT_MERGE_ENFORCEMENT_V1.md": "cfdf97565b2d753ee1798f3cfd1954aef0118343"
+    "docs/quality/AUDIT_MERGE_ENFORCEMENT_V1.md": "cfdf97565b2d753ee1798f3cfd1954aef0118343",
+    "scripts/audit_ui_evidence_gate.py": "2ff42b916eec919b23cf430c153a1c5d31ca50f3",
+    "tests/test_audit_ui_evidence_gate.py": "af4b5b22400afc2bdbe72ed21db74b14bf8a11a2",
+    "docs/quality/AUDIT_UI_EVIDENCE_INTEGRITY_V2.md": "f5af677a9d8be3f3920ca859d34d98a448f35842"
   },
   "required_entrypoint_markers": {
     "AGENTS.md": [
@@ -57,7 +60,8 @@
       "AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1",
       "AUDIT_EXTERNAL_REMEDIATION_V1",
       "DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1",
-      "EXTREME_AUDIT_UI_FIRST_HARD_GATE_V1"
+      "EXTREME_AUDIT_UI_FIRST_HARD_GATE_V1",
+      "AUDIT_UI_EVIDENCE_INTEGRITY_V2"
     ],
     "CLAUDE.md": [
       "AGENTS.md",
@@ -100,6 +104,10 @@
     "AGENTS.override.md": [
       "AGENTS.md",
       "AUDIT_EXTERNAL_REMEDIATION_V1"
+    ],
+    "scripts/absolute-audit-governance-validate.sh": [
+      "scripts/audit_ui_evidence_gate.py",
+      "tests/test_audit_ui_evidence_gate.py"
     ]
   }
 }

@@ -44,6 +44,10 @@ Antes de testar, inventarie todas as jornadas materiais. Cada jornada deve termi
 
 Não é permitido certificar por amostragem que omita uma classe material de estado, role, tenant, dado legado/novo, feature flag, erro, boundary ou transição.
 
+## Gate executável de evidência (2026-10-13)
+
+Além do E2E real, é obrigatório executar `AUDIT_UI_EVIDENCE_INTEGRITY_V2` pelo certifier oficial com `--evidence-root`: hashes de arquivos físicos devem conferir; um inventário de UI real deve corresponder às rotas, aos controles e às jornadas; cada jornada exige logs de interação, mídia genuína, reauditoria por outro agente/sessão e prova pós-deploy quando aplicável. Para sistema stateful, reconciliar cada caso real por ID pseudonimizado. Declarações booleanas, URLs, screenshots isolados e arquivos inventados não constituem prova. Sem evidência verificável, `NAO_APTO`.
+
 ## Evidência mínima por jornada
 
 Registre:

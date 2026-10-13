@@ -1,3 +1,9 @@
+<!-- AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
+## Auditoria Extrema V5: UI grafica real, evidencias e continuidade
+
+Se o sistema possuir UI, executar todas as jornadas operacionais diretamente na UI grafica sob conta autorizada; seguir `docs/quality/AUDIT_UI_EVIDENCE_INTEGRITY_V2.md` para inventario, evidencias fisicas com SHA real, acoes/controles/casos, reauditoria independente, RED/GREEN/regressao e pos-deploy. Mecanismo de emails e workers sem UI deve provar essa ausencia no inventario e usar E2E do provider real. Nao declarar APTO por testes isolados, APIs ou flags. Manter `RUNNING` com `next_action` duravel ate certifier oficial devolver `AUDIT_VERDICT=APTO`; `BLOCKED_EXTERNAL` nao e sucesso. Nao violar sender_blocked.pause, MFA, privacidade, permissoes nem custos.
+<!-- /AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
+
 <!-- EXTREME_AUDIT_UI_FIRST_HARD_GATE_V1 -->
 ## GATE INEGOCIAVEL: Auditoria Extrema V5 executada pela UI real
 
