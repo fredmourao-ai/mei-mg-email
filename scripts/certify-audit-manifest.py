@@ -290,6 +290,8 @@ def validate_journeys(data: dict, artifact_ids: set[str], failures: list[str]) -
 
         if journey.get("material") is not True:
             failures.append(f"{prefix}.material must be true for certification journeys")
+        if type(journey.get("ui")) is not bool:
+            failures.append(f"{prefix}.ui must explicitly be true/false after UI inventory")
         if journey.get("status") != "COMPROVADO":
             failures.append(f"{prefix}.status must be COMPROVADO")
         if journey.get("contradictory_reaudit") is not True:
@@ -304,6 +306,21 @@ def validate_journeys(data: dict, artifact_ids: set[str], failures: list[str]) -
                     failures.append(f"{prefix}.evidence_refs contains unknown artifact id: {ref!r}")
 
         if journey.get("ui") is True:
+            evidence_artifacts = get_path(data, "evidence.artifacts")
+            visual_artifact_ids = {
+                artifact.get("id")
+                for artifact in (evidence_artifacts if isinstance(evidence_artifacts, list) else [])
+                if isinstance(artifact, dict)
+                and isinstance(artifact.get("id"), str)
+                and any(
+                    marker in str(artifact.get("kind", "")).lower()
+                    for marker in ("trace", "screenshot", "video", "browser", "visual")
+                )
+            }
+            if not isinstance(refs, list) or not any(
+                isinstance(ref, str) and ref in visual_artifact_ids for ref in refs
+            ):
+                failures.append(f"{prefix}.evidence_refs must include UI trace/screenshot/video artifact")
             browser = journey.get("browser_e2e")
             if not isinstance(browser, dict):
                 failures.append(f"{prefix}.browser_e2e required for UI journey")
@@ -488,10 +505,32 @@ def certify(
     )
 
     browser_required = get_path(data, "browser.required")
-    if browser_required not in (True, False):
+    discovered_controls = get_path(data, "coverage.interactive_controls_discovered")
+    if type(discovered_controls) is not int or discovered_controls < 0:
+        failures.append("coverage.interactive_controls_discovered must be a non-negative integer")
+    journeys = data.get("journeys")
+    ui_journeys = [
+        journey for journey in journeys if isinstance(journey, dict) and journey.get("ui") is True
+    ] if isinstance(journeys, list) else []
+
+    # UI is a runtime fact, not an optional flag the auditor may disable.
+    if type(discovered_controls) is int and discovered_controls > 0 and not ui_journeys:
+        failures.append("UI controls discovered but no UI journey is marked ui=true")
+    if type(browser_required) is not bool:
         failures.append("browser.required must be boolean")
     elif browser_required:
         add_bool_failures(data, BROWSER_REQUIRED_TRUE, failures)
+    else:
+        if ui_journeys or (type(discovered_controls) is int and discovered_controls > 0):
+            failures.append("browser.required must be true when UI journeys/controls exist")
+        justification = get_path(data, "browser.no_ui_justification")
+        if not isinstance(justification, str) or len(justification.strip()) < 20:
+            failures.append("browser.no_ui_justification must document negative UI inventory")
+        evidence_refs = get_path(data, "browser.no_ui_evidence_refs")
+        if not isinstance(evidence_refs, list) or not evidence_refs or any(
+            not isinstance(ref, str) or ref not in artifact_ids for ref in evidence_refs
+        ):
+            failures.append("browser.no_ui_evidence_refs must reference inventory artifacts")
 
     deploy_required = get_path(data, "deploy.required")
     if deploy_required not in (True, False):
