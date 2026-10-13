@@ -31,11 +31,11 @@
     "docs/quality/AUDIT_ABSOLUTE_GATE_V1.md": "92742542ab39cbcbdcb971779cccf2ebfe84f7fe",
     "docs/quality/AUDIT_AUTH_CREDENTIAL_DISCOVERY_V1.md": "7d13d31febce025559d3c6628a69c768be36e6dd",
     "docs/quality/AUDIT_PROJECT_REQUIREMENTS_V1.md": "bde5c7e104994243fdd4132ba0e4be9c6c756561",
-    "docs/quality/AUDIT_CERTIFICATION_MANIFEST_TEMPLATE.json": "70b577e925491df78cdee6d12bd560693547b482",
-    "scripts/certify-audit-manifest.py": "a430483814f049994b6694fb6c34fa14c4066dd3",
+    "docs/quality/AUDIT_CERTIFICATION_MANIFEST_TEMPLATE.json": "57181083a1f54306f6a641fa5c3d44580068fc30",
+    "scripts/certify-audit-manifest.py": "770bdebda7f5616d6f3bb368a547f537c72c4848",
     "scripts/validate-audit-governance.py": "321ee1a372da7d74fe5c1285aea2e19d8462a166",
     "scripts/validate-global-audit-policy.py": "9e93241d34503a6077ae2e2654508b7e1cbede47",
-    "tests/test_certify_audit_manifest.py": "2776d378b649c9aa47316c57ef72d2be6529f3b2",
+    "tests/test_certify_audit_manifest.py": "193527268f20f8912bf7a814b0199daf14697e54",
     "AGENTS.override.md": "ebaebc58b87fc482bf273250846eb4f7a9c0a7a1",
     "REGRAS-AGENTES-CENTRALIZADAS.md": "e078538c72687c8b6e3d51dddf0af3ea927fb950",
     "scripts/absolute-audit-governance-validate.sh": "9212d82ddc7c34e8023319a176c25eedd7d57593",
@@ -56,7 +56,8 @@
       "Absolute Audit Main Guard",
       "AUDIT_REMEDIATE_VALIDATE_GLOBAL_V1",
       "AUDIT_EXTERNAL_REMEDIATION_V1",
-      "DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1"
+      "DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1",
+      "EXTREME_AUDIT_UI_FIRST_HARD_GATE_V1"
     ],
     "CLAUDE.md": [
       "AGENTS.md",
