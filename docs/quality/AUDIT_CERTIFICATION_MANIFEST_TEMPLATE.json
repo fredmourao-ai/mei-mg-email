@@ -53,6 +53,8 @@
   },
   "browser": {
     "required": false,
+    "no_ui_justification": "",
+    "no_ui_evidence_refs": [],
     "real_browser": false,
     "graphical_session": false,
     "agent_executed": false,
