@@ -298,6 +298,53 @@ class CertifierTests(unittest.TestCase):
                 verdict, _ = certify(data)
                 self.assertNotEqual("APTO", verdict)
 
+    def test_ui_journey_forces_browser_gate_even_if_auditor_disables_it(self):
+        data = valid_manifest()
+        data["browser"]["required"] = False
+        data["browser"]["no_ui_justification"] = "Claimed no UI despite a real UI journey"
+        data["browser"]["no_ui_evidence_refs"] = ["trace"]
+        verdict, failures = certify(data)
+        self.assertEqual("NAO_APTO", verdict)
+        self.assertTrue(any("browser.required must be true" in f for f in failures))
+
+    def test_discovered_ui_controls_cannot_be_hidden_by_marking_journeys_non_ui(self):
+        data = valid_manifest()
+        data["journeys"][0]["ui"] = False
+        verdict, failures = certify(data)
+        self.assertEqual("NAO_APTO", verdict)
+        self.assertTrue(any("UI controls discovered" in f for f in failures))
+
+    def test_no_ui_requires_negative_inventory_justification_and_artifact(self):
+        data = valid_manifest()
+        data["browser"]["required"] = False
+        data["journeys"][0]["ui"] = False
+        data["coverage"]["interactive_controls_discovered"] = 0
+        verdict, failures = certify(data)
+        self.assertEqual("NAO_APTO", verdict)
+        self.assertTrue(any("no_ui_justification" in f for f in failures))
+        self.assertTrue(any("no_ui_evidence_refs" in f for f in failures))
+        data["browser"]["no_ui_justification"] = "Runtime UI inventory confirms that this worker exposes no graphical interface"
+        data["browser"]["no_ui_evidence_refs"] = ["trace"]
+        verdict, failures = certify(data)
+        self.assertEqual("APTO", verdict, failures)
+
+    def test_missing_ui_flag_is_not_implicitly_false(self):
+        data = valid_manifest()
+        del data["journeys"][0]["ui"]
+        self.assertEqual("NAO_APTO", certify(data)[0])
+
+    def test_ui_journey_requires_visual_or_browser_artifact_not_api_log_only(self):
+        data = valid_manifest()
+        data["evidence"]["artifacts"][0]["kind"] = "api-log"
+        verdict, failures = certify(data)
+        self.assertEqual("NAO_APTO", verdict)
+        self.assertTrue(any("trace/screenshot/video" in f for f in failures))
+
+    def test_negative_interactive_control_count_blocks(self):
+        data = valid_manifest()
+        data["coverage"]["interactive_controls_discovered"] = -1
+        self.assertEqual("NAO_APTO", certify(data)[0])
+
     def test_ui_journey_cannot_be_headless_only(self):
         data = valid_manifest()
         data["journeys"][0]["browser_e2e"]["not_headless_only"] = False
