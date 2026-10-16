@@ -1,3 +1,13 @@
+<!-- CORRIGIR_CADA_ERRO_ABSOLUTO_V1 -->
+## REGRA ABSOLUTA DO PROPRIETARIO — corrigir cada erro encontrado
+
+**Aplica-se a TODOS os agentes, auditorias, revisores, controladores e tarefas, inclusive erros preexistentes, intermitentes, secundários, de CI, API, UI, infraestrutura e novos erros encontrados durante o proprio reparo.** Nenhum achado verdadeiro pode ser ignorado, silenciado, classificado artificialmente como verde ou quitado apenas por relatorio, issue, PR, CI, merge ou delegacao.
+
+Para cada falha: **registrar evidencia e responsavel -> reproduzir RED quando viavel -> investigar causa raiz -> corrigir com seguranca e autorizacao -> testar GREEN e regressao -> buscar falhas equivalentes -> prevenir recorrencia -> validar no runtime/UI real E2E e reauditar**. Corrigir achados seguros/autorizados imediatamente; erros fora do escopo imediato exigem encaminhamento rastreavel ao responsavel sem omissao. Novo erro reabre o ciclo.
+
+**Gate terminal:** `APTO` e `CONCLUIDO` proibidos enquanto qualquer erro conhecido relevante ao escopo nao tiver correcao comprovada, mesmo com PR/CI verde. Manter checkpoint `RUNNING/NAO_APTO` com `next_action` e evidencias. Modo SOMENTE LEITURA nao pode mutar: registrar e encaminhar a executor autorizado. `BLOCKED_EXTERNAL` exige prova de impedimento externo, alternativas seguras esgotadas, responsavel e condicao exata de desbloqueio; nunca e APTO. **Nao contornar MFA, RBAC, branch protection, seguranca da plataforma, locks/leases/fencing, secrets, consentimento ou aprovacoes destrutivas.** A politica completa e canônica para todos os repositorios ShopVivaliz esta em `Vivaliz-site/site-shopvivaliz/AGENTS.md` (`CORRIGIR_CADA_ERRO_ABSOLUTO_V1`), em reforco a `DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1`.
+<!-- /CORRIGIR_CADA_ERRO_ABSOLUTO_V1 -->
+
 <!-- AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
 ## Auditoria Extrema V5: UI grafica real, evidencias e continuidade
 
