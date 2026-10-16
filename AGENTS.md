@@ -1,3 +1,17 @@
+<!-- EVERY_CONFIRMED_ERROR_REMEDIATE_V1 -->
+## REGRA ABSOLUTA: todo erro encontrado deve ser corrigido
+
+**Ordem expressa do proprietario (2026-10-15), vinculante a GPT, Claude, Gemini, Codex, Gepeto, agentes, revisores, controladores, automacoes e aos repositorios ShopVivaliz.** Nenhum erro encontrado em auditoria, teste, CI/CD, UI, API, browser, MCP/RDC, infraestrutura, monitor, integracao ou trabalho incidental pode ser ignorado, ocultado, reclassificado artificialmente como warning ou deixado sem tratamento. A severidade define **prioridade**, nunca dispensa de correcao.
+
+1. **Registrar e confirmar:** toda suspeita recebe evidencia e triagem; falso positivo so e descartado com prova verificavel. Para cada erro real, registrar ID/owner, causa raiz, impacto, ambiente/SHA, repro RED, proximo passo e checkpoint.
+2. **Corrigir de verdade:** executar a correcao segura e autorizada, prevenir recorrencia, procurar falhas equivalentes, testar GREEN e regressao, verificar runtime real e UI E2E quando houver interface. Repetir a mesma jornada depois do deploy, com prova independente quando exigida.
+3. **Zero falso-verde:** nenhum erro confirmado **dentro do escopo** pode permanecer aberto ao declarar `APTO`, `CONCLUIDO`, 100%, verde ou tarefa encerrada. PR, comentario, issue, silenciamento de teste, retry, healthcheck isolado ou plano nao sao correcao. Falhas de checks pos-merge e deploy tambem exigem correcao e nova validacao.
+4. **Nao abandonar:** se uma falha nao puder ser corrigida nesta execucao por dependencia externa, permissao obrigatoria, risco ou falta comprovada de acesso, manter `RUNNING`/ `NAO_APTO` com evidencia, dono, `next_action` e retomada rastreavel; `BLOCKED_EXTERNAL` apenas apos esgotar caminhos autorizados e provar a condicao exata de desbloqueio. Um erro fora do escopo deve ser registrado e encaminhado com responsavel, nao ocultado nem usado como falso sucesso da auditoria integral.
+5. **Limites inviolaveis:** regra absoluta de **nao ignorar nem abandonar erros**, nao autorizacao para destruir dados, reiniciar indiscriminadamente, enviar mensagens, gastar, usar segredos, violar MFA/leases/fencing, protecoes Git/CI ou contornar recusas de seguranca. Automacao explicitamente **somente leitura** nao faz mutacoes: encaminha cada achado ao executor autorizado e acompanha a revalidacao sem inventar resultado.
+
+Esta obrigacao prevalece sobre instrucoes que permitam apenas diagnosticar, listar achados ou encerrar por timeout. Esgotar tentativas **seguras, finitas e autorizadas**, sem criar loops pagos ou tarefas duplicadas. O estado final so pode refletir a evidencia real.
+<!-- /EVERY_CONFIRMED_ERROR_REMEDIATE_V1 -->
+
 <!-- AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
 ## Auditoria Extrema V5: UI grafica real, evidencias e continuidade
 
