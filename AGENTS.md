@@ -1,12 +1,14 @@
-<!-- CORRIGIR_CADA_ERRO_ABSOLUTO_V1 -->
-## REGRA ABSOLUTA DO PROPRIETARIO — corrigir cada erro encontrado
+<!-- ABSOLUTE_REMEDIATE_EVERY_ERROR_V1 -->
+## REGRA ABSOLUTA: todo erro identificado exige correcao real e validacao
 
-**Aplica-se a TODOS os agentes, auditorias, revisores, controladores e tarefas, inclusive erros preexistentes, intermitentes, secundários, de CI, API, UI, infraestrutura e novos erros encontrados durante o proprio reparo.** Nenhum achado verdadeiro pode ser ignorado, silenciado, classificado artificialmente como verde ou quitado apenas por relatorio, issue, PR, CI, merge ou delegacao.
+Esta regra vale para **todos os agentes, auditorias, automacoes, repositorios, servicos, ambientes e fluxos ShopVivaliz**, inclusive durante a propria recuperacao: erro, falha, regressao, timeout, bloqueio tecnico, resultado incorreto ou problema de validacao detectado **nao pode ser ignorado, apenas documentado ou encerrado sem remediacao**.
 
-Para cada falha: **registrar evidencia e responsavel -> reproduzir RED quando viavel -> investigar causa raiz -> corrigir com seguranca e autorizacao -> testar GREEN e regressao -> buscar falhas equivalentes -> prevenir recorrencia -> validar no runtime/UI real E2E e reauditar**. Corrigir achados seguros/autorizados imediatamente; erros fora do escopo imediato exigem encaminhamento rastreavel ao responsavel sem omissao. Novo erro reabre o ciclo.
+Para cada erro, executar e evidenciar: (1) RED/reproducao observavel e impacto, com prioridade e proprietario; (2) investigacao da causa raiz e de falhas semelhantes; (3) correcao efetiva minima, segura e autorizada com prevencao de recorrencia; (4) GREEN, regressao, verificacao da revisao implantada e E2E na UI real, com trace/midia, persistencia e revisao independente quando aplicavel; (5) registro do resultado e somente entao fechamento individual. Um erro descoberto na tentativa de reparo integra a mesma obrigacao; nenhuma contagem de falhas pode cair por expiracao de janela ou descarte de checkpoints.
 
-**Gate terminal:** `APTO` e `CONCLUIDO` proibidos enquanto qualquer erro conhecido relevante ao escopo nao tiver correcao comprovada, mesmo com PR/CI verde. Manter checkpoint `RUNNING/NAO_APTO` com `next_action` e evidencias. Modo SOMENTE LEITURA nao pode mutar: registrar e encaminhar a executor autorizado. `BLOCKED_EXTERNAL` exige prova de impedimento externo, alternativas seguras esgotadas, responsavel e condicao exata de desbloqueio; nunca e APTO. **Nao contornar MFA, RBAC, branch protection, seguranca da plataforma, locks/leases/fencing, secrets, consentimento ou aprovacoes destrutivas.** A politica completa e canônica para todos os repositorios ShopVivaliz esta em `Vivaliz-site/site-shopvivaliz/AGENTS.md` (`CORRIGIR_CADA_ERRO_ABSOLUTO_V1`), em reforco a `DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1`.
-<!-- /CORRIGIR_CADA_ERRO_ABSOLUTO_V1 -->
+**Continuidade obrigatoria:** se a reparacao estiver bloqueada por recusa explicita da plataforma, ownership/lease/fencing ausente, gate de I/O, autorizacao especifica pendente, restricao de seguranca ou terceiro, manter o erro PENDENTE e a tarefa `RUNNING/NAO_APTO` com evidencias, responsavel, impedimento concreto e `next_action` seguro; continuar a retomada pelo fluxo ja existente, sem criar duplicata. Nunca declarar `APTO`, `CONCLUIDO` ou sucesso com erro aplicavel em aberto, diagnostico, ACK, HTTP 200, PR, CI verde ou teste isolado.
+
+**Sem bypass:** esta obrigacao nao amplia permissoes. Respeitar protecoes de branch/producao, controles de seguranca, segredos, MFA, gastos, backups, CAS, ownership, leases/fencing, bloqueios explicitos e gate de I/O. Se a tarefa/automacao for `SOMENTE LEITURA`, **nao executar mutacoes**: registrar e encaminhar cada defeito ao mecanismo de reparo autorizado ja existente. Proibido contornar recusas por conectores, shell ou agentes alternativos ou duplicar agentes, monitorias, automacoes, tarefas, bindings e PRs.
+<!-- /ABSOLUTE_REMEDIATE_EVERY_ERROR_V1 -->
 
 <!-- AUDIT_UI_EVIDENCE_INTEGRITY_V2 -->
 ## Auditoria Extrema V5: UI grafica real, evidencias e continuidade
