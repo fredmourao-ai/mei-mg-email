@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   validate:
-    runs-on: ubuntu-latest # isolated CI; mei-ci is reserved for secondary-host backups
+    runs-on: [self-hosted, Linux, ARM64, mei-ci]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
