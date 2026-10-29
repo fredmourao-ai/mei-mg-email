@@ -73,7 +73,10 @@ else
   "${SUDO[@]}" systemctl start mei-mg-email-worker.service
 fi
 "${SUDO[@]}" systemctl enable --now mei-mg-email-queue-replenisher.service
-"${SUDO[@]}" systemctl enable --now mei-mg-email-site-tunnel.service
+# The prior site VM was deleted. Disable its reconnect loop before API restarts.
+if "${SUDO[@]}" systemctl cat mei-mg-email-site-tunnel.service >/dev/null 2>&1; then
+  "${SUDO[@]}" systemctl disable --now mei-mg-email-site-tunnel.service
+fi
 if "${SUDO[@]}" systemctl cat mei-mg-email-ndr-guard.service >/dev/null 2>&1; then
   "${SUDO[@]}" systemctl disable --now mei-mg-email-ndr-guard.service
 fi
@@ -96,7 +99,7 @@ else
 fi
 "${SUDO[@]}" systemctl restart mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl restart mei-mg-email-brevo-reconciler.service
-"${SUDO[@]}" systemctl restart mei-mg-email-site-tunnel.service
+echo "RETIRED_SITE_TUNNEL=DISABLED"
 
 echo "MONITORAMENTO_VM_INSTALADO"
 echo "app_dir=$APP_DIR"
@@ -118,7 +121,10 @@ fi
 "${SUDO[@]}" systemctl is-active mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-base-sync.timer
 "${SUDO[@]}" systemctl is-active mei-mg-email-autorepair.timer
-"${SUDO[@]}" systemctl is-active mei-mg-email-site-tunnel.service
+if "${SUDO[@]}" systemctl is-active --quiet mei-mg-email-site-tunnel.service; then
+  echo "ERRO: retired site tunnel active" >&2
+  exit 4
+fi
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-base-sync.timer
