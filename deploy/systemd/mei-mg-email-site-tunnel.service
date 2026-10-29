@@ -8,7 +8,7 @@ PartOf=mei-mg-email-api.service
 [Service]
 Type=simple
 User=__RUN_USER__
-ExecStart=/usr/bin/ssh -NT -i /home/ubuntu/.ssh/shopvivaliz-free-a1-monitor -o BatchMode=yes -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes -R 127.0.0.1:18010:127.0.0.1:8010 ubuntu@10.0.1.112
+ExecStart=/usr/bin/ssh -NT -i /home/ubuntu/.ssh/mei-marina-forward -o BatchMode=yes -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes -o ConnectTimeout=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts_marina_verified -R 127.0.0.1:18010:127.0.0.1:8010 ubuntu@100.118.170.46
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
