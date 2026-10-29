@@ -9,12 +9,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mei-policy-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   policy-guard:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    runs-on: [self-hosted, Linux, ARM64, mei-ci-isolated]
     timeout-minutes: 5
     steps:
       - name: Checkout
