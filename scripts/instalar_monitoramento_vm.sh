@@ -73,9 +73,21 @@ else
   "${SUDO[@]}" systemctl start mei-mg-email-worker.service
 fi
 "${SUDO[@]}" systemctl enable --now mei-mg-email-queue-replenisher.service
-# The prior site VM was deleted. Disable its reconnect loop before API restarts.
-if "${SUDO[@]}" systemctl cat mei-mg-email-site-tunnel.service >/dev/null 2>&1; then
+# The deleted source VM is forbidden. Preserve ONLY the independently
+# provisioned and verified Marina drop-in; never reactivate a legacy target.
+TUNNEL_DROPIN="/etc/systemd/system/mei-mg-email-site-tunnel.service.d/50-marina.conf"
+TUNNEL_APPROVED=0
+if [[ -f "$TUNNEL_DROPIN" ]] &&
+   "${SUDO[@]}" grep -Fq 'mei-marina-forward' "$TUNNEL_DROPIN" &&
+   "${SUDO[@]}" grep -Fq 'known_hosts_marina_verified' "$TUNNEL_DROPIN" &&
+   "${SUDO[@]}" grep -Fq 'ubuntu@100.118.170.46' "$TUNNEL_DROPIN" &&
+   ! "${SUDO[@]}" grep -Eq '10[.]0[.]1[.]112|shopvivaliz-free-a1' "$TUNNEL_DROPIN"; then
+  TUNNEL_APPROVED=1
+  "${SUDO[@]}" systemctl enable --now mei-mg-email-site-tunnel.service
+  echo "MEI_MARINA_TUNNEL=APPROVED_PRIVATE_ROUTE"
+else
   "${SUDO[@]}" systemctl disable --now mei-mg-email-site-tunnel.service
+  echo "MEI_MARINA_TUNNEL=NOT_PROVISIONED"
 fi
 if "${SUDO[@]}" systemctl cat mei-mg-email-ndr-guard.service >/dev/null 2>&1; then
   "${SUDO[@]}" systemctl disable --now mei-mg-email-ndr-guard.service
@@ -99,7 +111,9 @@ else
 fi
 "${SUDO[@]}" systemctl restart mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl restart mei-mg-email-brevo-reconciler.service
-echo "RETIRED_SITE_TUNNEL=DISABLED"
+if [[ "$TUNNEL_APPROVED" == 1 ]]; then
+  "${SUDO[@]}" systemctl restart mei-mg-email-site-tunnel.service
+fi
 
 echo "MONITORAMENTO_VM_INSTALADO"
 echo "app_dir=$APP_DIR"
@@ -121,9 +135,14 @@ fi
 "${SUDO[@]}" systemctl is-active mei-mg-email-brevo-reconciler.service
 "${SUDO[@]}" systemctl is-active mei-mg-email-base-sync.timer
 "${SUDO[@]}" systemctl is-active mei-mg-email-autorepair.timer
-if "${SUDO[@]}" systemctl is-active --quiet mei-mg-email-site-tunnel.service; then
-  echo "ERRO: retired site tunnel active" >&2
-  exit 4
+if [[ "$TUNNEL_APPROVED" == 1 ]]; then
+  "${SUDO[@]}" systemctl is-active mei-mg-email-site-tunnel.service
+else
+  if "${SUDO[@]}" systemctl is-active --quiet mei-mg-email-site-tunnel.service; then
+    echo "ERRO: unapproved site tunnel active" >&2
+    exit 4
+  fi
+  echo "mei-mg-email-site-tunnel.service=inactive_without_approved_dropin"
 fi
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-queue-replenisher.service
 "${SUDO[@]}" systemctl is-enabled mei-mg-email-brevo-reconciler.service
