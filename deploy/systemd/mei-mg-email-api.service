@@ -1,7 +1,7 @@
 [Unit]
 Description=MEI MG Email API
 After=network.target docker.service
-Wants=mei-mg-email-site-tunnel.service
+# Retired 2026-10-29: never automatically start the deleted site's tunnel.
 
 [Service]
 Type=simple
