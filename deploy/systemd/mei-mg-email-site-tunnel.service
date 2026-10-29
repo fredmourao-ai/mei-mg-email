@@ -1,13 +1,22 @@
 # RETIRED_SOURCE_TUNNEL_GUARD_20261029
-# The deleted site's reverse tunnel must not be started by systemd, installer
-# or a service restart. Provision a separately approved transport under a new
-# unit after endpoint, host key, RBAC and rollback validation.
+# This base unit intentionally has NO SSH destination or copied secret.
+# An independently authorized, root-owned drop-in 50-marina.conf must
+# supply the effective ExecStart for the live private Marina relay.
 [Unit]
-Description=RETIRED MEI-to-Site reverse tunnel (disabled by design)
-RefuseManualStart=yes
+Description=MEI MG Email verified private reverse tunnel to ShopVivaliz Marina
+After=network-online.target mei-mg-email-api.service
+Wants=network-online.target
+Requires=mei-mg-email-api.service
+PartOf=mei-mg-email-api.service
+ConditionPathExists=/etc/systemd/system/mei-mg-email-site-tunnel.service.d/50-marina.conf
 
 [Service]
-Type=oneshot
+Type=simple
+User=__RUN_USER__
 ExecStart=/usr/bin/false
-Restart=no
+Restart=always
+RestartSec=5
 NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
