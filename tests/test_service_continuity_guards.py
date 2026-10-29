@@ -35,22 +35,29 @@ def test_installer_manages_queue_replenisher_as_required_service():
     assert 'systemctl restart mei-mg-email-queue-replenisher.service' in installer
 
 
-def test_retired_source_tunnel_is_fail_closed_after_site_vm_deletion():
+def test_marina_private_tunnel_survives_source_retirement():
     api = (ROOT / 'deploy' / 'systemd' / 'mei-mg-email-api.service').read_text(encoding='utf-8')
     tunnel = (ROOT / 'deploy' / 'systemd' / 'mei-mg-email-site-tunnel.service').read_text(encoding='utf-8')
     installer = (ROOT / 'scripts' / 'instalar_monitoramento_vm.sh').read_text(encoding='utf-8')
     assert 'Wants=mei-mg-email-site-tunnel.service' not in api
     assert 'RETIRED_SOURCE_TUNNEL_GUARD_20261029' in tunnel
-    assert 'RefuseManualStart=yes' in tunnel
+    assert 'ConditionPathExists=/etc/systemd/system/mei-mg-email-site-tunnel.service.d/50-marina.conf' in tunnel
     assert 'ExecStart=/usr/bin/false' in tunnel
-    assert 'Restart=no' in tunnel
-    for forbidden in ('10.0.1.112', 'shopvivaliz-free-a1', 'ssh -NT', '18010:'):
+    assert 'Restart=always' in tunnel
+    assert 'PartOf=mei-mg-email-api.service' in tunnel
+    for forbidden in ('10.0.1.112', 'shopvivaliz-free-a1', 'ssh -NT'):
         assert forbidden not in tunnel
     assert 'render_unit "$APP_DIR/deploy/systemd/mei-mg-email-site-tunnel.service"' in installer
+    assert 'TUNNEL_APPROVED=0' in installer
+    assert 'known_hosts_marina_verified' in installer
+    assert 'mei-marina-forward' in installer
+    assert 'MEI_MARINA_TUNNEL=APPROVED_PRIVATE_ROUTE' in installer
+    assert 'MEI_MARINA_TUNNEL=NOT_PROVISIONED' in installer
+    assert 'systemctl enable --now mei-mg-email-site-tunnel.service' in installer
     assert 'systemctl disable --now mei-mg-email-site-tunnel.service' in installer
-    assert 'enable --now mei-mg-email-site-tunnel.service' not in installer
-    assert 'restart mei-mg-email-site-tunnel.service' not in installer
-    assert 'systemctl is-active --quiet mei-mg-email-site-tunnel.service' in installer
+    assert 'systemctl restart mei-mg-email-site-tunnel.service' in installer
+    assert 'systemctl is-active mei-mg-email-site-tunnel.service' in installer
+    assert 'sender_blocked.pause' in installer
 
 
 def test_active_service_units_are_relocatable_and_installer_provisions_api():
