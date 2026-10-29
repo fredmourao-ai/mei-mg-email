@@ -28,7 +28,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    runs-on: [self-hosted, Linux, ARM64, mei-ci-isolated]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -45,7 +45,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]'
     needs: self-test
-    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    runs-on: [self-hosted, Linux, ARM64, mei-ci-isolated]
     timeout-minutes: 25
     steps:
       - name: Checkout immutable PR head
