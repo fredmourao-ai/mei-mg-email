@@ -11,12 +11,14 @@ Este documento é obrigatório para tarefas de VM, email, API, runtime, deploy, 
 
 ## MCP e acesso privado
 
-O MCP central ainda anuncia a origem incorretamente e **não** expõe Marina. O MCP independente da Marina foi codificado em staging read-only, mas seus serviços/tunnel-client estão inativos e a vinculação ao ChatGPT não foi comprovada. Cloudflare admin ativo não valida app. Para Marina, preferir RDC direto atualmente comprovado, com identidade/escopo validado; SSH privado/Tailscale são alternativas somente quando provisionados. OCI Bastion/Run Command/console e GitHub são recuperação/bootstrap formal, não transporte contínuo nem bypass de recusa explícita.
+O MCP central **já não anuncia a origem**, após correção implantada no backend (PR #3391); continua sem expor Marina. O MCP independente da Marina foi codificado em staging read-only, mas seus serviços/tunnel-client estão inativos e a vinculação ao ChatGPT não foi comprovada. Cloudflare admin ativo não valida app. Para Marina, preferir RDC direto atualmente comprovado, com identidade/escopo validado; SSH privado/Tailscale são alternativas somente quando provisionados. OCI Bastion/Run Command/console e GitHub são recuperação/bootstrap formal, não transporte contínuo nem bypass de recusa explícita.
 
 O navegador de agentes e seus perfis Dev/Atendimento permanecem no backend, preservando sessões e MFA, sem cópia de cookies. Não copiar chaves privadas ou secretos entre tenants/hosts.
 
 ## Túnel site ↔ MEI-MG e prevenção de regressões
 
-O arquivo `deploy/systemd/mei-mg-email-site-tunnel.service` ainda codifica SSH reverso para `10.0.1.112` e a identidade da origem excluída. **Não o instalar nem restaurar sem primeiro revisar e validar o contrato de conexão ao destino real, incluindo autorização, autenticação, portas, dependências systemd, ownership, leases, testes negativos e rollback.** Nenhum nome/IP legado deve virar Marina por simples substituição; não interferir no `sender_blocked.pause`.
+A rota efetiva já foi recuperada por um drop-in privado autorizado `/etc/systemd/system/mei-mg-email-site-tunnel.service.d/50-marina.conf`: serviço ativo no backend, SSH para Marina via Tailscale `100.118.170.46`, host key dedicada e encaminhamento local `127.0.0.1:18010`. A Marina confirmou HTTP **200** em `http://127.0.0.1:18010/health` (snapshot 2026-10-29). **Não confundir esse túnel com o MCP independente OpenAI, ainda não registrado.**
+
+O template versionado foi atualizado para não conter o IP/chave da origem, exigindo override root-owned efetivo; o instalador deve preservar a conexão já funcional e negar ativação sem prova do destino autorizado. Não desabilitar o serviço Marina que já opera, não imprimir chaves/tokens, não reativar `shopvivaliz-free-a1`. O runner dedicado `mei-ci-a1` está instalado mas sem registro local e offline, o que mantém as verificações GitHub aguardando um registro oficial. Não usar o runner principal de e-mails para CI Docker ou backups.
 
 Antes de qualquer mutação, ler os runbooks atuais, identificar host/usuário reais, validar SHA/estado ativo e registrar evidência; correção exige testes e confirmação E2E apropriada. Documentos de setembro são históricos.
