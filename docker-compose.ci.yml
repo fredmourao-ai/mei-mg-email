@@ -1,0 +1,41 @@
+# Disposable CI database. Never use the production compose file in CI.
+name: ${COMPOSE_PROJECT_NAME:?set a unique CI project name}
+services:
+  db:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_DB: mei_mg_email
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set the disposable CI password}
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
+    ports:
+      - target: 5432
+        published: "0"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - ci_pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db/migrations:/flyway/sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mei_mg_email"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  flyway:
+    image: flyway/flyway:13.4.0-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      FLYWAY_URL: jdbc:postgresql://db:5432/mei_mg_email
+      FLYWAY_USER: postgres
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
+      FLYWAY_SCHEMAS: mei_email
+      FLYWAY_DEFAULT_SCHEMA: mei_email
+    volumes:
+      - ./db/migrations:/flyway/sql:ro
+volumes:
+  ci_pgdata: {}
