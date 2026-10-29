@@ -3,6 +3,7 @@ Description=MEI MG Email Brevo Free Worker
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
+ConditionPathExists=!/var/lib/mei-mg-email/sender_blocked.pause
 
 [Service]
 Type=simple
