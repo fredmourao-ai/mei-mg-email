@@ -35,6 +35,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
 concurrency:
   group: absolute-audit-governance-${{ github.repository }}-${{ github.ref }}
   cancel-in-progress: true
