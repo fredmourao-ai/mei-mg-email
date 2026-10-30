@@ -77,6 +77,20 @@ Enquanto existir ação segura executável, o estado permanece `RUNNING`. Relat�
 
 A política vale para ChatGPT, Claude, Gemini, Codex, agentes auxiliares, controladores, workers e automações, em debugging, infraestrutura, browser, integrações, deploy, continuidade, health, auditoria e qualquer outro diagnóstico.
 <!-- /DIAGNOSTIC_REMEDIATE_VALIDATE_GLOBAL_V1 -->
+
+<!-- REMOTE_ACCESS_EXHAUSTION_GATE_V2 -->
+## Esgotar caminhos autorizados de acesso antes de declarar bloqueio
+
+Regra obrigatória para GPT, Claude, Gemini, Codex, agentes auxiliares, controladores, workers e automações ShopVivaliz. Em qualquer tarefa remota ou retomada, uma falha em um canal **não** prova que o host ou a ação estão inacessíveis. O agente deve continuar enquanto houver uma rota segura, autorizada e tecnicamente viável.
+
+1. **Confirmar o alvo e as permissões reais:** consultar esta política, `AGENTS.md`, `docs/knowledge/host-access.md` e o runbook do serviço na revisão atual. Confirmar host canônico, conta/perfil, identidade, privilégio, escopo do conector e se a rota está de fato provisionada. Não presumir que token, plugin, túnel ou sessão exista só porque foi usado antes.
+2. **Inventariar e tentar rotas adequadas, em ordem e com prova:** ShopVivaliz Remote Control MCP/controlador; RDC e RDC 2; SSH privado, VCN/Tailscale e túneis documentados (incluindo OpenAI Secure MCP Tunnel ou Cloudflare quando forem o transporte autorizado para essa tarefa); GUI/desktop remoto autorizado quando a interação visual for necessária; e OCI Bastion, Compute Run Command, console serial ou GitHub Actions/control plane somente para bootstrap, recuperação ou reparo previstos no runbook. Usar plugin ou credencial de outro projeto/conta somente se a documentação permitir explicitamente.
+3. **Diagnosticar cada falha e usar fallback com critério:** provar conectividade, autenticação, autorização, identidade do host e capacidade para a ação; corrigir defeitos locais ao alcance; fazer retries limitados, idempotentes e com intervalo; então testar a próxima rota independente apropriada. Manter registro não secreto `remote_access_attempts` com rota, alvo, teste, resultado, causa, reparo e próximo passo. Canal não disponível é `NOT_PROVISIONED`, nunca `TRIED`.
+4. **Preservar os limites de segurança:** a ordem do proprietário para continuar exige diligência e persistência, mas não remove gates. Recusa explícita, UAC negado/cancelado, MFA/CAPTCHA/consentimento, RBAC, aprovação administrativa, proteção de branch, rate limit, lease/lock/fencing ativo ou escopo destrutivo bloqueiam aquela mutação. Não repetir por outra ferramenta, conta, tunnel, shell, GitHub Actions, OCI Run Command ou agente para obter o mesmo efeito recusado. Não extrair, imprimir ou reutilizar segredo de outra finalidade. Continuar tarefas independentes que não dependam do gate.
+5. **Critério de bloqueio e retomada:** só declarar `BLOCKED_EXTERNAL` depois de esgotar e registrar todas as rotas adequadas, seguras e autorizadas, com evidência objetiva do impedimento externo e a permissão/ação exata que falta. Isso não equivale a sucesso ou `APTO`: preservar tarefa/checkpoint como `NAO_APTO`, registrar `next_action` segura e retomar assim que o gate mudar. Sem loops infinitos, sem alegar teste de rota não usada e sem abandonar trabalho ainda executável.
+
+**Princípio:** esgotar caminhos significa provar e tentar fallbacks autorizados, não contornar controles. Esta política complementa o gate `REMOTE_ACCESS_EXHAUSTION_GATE_V1` de `AGENTS.md` e prevalece como regra central para todos os agentes.
+<!-- /REMOTE_ACCESS_EXHAUSTION_GATE_V2 -->
 ## ✅ AUTORIZAÇÃO OPERACIONAL DO PROPRIETÁRIO (2026-08-01)
 
 O proprietário autoriza os agentes que tenham capacidade técnica e acesso válido a:
