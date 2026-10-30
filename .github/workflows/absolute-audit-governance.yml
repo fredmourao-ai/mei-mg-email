@@ -70,4 +70,4 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -Eeuo pipefail
-          python3 scripts/validate-global-audit-policy.py --output-dir artifacts/global-audit-policy
+          python3 scripts/validate-global-audit-policy-authenticated.py --output-dir artifacts/global-audit-policy
