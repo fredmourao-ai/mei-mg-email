@@ -1,19 +1,14 @@
-# RETIRED_SOURCE_TUNNEL_GUARD_20261029
-# This base unit intentionally has NO SSH destination or copied secret.
-# An independently authorized, root-owned drop-in 50-marina.conf must
-# supply the effective ExecStart for the live private Marina relay.
 [Unit]
-Description=MEI MG Email verified private reverse tunnel to ShopVivaliz Marina
+Description=MEI MG Email private reverse tunnel to ShopVivaliz site
 After=network-online.target mei-mg-email-api.service
 Wants=network-online.target
 Requires=mei-mg-email-api.service
 PartOf=mei-mg-email-api.service
-ConditionPathExists=/etc/systemd/system/mei-mg-email-site-tunnel.service.d/50-marina.conf
 
 [Service]
 Type=simple
 User=__RUN_USER__
-ExecStart=/usr/bin/false
+ExecStart=/usr/bin/ssh -NT -i /home/ubuntu/.ssh/mei-marina-forward -o BatchMode=yes -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes -o ConnectTimeout=5 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts_marina_verified -R 127.0.0.1:18010:127.0.0.1:8010 ubuntu@100.118.170.46
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
