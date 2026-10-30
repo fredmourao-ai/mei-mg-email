@@ -128,11 +128,22 @@ def _check_playwright_trace(path):
                             context = True
                         call_id = event.get("callId")
                         if kind == "before" and call_id:
-                            before[call_id] = str(event.get("apiName", "")).lower()
+                            # Playwright trace v8 records the API as `method`
+                            # (for example `goto`, `fill`, `click`). Older
+                            # traces may expose the fully qualified `apiName`.
+                            # Accept both representations while remaining
+                            # fail-closed on the required navigation/action
+                            # semantics.
+                            before[call_id] = str(
+                                event.get("apiName") or event.get("method") or ""
+                            ).lower()
                         elif kind == "after" and call_id in before and not event.get("error"):
                             api = before[call_id]
-                            navigation |= ".goto" in api
-                            interaction |= any(a in api for a in (".click", ".fill", ".press", ".check", ".select"))
+                            navigation |= ".goto" in api or api == "goto"
+                            interaction |= any(
+                                ("." + action in api) or api == action
+                                for action in ("click", "fill", "press", "check", "select")
+                            )
                 if context and navigation and interaction:
                     return True
     except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
@@ -256,7 +267,13 @@ def validate_bundle(data: dict, evidence_root: Path) -> list[str]:
 
     role_controls = {role: set() for role in ("primary", "independent", "post-deploy")}
     role_cases = {role: set() for role in role_controls}
-    used_media_digests = set()
+    # A trace/video digest must be unique across sessions because it encodes
+    # the interaction timeline. Screenshots may legitimately be pixel
+    # identical for deterministic final states, so their distinct artifact
+    # references are sufficient; reusing the same artifact reference is still
+    # rejected for every media kind.
+    used_media_refs = set()
+    used_trace_digests = set()
     case_ids = set()
     if stateful_cases:
         case_inventory = document(data.get("case_coverage", {}).get("inventory_ref"), "case_inventory")
@@ -320,10 +337,14 @@ def validate_bundle(data: dict, evidence_root: Path) -> list[str]:
                 failures.append(f"{role} UI execution lacks verified visual capture")
             for ref in media:
                 if ref in paths and artifacts.get(ref, {}).get("kind") in ("playwright_trace", "screenshot", "video"):
-                    digest = artifacts[ref]["sha256"].lower()
-                    if digest in used_media_digests:
+                    if ref in used_media_refs:
                         failures.append(f"{role} UI media is reused across different execution sessions")
-                    used_media_digests.add(digest)
+                    used_media_refs.add(ref)
+                    if artifacts[ref].get("kind") in ("playwright_trace", "video"):
+                        digest = artifacts[ref]["sha256"].lower()
+                        if digest in used_trace_digests:
+                            failures.append(f"{role} UI media is reused across different execution sessions")
+                        used_trace_digests.add(digest)
         return log
 
     for journey in ui_journeys:
