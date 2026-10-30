@@ -10,14 +10,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: email-safety-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   safety:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    runs-on: [self-hosted, Linux, ARM64, mei-ci-isolated]
     timeout-minutes: 15
     env:
+      COMPOSE_PROJECT_NAME: mei-ci-${{ github.run_id }}-${{ github.run_attempt }}
       EMAIL_PROVIDER: dryrun
       BASE_URL_DESCADASTRO: https://dev.shopvivaliz.com.br/descadastro
       MAX_ENVIOS_POR_DIA: "300"
@@ -81,11 +86,21 @@ jobs:
       - name: Compile application and operational scripts
         run: python -m compileall -q app worker scripts
 
+      - name: Reject CI database collisions with production
+        run: python scripts/check_ci_compose_isolation.py
+
       - name: Validate all Flyway migrations on clean PostgreSQL
+        id: ci_database
         run: |
-          docker compose up -d db
-          docker compose run --rm flyway migrate
-          docker compose run --rm flyway info
+          set -euo pipefail
+          docker compose --file docker-compose.ci.yml --project-name "$COMPOSE_PROJECT_NAME" up -d db
+          docker compose --file docker-compose.ci.yml --project-name "$COMPOSE_PROJECT_NAME" run --rm flyway migrate
+          docker compose --file docker-compose.ci.yml --project-name "$COMPOSE_PROJECT_NAME" run --rm flyway info
+          address="$(docker compose --file docker-compose.ci.yml --project-name "$COMPOSE_PROJECT_NAME" port db 5432)"
+          case "$address" in 127.0.0.1:*) ;; *) echo "Unsafe CI database binding"; exit 1 ;; esac
+          port="${address##*:}"
+          test "$port" -ne 5433
+          echo "DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@127.0.0.1:${port}/mei_mg_email" >> "$GITHUB_ENV"
 
       - name: Enforce canonical repository policy
         run: python scripts/repo_policy_guard.py
@@ -98,3 +113,9 @@ jobs:
 
       - name: Enforce issue_comment listener cap
         run: python scripts/check_issue_comment_listeners.py
+
+      - name: Remove only the disposable CI database
+        if: always() && steps.ci_database.outcome != 'skipped'
+        run: |
+          python scripts/check_ci_compose_isolation.py
+          docker compose --file docker-compose.ci.yml --project-name "$COMPOSE_PROJECT_NAME" down --volumes --remove-orphans

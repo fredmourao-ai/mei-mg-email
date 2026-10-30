@@ -7,12 +7,16 @@ on:
     branches: [main, master]
 permissions:
   contents: read
+concurrency:
+  group: mei-governance-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   governance-gate:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, ARM64, mei-ci]
+    runs-on: [self-hosted, Linux, ARM64, mei-ci-isolated]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
