@@ -258,6 +258,24 @@ class RealEvidenceTests(unittest.TestCase):
                 artifact["sha256"] = hashlib.sha256(raw).hexdigest()
         self.assertTrue(any("Playwright" in x for x in self.verdict()))
 
+    def test_standard_playwright_method_trace_proves_navigation_and_interaction(self):
+        records = [
+            {"type": "context-options", "browserName": "chromium"},
+            {"type": "before", "callId": "goto", "method": "goto"},
+            {"type": "after", "callId": "goto"},
+            {"type": "before", "callId": "fill", "method": "fill"},
+            {"type": "after", "callId": "fill"},
+        ]
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("trace.trace", "\n".join(json.dumps(r) for r in records))
+        raw = output.getvalue()
+        (self.root / "trace-primary.zip").write_bytes(raw)
+        for artifact in self.data["evidence"]["artifacts"]:
+            if artifact["id"] == "trace-primary":
+                artifact["sha256"] = hashlib.sha256(raw).hexdigest()
+        self.assertFalse(any("lacks real Playwright" in x for x in self.verdict()))
+
     def test_review_must_not_reuse_primary_capture(self):
         review = capture("auditor-b", "session-2")
         review["media_refs"] = ["trace-primary", "screenshot-primary"]
