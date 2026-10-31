@@ -60,4 +60,4 @@ def test_auto_merge_requires_materialized_resolver_job():
     assert '$job.status == "completed"' in workflow
     assert '$job.conclusion == "success"' in workflow
     assert '$job.conclusion == "skipped"' in workflow
-    assert "resolve job is not materialized and green yet" in workflow
+    assert "resolve job did not materialize green within bounded wait." in workflow
