@@ -55,6 +55,18 @@ remote_size="$("$OCI_CLI" os object head \
   sed -n 's/.*"content-length": "\([0-9][0-9]*\)".*/\1/p')"
 test "$remote_size" = "$size"
 
+remote_archive="$tmp/remote-absolute-audit-main-guard.tar.gz"
+"$OCI_CLI" os object get \
+  --auth instance_principal \
+  --namespace-name "$OCI_NAMESPACE" \
+  --bucket-name "$OCI_BUCKET" \
+  --name "$object" \
+  --file "$remote_archive" >/dev/null
+remote_archive_size="$(stat -c %s "$remote_archive")"
+test "$remote_archive_size" = "$size"
+remote_hash="$(sha256sum "$remote_archive" | awk '{print $1}')"
+test "$remote_hash" = "$hash"
+
 "$OCI_CLI" os object get \
   --auth instance_principal \
   --namespace-name "$OCI_NAMESPACE" \
@@ -87,3 +99,4 @@ Path(path).write_text(
 PY
 
 echo "MAIN_GUARD_EVIDENCE_FALLBACK=PASS object=$object bytes=$size sha256=$hash"
+
